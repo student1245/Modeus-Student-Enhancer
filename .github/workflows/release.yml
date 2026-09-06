@@ -1,0 +1,27 @@
+name: Package Extension Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create Clean Zip
+        run: |
+          zip -r Modeus-Student-Enhancer-${{ github.ref_name }}.zip . \
+            -x "*.git*" \
+            -x ".github/*" \
+            -x "*.md" \
+            -x ".gitignore"
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Modeus-Student-Enhancer-${{ github.ref_name }}.zip
