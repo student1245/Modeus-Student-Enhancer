@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Modeus Student Enhancer",
+  "version": "2.2.0",
+  "description": "Фильтры, сортировка, отзывы о преподавателях и удобства в списках студентов Modeus",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://utmn.modeus.org/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://utmn.modeus.org/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Modeus Student Enhancer"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "injected.js",
+        "buildings.json",
+        "teacher_reviews.json"
+      ],
+      "matches": [
+        "https://utmn.modeus.org/*"
+      ]
+    }
+  ]
+}

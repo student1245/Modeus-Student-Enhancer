@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Modeus Student Enhancer</title>
+  <style>
+    body { font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 12px; }
+    .row { display: flex; align-items: center; gap: 8px; }
+    .hint { color: #666; margin-top: 8px; max-width: 260px; }
+    button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ddd; background: #f6f6f6; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <input type="checkbox" id="toggle">
+    <label for="toggle"><strong>Включить на utmn.modeus.org</strong></label>
+  </div>
+  <div class="row" style="margin-top:10px;">
+    <button id="reload">Перезагрузить вкладку</button>
+  </div>
+  <p class="hint">Если сайт жалуется на CSP, убедись, что установлен именно этот вариант расширения (он подключает внешний скрипт).</p>
+  <script src="popup.js"></script>
+</body>
+</html>
