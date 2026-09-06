@@ -658,9 +658,9 @@
 
     // ПРОВЕРКА ОБНОВЛЕНИЯ КОДА РАСШИРЕНИЯ
     const checkExtensionUpdate = async () => {
-        const GITHUB_USER = 'ВАШ_НИК';
-        const GITHUB_REPO = 'ВАШ_РЕПОЗИТОРИЙ';
-        const CURRENT_VERSION = '2.2.0'; // Текущая версия
+        const GITHUB_USER = 'student1245';
+        const GITHUB_REPO = 'Modeus-Student-Enhancer';
+        const CURRENT_VERSION = '2.2.0';
 
         // Чтобы не спамить запросами к GitHub, проверяем не чаще одного раза в 2 часа
         const lastCheck = localStorage.getItem('mse_last_update_check');

@@ -5,8 +5,8 @@
   if (document.documentElement.hasAttribute('data-modeus-enhancer-injected')) return;
   document.documentElement.setAttribute('data-modeus-enhancer-injected', '1');
 
-  const GITHUB_USER = 'ВАШ_НИК';
-  const GITHUB_REPO = 'ВАШ_РЕПОЗИТОРИЙ';
+  const GITHUB_USER = 'student1245';
+  const GITHUB_REPO = 'Modeus-Student-Enhancer';
   const GITHUB_BRANCH = 'main'; // ветка: main или master
   const RAW_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}`;
 
