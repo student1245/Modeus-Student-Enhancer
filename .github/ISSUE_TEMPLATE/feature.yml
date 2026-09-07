@@ -1,0 +1,20 @@
+name: 💡 Предложить идею
+description: Есть идея, как сделать расширение еще круче
+title: "[Идея]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: feature_desc
+    attributes:
+      label: Ваша идея
+      placeholder: "Опишите, какую функцию вы бы хотели увидеть в расширении."
+    validations:
+      required: true
+
+  - type: textarea
+    id: value
+    attributes:
+      label: Зачем это нужно?
+      placeholder: "Чем эта фича будет полезна студентам ТюмГУ?"
+    validations:
+      required: false

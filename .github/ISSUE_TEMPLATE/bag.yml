@@ -1,0 +1,44 @@
+name: Сообщить об ошибке (Баг)
+description: Что-то сломалось, поехало или не работает
+title: "[Баг]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: bug_desc
+    attributes:
+      label: Описание проблемы
+      placeholder: "Что именно пошло не так? Опишите проблему кратко и понятно."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги для воспроизведения
+      placeholder: |
+        1. Открыл вкладку расписания
+        2. Ввел в поиск "Иванов"
+        3. Нажал на пару и увидел ошибку...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: browser
+    attributes:
+      label: В каком браузере возникла проблема?
+      options:
+        - "Google Chrome"
+        - "Яндекс.Браузер"
+        - "Microsoft Edge"
+        - "Brave"
+        - "Opera"
+        - "Другой"
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Скриншоты (если есть)
+      description: Можно просто перетащить или вставить скриншот из буфера (Ctrl+V).
+      placeholder: "Вставьте скриншот сюда"
