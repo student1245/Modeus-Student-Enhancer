@@ -1,6 +1,6 @@
 (() => {
     console.log(
-        `%c Modeus Enhancer %c v2.2.0 `,
+        `%c Modeus Enhancer %c v2.2.1 `,
         'background: #2196F3; color: #fff; padding: 3px 5px; border-radius: 3px 0 0 3px; font-weight: bold;',
         'background: #333; color: #fff; padding: 3px 5px; border-radius: 0 3px 3px 0;'
     );
