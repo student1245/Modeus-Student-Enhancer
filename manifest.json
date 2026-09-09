@@ -22,7 +22,11 @@
       "matches": [
         "https://utmn.modeus.org/*"
       ],
+      "css": [
+        "pe-styles.css"
+      ],
       "js": [
+        "pe-module.js",
         "content.js"
       ],
       "run_at": "document_end"
@@ -36,6 +40,7 @@
     {
       "resources": [
         "injected.js",
+        "pe-module.js",
         "buildings.json",
         "teacher_reviews.json"
       ],

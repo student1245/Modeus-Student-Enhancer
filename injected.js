@@ -24,8 +24,6 @@
     let selectedStudents = new Set();
     let debounceTimer;
     const FRIENDS_STORAGE_KEY = 'mse_friends_list';
-
-    // Новые переменные для работы скрипта
     let mySpecialty = localStorage.getItem('mse_my_specialty') || null;
     let myPersonId = localStorage.getItem('mse_my_person_id') || null;
     let currentWeekStart = null;
@@ -59,9 +57,21 @@
         window.fetch = async (...args) => {
             const url = args[0] instanceof Request ? args[0].url : args[0];
             const response = await originalFetch(...args);
+
             if (url.includes('/api/people/persons/search')) {
                 const responseText = await response.clone().text();
                 processPersonSearchResponse(responseText);
+            }
+
+            // --- НОВЫЙ БЛОК ДЛЯ ФИЗРЫ ---
+            if (url.includes('/module-elements/')) {
+                try {
+                    const data = await response.clone().json();
+                    if (data.cycles && data.cycles.length > 0 && data.cycles[0].teams) {
+                        lastPeData = data; // Сохраняем JSON с секциями
+                        console.log('[MSE] Данные секций перехвачены!');
+                    }
+                } catch (e) { console.warn('[MSE] Ошибка парсинга физры', e); }
             }
             return response;
         };
@@ -682,9 +692,22 @@
 
         if (!releaseData) return;
 
+        const isNewerVersion = (latest, current) => {
+            const l = latest.split('.').map(Number);
+            const c = current.split('.').map(Number);
+            for (let i = 0; i < Math.max(l.length, c.length); i++) {
+                const numL = l[i] || 0;
+                const numC = c[i] || 0;
+                if (numL > numC) return true;
+                if (numL < numC) return false;
+            }
+            return false;
+        };
+
         const latestVersion = releaseData.tag_name?.replace(/[^0-9.]/g, '');
-        // Если версия на GitHub новее текущей
-        if (latestVersion && latestVersion !== CURRENT_VERSION) {
+
+        // Проверяем: строго если на GitHub версия ВЫШЕ текущей
+        if (latestVersion && isNewerVersion(latestVersion, CURRENT_VERSION)) {
             // 1. Маленький бейдж возле поиска
             const controls = qs('#search-controls');
             if (controls && !qs('#mse-update-badge')) {
@@ -703,9 +726,9 @@
                 popup.id = 'mse-update-popup';
                 popup.innerHTML = `
                     <div class="mse-update-title">🚀 Доступно обновление Enhancer!</div>
-                    <div class="mse-update-text">Вышла версия <b>v${latestVersion}</b> с новыми функциями и исправлениями.</div>
+                    <div class="mse-update-text">Вышла версия <b>v${latestVersion}</b> с новыми функциями и исправлениями. Перейдите по ссылке, чтобы узнать, что появилось нового!</div>
                     <div class="mse-update-actions">
-                        <a href="${releaseData.html_url}" target="_blank" id="mse-update-btn">Скачать</a>
+                        <a href="${releaseData.html_url}" target="_blank" id="mse-update-btn">Посмотреть / Скачать</a>
                         <button id="mse-dismiss-btn">Позже</button>
                     </div>
                 `;
@@ -835,6 +858,106 @@
             // Если выбран хоть один человек — всегда держим подсветку включенной (даже если кликнули на пару)
             if (selectedStudents.size > 0) {
                 highlightEventsForStudents();
+            }
+
+            if (window.location.href.includes('/learning-path-selection/menus/')) {
+                const mainHeader = Array.from(document.querySelectorAll('h2, h1')).find(el => el.textContent.includes('Физическая культура'));
+
+                if (mainHeader && !document.getElementById('mse-open-pe-btn')) {
+                    const peBtn = document.createElement('button');
+                    peBtn.id = 'mse-open-pe-btn';
+                    peBtn.innerHTML = '⚡ Умный подбор секций';
+                    peBtn.style.cssText = 'margin-left: 15px; background: #2563eb; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2); transition: background 0.15s; white-space: nowrap;';
+
+                    peBtn.onmouseover = () => peBtn.style.background = '#1d4ed8';
+                    peBtn.onmouseout = () => peBtn.style.background = '#2563eb';
+
+                    peBtn.addEventListener('click', async () => {
+                        const urlMatch = window.location.href.match(/menus\/([^\/]+)\/student\/([^\/]+)/);
+                        if (!urlMatch) {
+                            alert('Зайдите внутрь кампании физкультуры, чтобы кнопка заработала.');
+                            return;
+                        }
+                        const campaignId = urlMatch[1];
+                        const bookingStudentId = urlMatch[2]; // ID для API записи
+
+                        peBtn.innerHTML = '⏳ Загрузка баз...';
+                        peBtn.disabled = true;
+
+                        try {
+                            const token = sessionStorage.getItem('id_token');
+
+                            // 1. Получаем меню кампании (узнаем ID модулей 1 и 2 семестра)
+                            const menuRes = await fetch(`https://utmn.modeus.org/course-unit-booking/api/v1/students/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu`, {
+                                headers: { "authorization": `Bearer ${token}` }
+                            });
+                            const menuData = await menuRes.json();
+
+                            if (!menuData.moduleElements || menuData.moduleElements.length === 0) {
+                                throw new Error("Модули для выбора не найдены.");
+                            }
+
+                            // 2. Параллельно загружаем все команды для всех найденных модулей
+                            const modulePromises = menuData.moduleElements.map(m =>
+                                fetch(`https://utmn.modeus.org/course-unit-booking/api/v1/students/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu/module-elements/${m.id}`, { headers: { "authorization": `Bearer ${token}` } })
+                                    .then(r => r.json())
+                            );
+                            const allModulesData = await Promise.all(modulePromises);
+
+                            // 3. Загружаем расписание (ВНИМАНИЕ: тут нужен personId из токена, а не bookingStudentId!)
+                            const parseJwt = (t) => JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+                            const personId = parseJwt(token).person_id || parseJwt(token).sub;
+
+                            const now = new Date();
+                            const future = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
+
+                            const schedRes = await fetch("https://utmn.modeus.org/schedule-calendar-v2/api/calendar/events/search?tz=Asia/Tyumen", {
+                                method: "POST",
+                                headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
+                                body: JSON.stringify({ size: 500, timeMin: now.toISOString(), timeMax: future.toISOString(), attendeePersonId: [personId] })
+                            });
+                            const eventsData = await schedRes.json();
+                            const events = eventsData._embedded?.events || [];
+
+                            const blockedSlots = {};
+                            const dayMap = { 1: 'ПН', 2: 'ВТ', 3: 'СР', 4: 'ЧТ', 5: 'ПТ', 6: 'СБ' };
+
+                            events.forEach(ev => {
+                                if (ev.name.toLowerCase().includes('физическая культура')) return;
+                                const d = new Date(ev.startsAtLocal);
+                                const day = dayMap[d.getDay()];
+                                if (!day) return;
+
+                                let time = ev.startsAtLocal.split('T')[1].substring(0, 5);
+                                if (time.startsWith('0')) time = time.substring(1);
+
+                                if (!blockedSlots[day]) blockedSlots[day] = {};
+                                if (blockedSlots[day][time]) {
+                                    if (!blockedSlots[day][time].includes(ev.name)) blockedSlots[day][time] += `<br>+ ${ev.name}`;
+                                } else {
+                                    blockedSlots[day][time] = ev.name;
+                                }
+                            });
+
+                            // 4. Открываем наше окно с готовыми данными
+                            if (window.MSE_PE) {
+                                window.MSE_PE.openModal(allModulesData, blockedSlots, campaignId, bookingStudentId, teacherReviews);
+                            } else {
+                                alert('Модуль pe-module.js не загружен.');
+                            }
+                        } catch (e) {
+                            alert('Ошибка загрузки: ' + e.message);
+                        } finally {
+                            peBtn.innerHTML = '⚡ Умный подбор секций';
+                            peBtn.disabled = false;
+                        }
+                    });
+
+                    mainHeader.style.display = 'inline-flex';
+                    mainHeader.style.alignItems = 'center';
+                    mainHeader.style.flexWrap = 'wrap';
+                    mainHeader.appendChild(peBtn);
+                }
             }
 
             if (window.location.href.includes('/schedule-calendar/')) {

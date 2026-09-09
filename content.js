@@ -7,7 +7,7 @@
 
   const GITHUB_USER = 'student1245';
   const GITHUB_REPO = 'Modeus-Student-Enhancer';
-  const GITHUB_BRANCH = 'main'; // ветка: main или master
+  const GITHUB_BRANCH = 'main';
   const RAW_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}`;
 
   // Универсальная функция: сначала ищет на GitHub, если недоступен — берет локальный файл
@@ -49,6 +49,11 @@
     loadJsonData('buildings.json', 'modeus-buildings-map'),
     loadJsonData('teacher_reviews.json', 'modeus-teacher-reviews')
   ]);
+
+  const peScript = document.createElement('script');
+  peScript.src = chrome.runtime.getURL('pe-module.js');
+  peScript.async = false; // Важно, чтобы сохранился порядок загрузки
+  (document.head || document.documentElement).appendChild(peScript);
 
   const s = document.createElement('script');
   s.src = chrome.runtime.getURL('injected.js');
