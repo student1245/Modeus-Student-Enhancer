@@ -27,6 +27,7 @@
     let debounceTimer;
     const FRIENDS_STORAGE_KEY = 'mse_friends_list';
     let mySpecialty = localStorage.getItem('mse_my_specialty') || null;
+    let myProfile = localStorage.getItem('mse_my_profile') || null;
     let myPersonId = localStorage.getItem('mse_my_person_id') || null;
     let currentWeekStart = null;
 
@@ -401,8 +402,19 @@
                 if (friendNames.has(nameOnPage)) {
                     badges += '<span title="Ваш друг" style="cursor:help; margin-right:4px;">❤️</span>';
                 }
-                if (mySpecialty && studentInfo.details.includes(mySpecialty)) {
-                    badges += '<span title="Обучается на вашем направлении" style="cursor:help; margin-right:4px;">🎓</span>';
+                // Проверяем совпадение направления
+                const isSameSpecialty = mySpecialty && studentInfo.specialtyName && (studentInfo.specialtyName === mySpecialty);
+
+                // Проверяем совпадение профиля (если у вас есть профиль — он должен совпадать; если профиля нет у обоих — достаточно направления)
+                const isSameProfile = myProfile
+                    ? (studentInfo.specialtyProfile && studentInfo.specialtyProfile === myProfile)
+                    : true;
+
+                if (isSameSpecialty && isSameProfile) {
+                    const tooltipText = myProfile
+                        ? `Обучается на вашем направлении и профиле (${myProfile})`
+                        : 'Обучается на вашем направлении';
+                    badges += `<span title="${tooltipText}" style="cursor:help; margin-right:4px;">🎓</span>`;
                 }
 
                 // Убрал inline-block, теперь фон будет облегать текст без разрыва
@@ -638,15 +650,30 @@
                     if (s.roleId === 'STUDENT') {
                         const normalized = normalizeName(s.fullName);
 
-                        if (s.personId === personId && s.specialtyName) {
-                            mySpecialty = s.specialtyName;
-                            localStorage.setItem('mse_my_specialty', mySpecialty);
+                        // Сохраняем и наше направление, и наш профиль
+                        if (s.personId === personId) {
+                            if (s.specialtyName) {
+                                mySpecialty = s.specialtyName.trim();
+                                localStorage.setItem('mse_my_specialty', mySpecialty);
+                            }
+                            if (s.specialtyProfile) {
+                                myProfile = s.specialtyProfile.trim();
+                                localStorage.setItem('mse_my_profile', myProfile);
+                            }
                         }
 
                         if (!uniqueStudents.has(normalized)) {
                             let details = s.specialtyName || 'Специальность не указана';
                             if (s.specialtyProfile && s.specialtyProfile !== s.specialtyName) details += ` : ${s.specialtyProfile}`;
-                            uniqueStudents.set(normalized, { id: s.personId, fullName: s.fullName, details });
+
+                            // Сохраняем поля раздельно для точного сравнения
+                            uniqueStudents.set(normalized, {
+                                id: s.personId,
+                                fullName: s.fullName,
+                                details,
+                                specialtyName: s.specialtyName ? s.specialtyName.trim() : null,
+                                specialtyProfile: s.specialtyProfile ? s.specialtyProfile.trim() : null
+                            });
                         }
                         studentList.add(normalized);
                     }
