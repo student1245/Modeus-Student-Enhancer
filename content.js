@@ -50,6 +50,11 @@
     loadJsonData('teacher_reviews.json', 'modeus-teacher-reviews')
   ]);
 
+  const versionMeta = document.createElement('meta');
+  versionMeta.name = 'modeus-enhancer-version';
+  versionMeta.content = chrome.runtime.getManifest().version;
+  document.head.appendChild(versionMeta);
+
   const peScript = document.createElement('script');
   peScript.src = chrome.runtime.getURL('pe-module.js');
   peScript.async = false; // Важно, чтобы сохранился порядок загрузки

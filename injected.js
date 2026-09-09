@@ -1,6 +1,8 @@
 (() => {
+    const CURRENT_VERSION = document.querySelector('meta[name="modeus-enhancer-version"]')?.content || '0.0.0';
+
     console.log(
-        `%c Modeus Enhancer %c v2.2.1 `,
+        `%c Modeus Enhancer %c v${CURRENT_VERSION} `,
         'background: #2196F3; color: #fff; padding: 3px 5px; border-radius: 3px 0 0 3px; font-weight: bold;',
         'background: #333; color: #fff; padding: 3px 5px; border-radius: 0 3px 3px 0;'
     );
@@ -670,7 +672,6 @@
     const checkExtensionUpdate = async () => {
         const GITHUB_USER = 'student1245';
         const GITHUB_REPO = 'Modeus-Student-Enhancer';
-        const CURRENT_VERSION = '2.2.0';
 
         // Чтобы не спамить запросами к GitHub, проверяем не чаще одного раза в 2 часа
         const lastCheck = localStorage.getItem('mse_last_update_check');
