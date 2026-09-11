@@ -7,6 +7,9 @@ window.MSE_PE = (function () {
     let selectedCampuses = new Set();
 
     let currentSchedule = {};
+    let friendSchedule = null;
+    let friendNameForUI = null;
+
     let allModules = [];
     let enrolledTeamsMap = new Map();
     let apiStudentId = '';
@@ -60,6 +63,11 @@ window.MSE_PE = (function () {
             match: ["сок", "ленина", "09", "улк-09"],
             address: "ул. Ленина, 6",
             link: "https://yandex.ru/maps/55/tyumen/house/ulitsa_lenina_6/YkwYcQZpT0wFQFttfX1yd3VqZA==/?ll=65.537233%2C57.156094&z=17"
+        },
+        "ШО": {
+            match: ["16", "корпус-16", "9 мая", "улк-16"],
+            address: "ул. Проезд 9 Мая, 5",
+            link: "https://maps.yandex.ru/?z=18&l=map&text=%D0%A0%D0%BE%D1%81%D1%81%D0%B8%D1%8F,%20%D0%B3.%20%D0%A2%D1%8E%D0%BC%D0%B5%D0%BD%D1%8C,%20%D1%83%D0%BB.%20%D0%9F%D1%80%D0%BE%D0%B5%D0%B7%D0%B4%209%20%D0%9C%D0%B0%D1%8F,%205"
         }
     };
 
@@ -77,15 +85,33 @@ window.MSE_PE = (function () {
     }
 
     function getConflict(day, slotIdx) {
-        if (!currentSchedule || !currentSchedule[day]) return null;
         const slotTimes = [
             ['8:30', '08:30'], ['10:15'], ['12:00', '12:05'],
             ['14:00', '14:05'], ['15:45', '15:55'], ['17:30', '17:40'], ['19:15', '19:20']
         ];
         const possible = slotTimes[slotIdx] || [];
-        for (const t of possible) {
-            if (currentSchedule[day][t]) return currentSchedule[day][t];
+
+        let userConflict = null;
+        if (currentSchedule && currentSchedule[day]) {
+            for (const t of possible) {
+                if (currentSchedule[day][t]) {
+                    userConflict = currentSchedule[day][t];
+                    break;
+                }
+            }
         }
+
+        let frConflict = null;
+        if (friendSchedule && friendSchedule[day]) {
+            for (const t of possible) {
+                if (friendSchedule[day][t]) {
+                    frConflict = friendSchedule[day][t];
+                    break;
+                }
+            }
+        }
+
+        if (userConflict || frConflict) return { user: userConflict, friend: frConflict };
         return null;
     }
 
@@ -99,7 +125,6 @@ window.MSE_PE = (function () {
         return { name: "Другой корпус", address: rawLoc, link: `https://yandex.ru/maps/55/tyumen/search/${encodeURIComponent(rawLoc)}` };
     }
 
-    // НОРМАЛИЗАТОР СПОРТА (Очищает мусор из названий)
     function normalizeSportName(rawName) {
         const lower = rawName.toLowerCase();
         if (lower.includes('волей')) return 'Волейбол';
@@ -119,8 +144,7 @@ window.MSE_PE = (function () {
     }
 
     function parseData() {
-        courses = []; sportsSet.clear(); campusesSet.clear();
-        enrolledTeamsMap.clear();
+        courses = []; sportsSet.clear(); campusesSet.clear(); enrolledTeamsMap.clear();
 
         allModules.forEach(mod => {
             if (mod.selectedTeamIds && mod.selectedTeamIds.length > 0) {
@@ -140,12 +164,11 @@ window.MSE_PE = (function () {
             const match = cleanName.match(/ФК:\s+(.+?)\s+(ПН|ВТ|СР|ЧТ|ПТ|СБ)\s+(\d{1,2}:\d{2})\s+(.*)/);
 
             if (match) {
-                let sport = normalizeSportName(match[1]); // <-- ИСПОЛЬЗУЕМ НОРМАЛИЗАТОР!
+                let sport = normalizeSportName(match[1]);
                 let rawLoc = match[4].trim();
                 let campusObj = resolveCampus(rawLoc);
 
-                sportsSet.add(sport);
-                campusesSet.add(campusObj.name);
+                sportsSet.add(sport); campusesSet.add(campusObj.name);
 
                 courses.push({
                     id: t.id, secNum: idx + 1,
@@ -170,8 +193,7 @@ window.MSE_PE = (function () {
 
     function buildOptionsList(type, allItems, selectedSet) {
         const container = document.getElementById(`pe-${type}OptionsList`);
-        if (!container) return;
-        container.innerHTML = '';
+        if (!container) return; container.innerHTML = '';
         [...allItems].sort().forEach(item => {
             const label = document.createElement('label'); label.className = 'ms-item';
             label.innerHTML = `<input type="checkbox" value="${item}" ${selectedSet.has(item) ? 'checked' : ''}> <span>${item}</span>`;
@@ -207,6 +229,160 @@ window.MSE_PE = (function () {
     }
     document.addEventListener('click', (e) => { if (!e.target.closest('.custom-multiselect')) document.querySelectorAll('.custom-multiselect').forEach(m => m.classList.remove('open')); });
 
+    async function getPersonIdByName(name) {
+        // 1. Сначала ищем в локальных друзьях (мгновенно)
+        const friends = JSON.parse(localStorage.getItem('mse_friends_list') || '[]');
+        const friend = friends.find(f => f.fullName.toLowerCase().includes(name.toLowerCase()));
+        if (friend) return { id: friend.id, name: friend.fullName };
+
+        // 2. Если нет в друзьях — ищем через актуальное POST API Модеуса (как на скриншоте)
+        const token = sessionStorage.getItem('id_token');
+        try {
+            const res = await fetch("https://utmn.modeus.org/schedule-calendar-v2/api/people/persons/search", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    fullName: name,
+                    sort: "+fullName",
+                    size: 10,
+                    page: 0
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+
+                // В зависимости от ответа API, люди могут лежать в массиве напрямую или в _embedded
+                const persons = data._embedded?.persons || data.items || (Array.isArray(data) ? data : []);
+
+                if (persons.length > 0) {
+                    // Берем первого наиболее подходящего человека
+                    return { id: persons[0].id, name: persons[0].fullName };
+                }
+            }
+        } catch (e) {
+            console.warn("Ошибка поиска через API:", e);
+        }
+
+        return null;
+    }
+
+    window.MSE_PE_loadFriend = async function () {
+        const input = document.getElementById('pe-friendInput');
+        const wrapper = document.getElementById('pe-friendWrapper');
+        const btn = document.getElementById('pe-friendBtn');
+        if (!input || !wrapper || !btn) return;
+
+        const name = input.value.trim();
+        if (!name) {
+            window.MSE_PE_clearFriend();
+            return;
+        }
+
+        btn.innerText = "⏳...";
+        btn.disabled = true;
+        input.disabled = true;
+
+        try {
+            const person = await getPersonIdByName(name);
+            if (!person) {
+                alert("Студент не найден.\nПроверьте ФИО или добавьте его в друзья в главном календаре (иконка ❤️).");
+                btn.innerText = "Поиск";
+                btn.disabled = false;
+                input.disabled = false;
+                return;
+            }
+
+            const parts = person.name.trim().split(/\s+/);
+            friendNameForUI = parts[0] + ' ' + (parts[1]?.[0] || '') + '.';
+
+            const token = sessionStorage.getItem('id_token');
+            const now = new Date();
+            const future = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
+
+            const schedRes = await fetch("https://utmn.modeus.org/schedule-calendar-v2/api/calendar/events/search?tz=Asia/Tyumen", {
+                method: "POST",
+                headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
+                body: JSON.stringify({ size: 500, timeMin: now.toISOString(), timeMax: future.toISOString(), attendeePersonId: [person.id] })
+            });
+            const eventsData = await schedRes.json();
+            const events = eventsData._embedded?.events || [];
+
+            friendSchedule = {};
+            const dayMap = { 1: 'ПН', 2: 'ВТ', 3: 'СР', 4: 'ЧТ', 5: 'ПТ', 6: 'СБ' };
+
+            events.forEach(ev => {
+                if (ev.name.toLowerCase().includes('физическая культура')) return;
+                const d = new Date(ev.startsAtLocal);
+                const day = dayMap[d.getDay()];
+                if (!day) return;
+
+                let time = ev.startsAtLocal.split('T')[1].substring(0, 5);
+                if (time.startsWith('0')) time = time.substring(1);
+
+                if (!friendSchedule[day]) friendSchedule[day] = {};
+                if (friendSchedule[day][time]) {
+                    if (!friendSchedule[day][time].includes(ev.name)) friendSchedule[day][time] += `<br>+ ${ev.name}`;
+                } else {
+                    friendSchedule[day][time] = ev.name;
+                }
+            });
+
+            // Намертво красим в зеленый через JS
+            wrapper.style.setProperty('border-color', '#86efac', 'important');
+            input.style.setProperty('background', '#f0fdf4', 'important');
+            input.style.setProperty('color', '#16a34a', 'important');
+            input.style.setProperty('font-weight', '600', 'important');
+            input.value = `✔ С вами: ${friendNameForUI}`;
+            input.disabled = false;
+            input.readOnly = true;
+
+            btn.style.setProperty('background', '#fef2f2', 'important');
+            btn.style.setProperty('color', '#ef4444', 'important');
+            btn.style.setProperty('border-left-color', '#fca5a5', 'important');
+            btn.innerText = "Сброс";
+            btn.disabled = false;
+            btn.onclick = window.MSE_PE_clearFriend;
+
+            renderGrid();
+        } catch (e) {
+            alert("Ошибка при загрузке расписания друга: " + e.message);
+            btn.innerText = "Поиск";
+            btn.disabled = false;
+            input.disabled = false;
+        }
+    };
+
+    window.MSE_PE_clearFriend = function () {
+        const input = document.getElementById('pe-friendInput');
+        const wrapper = document.getElementById('pe-friendWrapper');
+        const btn = document.getElementById('pe-friendBtn');
+
+        if (input) {
+            input.value = '';
+            input.readOnly = false;
+            input.disabled = false;
+            input.style.setProperty('background', 'transparent', 'important');
+            input.style.setProperty('color', '#0f172a', 'important');
+            input.style.setProperty('font-weight', 'normal', 'important');
+        }
+        if (wrapper) wrapper.style.setProperty('border-color', '#cbd5e1', 'important');
+        if (btn) {
+            btn.style.setProperty('background', '#f8fafc', 'important');
+            btn.style.setProperty('color', '#475569', 'important');
+            btn.style.setProperty('border-left-color', '#cbd5e1', 'important');
+            btn.innerText = 'Поиск';
+            btn.onclick = window.MSE_PE_loadFriend;
+        }
+
+        friendSchedule = null;
+        friendNameForUI = null;
+        renderGrid();
+    };
+
     function renderGrid() {
         const tbody = document.getElementById('pe-tableBody');
         if (!tbody) return; tbody.innerHTML = '';
@@ -237,10 +413,30 @@ window.MSE_PE = (function () {
                     return;
                 }
 
-                // 1. Проверяем конфликт через getConflict по номеру пары (tIdx), а не по минутам
                 const conflict = getConflict(day, tIdx);
                 if (considerSchedule && conflict) {
-                    td.innerHTML = `<div class="pe-conflict-slot">🎓 У вас пара:<br><b>${conflict}</b></div>`;
+                    let html = '';
+
+                    // Разбираем списки дисциплин и сортируем, чтобы порядок из API не влиял на сравнение
+                    const parseDisciplines = str => (str || '').split('<br>+ ').map(s => s.trim()).filter(Boolean).sort();
+                    const userList = parseDisciplines(conflict.user);
+                    const friendList = parseDisciplines(conflict.friend);
+
+                    const isSameDisciplines = userList.length > 0 &&
+                        userList.length === friendList.length &&
+                        userList.every((d, i) => d === friendList[i]);
+
+                    if (isSameDisciplines) {
+                        html = `⛔ У обоих пары (${userList.length > 1 ? 'одинаковые предметы' : 'одинаковый предмет'}):<br><b>${userList.join('<br>+ ')}</b>`;
+                    } else {
+                        if (conflict.user) html += `🎓 У вас пара:<br><b>${conflict.user}</b>`;
+                        if (conflict.friend) {
+                            if (html !== '') html += `<hr style="margin: 6px 0; border: 0; border-top: 1px dashed #cbd5e1;">`;
+                            html += `👥 У друга (${friendNameForUI}):<br><b>${conflict.friend}</b>`;
+                        }
+                    }
+
+                    td.innerHTML = `<div class="pe-conflict-slot">${html}</div>`;
                     tr.appendChild(td);
                     return;
                 }
@@ -248,7 +444,6 @@ window.MSE_PE = (function () {
                 const cellWrapper = document.createElement('div');
                 cellWrapper.className = 'card-group';
 
-                // 2. Секции фильтруем по номеру слота (c.slotIdx === tIdx), а не c.time === time
                 const slotItems = filtered.filter(c => c.day === day && c.slotIdx === tIdx);
                 const clusters = {};
                 slotItems.forEach(i => { if (!clusters[i.sport]) clusters[i.sport] = []; clusters[i.sport].push(i); });
@@ -351,15 +546,21 @@ window.MSE_PE = (function () {
             parseData();
             if (!document.getElementById('mse-pe-overlay')) {
                 const overlay = document.createElement('div'); overlay.id = 'mse-pe-overlay';
+
                 overlay.innerHTML = `<button id="mse-pe-close" title="Закрыть">✕</button>
                     <div class="container">
                         <div class="header-panel"><h2>⚡ Умный подбор физкультуры</h2>
                             <div class="filters-group"><button class="reset-filters-btn" onclick="MSE_PE.resetFilters()">↺ Сбросить фильтры</button>
                                 <div class="custom-multiselect" id="pe-sportMultiSelect"><button class="ms-btn" onclick="togglePeMultiSelect('pe-sportMultiSelect')"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span> ▼</button><div class="ms-dropdown"><div class="ms-actions"><span onclick="MSE_PE.selectAll('sport', true)">Выбрать все</span> <span onclick="MSE_PE.selectAll('sport', false)">Сбросить</span></div><div class="ms-list" id="pe-sportOptionsList"></div></div></div>
                                 <div class="custom-multiselect" id="pe-campusMultiSelect"><button class="ms-btn" onclick="togglePeMultiSelect('pe-campusMultiSelect')"><span class="ms-label" id="pe-campusLabel">Все корпуса</span> ▼</button><div class="ms-dropdown"><div class="ms-actions"><span onclick="MSE_PE.selectAll('campus', true)">Выбрать все</span> <span onclick="MSE_PE.selectAll('campus', false)">Сбросить</span></div><div class="ms-list" id="pe-campusOptionsList"></div></div></div>
-                                <label class="filter-checkbox" style="color: #2563eb; background: #eff6ff; padding: 4px 8px; border-radius: 6px;"><input type="checkbox" id="pe-considerSchedule" checked> 🕒 Скрыть конфликты с вашими парами</label>
+                                <label class="filter-checkbox" style="color: #2563eb; background: #eff6ff; padding: 4px 8px; border-radius: 6px;"><input type="checkbox" id="pe-considerSchedule" checked> 🕒 Скрыть пары</label>
                                 <label class="filter-checkbox"><input type="checkbox" id="pe-onlyAvailable"> Только где есть места</label>
                                 <label class="filter-checkbox"><input type="checkbox" id="pe-onlyMySections"> ⭐ Мои записи</label>
+                                
+                                <div id="pe-friendWrapper" style="display: flex !important; align-items: center !important; background: #ffffff !important; border: 1px solid #cbd5e1 !important; border-radius: 6px !important; height: 32px !important; overflow: hidden !important; margin-left: auto !important; width: 260px !important; flex-shrink: 0 !important; box-sizing: border-box !important;">
+                                    <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)..." onkeydown="if(event.key==='Enter') window.MSE_PE_loadFriend()" style="border: none !important; outline: none !important; font-size: 12px !important; padding: 0 10px !important; background: transparent !important; color: #0f172a !important; height: 100% !important; margin: 0 !important; font-family: inherit !important; flex-grow: 1 !important; min-width: 0 !important; box-sizing: border-box !important;">
+                                    <button id="pe-friendBtn" onclick="window.MSE_PE_loadFriend()" style="background: #f8fafc !important; color: #475569 !important; border: none !important; border-left: 1px solid #cbd5e1 !important; padding: 0 !important; cursor: pointer !important; font-size: 12px !important; font-weight: 600 !important; height: 100% !important; margin: 0 !important; width: 70px !important; flex-shrink: 0 !important; box-sizing: border-box !important; appearance: none !important; -webkit-appearance: none !important; border-radius: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important;">Поиск</button>
+                                </div>
                             </div></div>
                         <table><thead><tr><th>Пара</th><th>ПН</th><th>ВТ</th><th>СР</th><th>ЧТ</th><th>ПТ</th><th>СБ</th></tr></thead><tbody id="pe-tableBody"></tbody></table>
                     </div>
@@ -369,6 +570,7 @@ window.MSE_PE = (function () {
                 document.getElementById('pe-considerSchedule').onchange = renderGrid; document.getElementById('pe-onlyAvailable').onchange = renderGrid; document.getElementById('pe-onlyMySections').onchange = renderGrid;
             }
             document.getElementById('pe-onlyAvailable').checked = false; document.getElementById('pe-onlyMySections').checked = false; document.getElementById('pe-considerSchedule').checked = true;
+            window.MSE_PE_clearFriend();
             initMultiSelects(); document.getElementById('mse-pe-overlay').style.display = 'block'; renderGrid();
         },
         selectAll: selectAllOptions,
