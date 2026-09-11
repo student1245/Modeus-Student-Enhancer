@@ -574,16 +574,42 @@
 
     const linkDomEventsToCache = () => {
         if (eventCache.size === 0) return;
-        qsa('.fc-time-grid-event:not([data-event-id])').forEach(el => {
+        const assignedIds = new Set();
+        qsa('.fc-time-grid-event').forEach(el => {
+            const existingId = el.getAttribute('data-event-id');
+            if (existingId && eventCache.has(existingId)) {
+                assignedIds.add(existingId);
+                return;
+            }
             const title = normalizeName(qs('.fc-title', el)?.textContent);
-            const time = qs('.fc-time', el)?.getAttribute('data-full').split(' - ')[0];
+            const time = qs('.fc-time', el)?.getAttribute('data-full')?.split(' - ')[0]?.trim();
+            if (!title || !time) return;
+
             for (const [id, data] of eventCache.entries()) {
-                if (normalizeName(data.fullDisplayName) === title && data.startsAtLocal.includes(time)) {
+                if (assignedIds.has(id)) continue;
+                const cacheName = normalizeName(data.name);
+                const cacheFull = normalizeName(data.fullDisplayName);
+                if ((cacheFull === title || cacheName === title || cacheFull.includes(title)) && data.startsAtLocal.includes(time)) {
                     el.setAttribute('data-event-id', id);
+                    assignedIds.add(id);
                     break;
                 }
             }
         });
+    };
+
+    const getActiveCalendarPersonId = (myJwtPersonId) => {
+        try {
+            const urlObj = new URL(window.location.href);
+            const filterParam = urlObj.searchParams.get('eventsFilter');
+            if (filterParam) {
+                const filter = JSON.parse(filterParam);
+                if (filter.attendee && filter.attendee.length > 0 && filter.attendee[0].key) {
+                    return filter.attendee[0].key;
+                }
+            }
+        } catch (e) { }
+        return myJwtPersonId;
     };
 
     const loadAllData = async () => {
@@ -596,12 +622,14 @@
             const token = sessionStorage.getItem('id_token');
             if (!token) throw new Error("Токен не найден.");
             const parseJwt = (t) => JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-            const personId = parseJwt(token).person_id || parseJwt(token).sub;
+            const myJwtPersonId = parseJwt(token).person_id || parseJwt(token).sub;
+
+            myPersonId = myJwtPersonId;
+            localStorage.setItem('mse_my_person_id', myPersonId);
+
+            const activePersonId = getActiveCalendarPersonId(myJwtPersonId);
 
             const dateHeaders = qsa('.fc-day-header[data-date]');
-
-            myPersonId = personId;
-            localStorage.setItem('mse_my_person_id', myPersonId);
             if (dateHeaders.length > 0) {
                 currentWeekStart = dateHeaders[0].getAttribute('data-date');
             }
@@ -616,13 +644,23 @@
             const timeMax = `${dateHeaders[dateHeaders.length - 1].getAttribute('data-date')}T23:59:59Z`;
 
             if (statusEl) statusEl.textContent = '1/2: Загрузка событий...';
-            const eventsResponse = await fetch("https://utmn.modeus.org/schedule-calendar-v2/api/calendar/events/search?tz=Asia/Tyumen", { method: "POST", headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ size: 500, timeMin, timeMax, attendeePersonId: [personId] }) });
+
+            // Запрашиваем события именно того человека, чей календарь открыт на экране!
+            const eventsResponse = await fetch("https://utmn.modeus.org/schedule-calendar-v2/api/calendar/events/search?tz=Asia/Tyumen", {
+                method: "POST",
+                headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
+                body: JSON.stringify({ size: 500, timeMin, timeMax, attendeePersonId: [activePersonId] })
+            });
+
             if (!eventsResponse.ok) throw new Error(`Ошибка API (события): ${eventsResponse.status}`);
             const eventsData = await eventsResponse.json();
             const events = eventsData._embedded?.events || [];
+
             if (events.length === 0) {
                 if (statusEl) statusEl.textContent = 'Событий на неделе нет.';
                 if (controlsEl) controlsEl.style.display = 'flex';
+                eventCache.clear();
+                uniqueStudents.clear();
                 return;
             }
 
@@ -630,6 +668,7 @@
             const courseUnitMap = new Map(courseUnits.map(cu => [cu.id, cu.nameShort]));
             if (statusEl) statusEl.textContent = `2/2: Загрузка студентов (0/${events.length})`;
             let loadedCount = 0;
+
             eventCache.clear();
             uniqueStudents.clear();
 
@@ -650,8 +689,7 @@
                     if (s.roleId === 'STUDENT') {
                         const normalized = normalizeName(s.fullName);
 
-                        // Сохраняем и наше направление, и наш профиль
-                        if (s.personId === personId) {
+                        if (s.personId === myJwtPersonId) {
                             if (s.specialtyName) {
                                 mySpecialty = s.specialtyName.trim();
                                 localStorage.setItem('mse_my_specialty', mySpecialty);
@@ -666,7 +704,6 @@
                             let details = s.specialtyName || 'Специальность не указана';
                             if (s.specialtyProfile && s.specialtyProfile !== s.specialtyName) details += ` : ${s.specialtyProfile}`;
 
-                            // Сохраняем поля раздельно для точного сравнения
                             uniqueStudents.set(normalized, {
                                 id: s.personId,
                                 fullName: s.fullName,
@@ -692,7 +729,7 @@
             if (controlsEl) controlsEl.style.display = 'flex';
             console.error('[MSE]', err);
         }
-        checkExtensionUpdate()
+        checkExtensionUpdate();
     };
 
     // ПРОВЕРКА ОБНОВЛЕНИЯ КОДА РАСШИРЕНИЯ
@@ -774,6 +811,7 @@
     };
 
     let lastCalendarParam = null;
+    let lastFilterParam = null;
     const processUrlChange = () => {
         const currentUrl = window.location.href;
         const urlObj = new URL(currentUrl);
@@ -789,20 +827,25 @@
             currentEventId = null;
         }
 
-        // 2. Отслеживание изменения недели в URL и автоматический клик по обновлению
+        // 2. Отслеживание смены пользователя или недели в URL
         if (currentUrl.includes('/schedule-calendar/')) {
             const calendarParam = urlObj.searchParams.get('calendar');
-            if (calendarParam) {
-                // Если ссылка недели изменилась — даем сайту отрисовать сетку и САМИ жмем кнопку
-                if (lastCalendarParam && lastCalendarParam !== calendarParam) {
-                    lastCalendarParam = calendarParam;
-                    setTimeout(() => {
-                        const refreshBtn = qs('#refresh-data-btn');
-                        if (refreshBtn) refreshBtn.click();
-                    }, 400); // 400мс задержка, чтобы сайт успел загрузить новую неделю
-                } else if (!lastCalendarParam) {
-                    lastCalendarParam = calendarParam;
-                }
+            const filterParam = urlObj.searchParams.get('eventsFilter');
+
+            // Если сменился владелец календаря (перешли к другу или вернулись к себе)
+            if (lastFilterParam !== filterParam) {
+                lastFilterParam = filterParam;
+                clearSearch();
+                setTimeout(() => { loadAllData(); }, 300);
+            } else if (lastCalendarParam && lastCalendarParam !== calendarParam) {
+                // Если просто переключили неделю
+                lastCalendarParam = calendarParam;
+                setTimeout(() => {
+                    const refreshBtn = qs('#refresh-data-btn');
+                    if (refreshBtn) refreshBtn.click();
+                }, 400);
+            } else if (!lastCalendarParam) {
+                lastCalendarParam = calendarParam;
             }
         }
     };
