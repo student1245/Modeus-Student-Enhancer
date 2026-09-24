@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
     const CURRENT_VERSION = document.querySelector('meta[name="modeus-enhancer-version"]')?.content || '0.0.0';
 
     console.log(
@@ -30,6 +30,11 @@
     let myProfile = localStorage.getItem('mse_my_profile') || null;
     let myPersonId = localStorage.getItem('mse_my_person_id') || null;
     let currentWeekStart = null;
+
+    let mseCourseRealizationsMap = new Map(); // Название предмета -> список пар по порядку
+    let mseLessonMaxGrades = new Map();        // lessonId -> максимальный балл
+    let mseLessonNameToMaxGrade = new Map();   // Название пары -> максимальный балл
+    let mseLoadedCourseUnits = new Set();      // Защита от повторных скачиваний
 
     const qs = (sel, root = document) => root.querySelector(sel);
     const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -66,23 +71,45 @@
                 processPersonSearchResponse(responseText);
             }
 
-            // --- НОВЫЙ БЛОК ДЛЯ ФИЗРЫ ---
             if (url.includes('/module-elements/')) {
                 try {
                     const data = await response.clone().json();
                     if (data.cycles && data.cycles.length > 0 && data.cycles[0].teams) {
-                        lastPeData = data; // Сохраняем JSON с секциями
+                        lastPeData = data;
                         console.log('[MSE] Данные секций перехвачены!');
                     }
                 } catch (e) { console.warn('[MSE] Ошибка парсинга физры', e); }
             }
             return response;
         };
+
+        const originalXhrOpen = XMLHttpRequest.prototype.open;
         const originalXhrSend = XMLHttpRequest.prototype.send;
+
+        XMLHttpRequest.prototype.open = function (method, url) {
+            this._mseUrl = typeof url === 'string' ? url : (url ? url.toString() : '');
+            return originalXhrOpen.apply(this, arguments);
+        };
+
         XMLHttpRequest.prototype.send = function (body) {
-            this.addEventListener('load', () => {
-                if (this.responseURL && this.responseURL.includes('/api/people/persons/search')) {
-                    processPersonSearchResponse(this.responseText);
+            this.addEventListener('load', function () {
+                const url = this._mseUrl || this.responseURL || '';
+
+                if (url.includes('/api/people/persons/search')) {
+                    const resp = this.response;
+                    const text = typeof resp === 'string' ? resp : JSON.stringify(resp);
+                    processPersonSearchResponse(text);
+                }
+
+                // ПАССИВНО читаем /primary (без подмены самого ответа):
+                if (url.includes('/academic-period-results-table/primary')) {
+                    try {
+                        let data = this.response;
+                        if (typeof data === 'string') data = JSON.parse(data);
+                        processPrimaryGradesData(data);
+                    } catch (e) {
+                        console.warn('[MSE] Ошибка чтения primary:', e);
+                    }
                 }
             });
             originalXhrSend.apply(this, arguments);
@@ -914,6 +941,264 @@
         loadAllData();
     };
 
+    // 1. Сбор структуры предметов и скачивание массивов макс. баллов
+    function processPrimaryGradesData(data) {
+        if (!data || !data.courseUnitRealizations) return;
+
+        const token = sessionStorage.getItem('id_token');
+        const uniqueCourseUnits = new Set();
+
+        data.courseUnitRealizations.forEach(cur => {
+            if (!cur.name || !cur.lessons) return;
+
+            const sortedLessons = [...cur.lessons].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+            const normName = normalizeName(cur.name);
+            mseCourseRealizationsMap.set(normName, sortedLessons);
+
+            if (cur.courseUnitId) uniqueCourseUnits.add(cur.courseUnitId);
+        });
+
+        uniqueCourseUnits.forEach(cuId => {
+            if (mseLoadedCourseUnits.has(cuId)) return;
+            mseLoadedCourseUnits.add(cuId);
+
+            fetch(`https://utmn.modeus.org/courses/api/course-units/${cuId}/lessons-technology`, {
+                headers: { "authorization": `Bearer ${token}` }
+            })
+                .then(r => r.json())
+                .then(tech => {
+                    if (tech.lessonTechnologies) {
+                        tech.lessonTechnologies.forEach(lt => {
+                            if (lt.controlObjects && lt.controlObjects.length > 0) {
+                                // Сохраняем список максимумов по порядку точек (например: [10, 2])
+                                const sortedCO = [...lt.controlObjects].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+                                const maxList = sortedCO
+                                    .map(co => co.maxValue)
+                                    .filter(v => typeof v === 'number' && v > 0);
+
+                                if (maxList.length > 0) {
+                                    mseLessonMaxGrades.set(lt.lessonId, maxList);
+                                    if (lt.lessonName) {
+                                        mseLessonNameToMaxGrade.set(normalizeName(lt.lessonName), maxList);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    enhanceGradesTable();
+                })
+                .catch(e => console.warn('[MSE] Ошибка загрузки техкарты:', e));
+        });
+    }
+
+    function injectMaxGradeBadge(td, maxGrades) {
+        if (!td || td.querySelector('.mse-max-grade') || td.querySelector('.mse-max-done')) return;
+        const maxList = Array.isArray(maxGrades) ? maxGrades : [maxGrades];
+        if (maxList.length === 0) return;
+
+        // Создаем бейдж (стили придут из CSS класса .mse-max-grade)
+        const createBadge = (max) => {
+            const badge = document.createElement('span');
+            badge.className = 'mse-max-grade';
+            badge.textContent = ` /${max}`;
+            return badge;
+        };
+
+        // Если оценок 3 или больше — суммируем их в один итог
+        if (maxList.length >= 3) {
+            const totalMax = maxList.reduce((acc, m) => acc + (typeof m === 'number' ? m : 0), 0);
+            const numEls = qsa('.lesson-realization:not(.present):not(.absent)', td);
+
+            // Вариант 1: если цифры в отдельных span
+            if (numEls.length >= 3) {
+                const totalEarned = Math.round(numEls.reduce((acc, el) => acc + parseFloat(el.textContent), 0) * 100) / 100;
+                numEls[0].innerHTML = `${totalEarned}`;
+                numEls[0].appendChild(createBadge(totalMax));
+                for (let i = 1; i < numEls.length; i++) numEls[i].remove();
+                return;
+            }
+
+            // Вариант 2: если цифры в текстовом узле
+            const matches = [...td.textContent.matchAll(/\b(\d+(\.\d+)?)\b/g)];
+            if (matches.length >= 3) {
+                const totalEarned = Math.round(matches.reduce((acc, m) => acc + parseFloat(m[1]), 0) * 100) / 100;
+                for (const node of Array.from(td.childNodes)) {
+                    if (node.nodeType === Node.TEXT_NODE && /\b\d/.test(node.textContent)) {
+                        const tail = node.textContent.replace(/^.*?(\s*[-–—]?\s*\|\s*[ПНH]|$)/, '$1');
+                        const frag = document.createDocumentFragment();
+                        frag.appendChild(document.createTextNode(totalEarned));
+                        frag.appendChild(createBadge(totalMax));
+                        frag.appendChild(document.createTextNode(tail));
+                        node.replaceWith(frag);
+                        return;
+                    }
+                }
+            }
+        }
+
+        let gradeIndex = 0;
+
+        // А. Если оценка лежит в отдельном элементе
+        const leafElements = qsa('.lesson-realization:not(.present):not(.absent)', td);
+        for (const el of leafElements) {
+            const txt = el.textContent.trim();
+            if (/^\d+(\.\d+)?$/.test(txt)) {
+                if (gradeIndex < maxList.length) {
+                    const max = maxList[gradeIndex++];
+                    const val = parseFloat(txt);
+
+                    if (val >= max) {
+                        el.classList.add('mse-max-done');
+                    } else {
+                        el.appendChild(createBadge(max));
+                    }
+                }
+            }
+        }
+
+        if (gradeIndex > 0) return;
+
+        // Б. Если внутри текстовый узел
+        for (const node of Array.from(td.childNodes)) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const val = node.textContent;
+                const regex = /\b(\d+(\.\d+)?)\b/g;
+                let match;
+                const matches = [];
+
+                while ((match = regex.exec(val)) !== null) {
+                    matches.push({ num: match[1], index: match.index });
+                }
+
+                if (matches.length > 0) {
+                    const fragment = document.createDocumentFragment();
+                    let lastIdx = 0;
+
+                    for (const m of matches) {
+                        if (gradeIndex >= maxList.length) break;
+                        const max = maxList[gradeIndex++];
+                        const numVal = parseFloat(m.num);
+
+                        fragment.appendChild(document.createTextNode(val.substring(lastIdx, m.index)));
+
+                        if (numVal >= max) {
+                            const maxSpan = document.createElement('span');
+                            maxSpan.className = 'mse-max-done';
+                            maxSpan.textContent = m.num;
+                            fragment.appendChild(maxSpan);
+                        } else {
+                            const numSpan = document.createElement('span');
+                            numSpan.className = 'lesson-realization';
+                            numSpan.textContent = m.num;
+                            numSpan.appendChild(createBadge(max));
+                            fragment.appendChild(numSpan);
+                        }
+
+                        lastIdx = m.index + m.num.length;
+                    }
+
+                    if (lastIdx < val.length) {
+                        let tail = val.substring(lastIdx).replace(/^(\s*[-–—])/, '\u00A0$1');
+                        fragment.appendChild(document.createTextNode(tail));
+                    }
+
+                    node.replaceWith(fragment);
+                    return;
+                }
+            }
+        }
+    }
+
+    // 3. Обновление таблицы оценок
+    function enhanceGradesTable() {
+        if (!window.location.href.includes('/my-results')) return;
+        if (mseCourseRealizationsMap.size === 0 || mseLessonMaxGrades.size === 0) return;
+
+        const meetingColumns = [];
+        const ths = qsa('table thead th, .p-datatable-thead th, .ui-table-thead th');
+        ths.forEach((th, idx) => {
+            const match = th.textContent.match(/Встреча\s*(\d+)/i);
+            if (match) {
+                meetingColumns.push({ colIndex: idx, meetingNumber: parseInt(match[1], 10) });
+            }
+        });
+
+        if (meetingColumns.length === 0) return;
+
+        const rows = qsa('table tbody tr, .p-datatable-tbody > tr, .ui-table-tbody > tr');
+        rows.forEach(row => {
+            const rowText = normalizeName(row.textContent);
+            let matchedLessons = null;
+
+            for (const [courseName, lessons] of mseCourseRealizationsMap.entries()) {
+                if (rowText.includes(courseName)) {
+                    matchedLessons = lessons;
+                    break;
+                }
+            }
+
+            if (!matchedLessons) return;
+
+            const tds = qsa('td', row);
+            meetingColumns.forEach(({ colIndex, meetingNumber }) => {
+                const td = tds[colIndex];
+                if (!td) return;
+
+                const lesson = matchedLessons[meetingNumber - 1];
+                if (!lesson) return;
+
+                const maxVal = mseLessonMaxGrades.get(lesson.id);
+                if (maxVal) {
+                    injectMaxGradeBadge(td, maxVal);
+                }
+            });
+        });
+    }
+
+    // 4. Обновление всплывающего тултипа
+    function enhancePopovers() {
+        qsa('ngb-popover-window, .popover, [role="tooltip"]').forEach(popover => {
+            if (popover.hasAttribute('data-mse-enhanced')) return;
+
+            const allEls = qsa('*', popover);
+            let matchedMaxList = null;
+
+            for (const el of allEls) {
+                if (el.children.length === 0) {
+                    const name = normalizeName(el.textContent);
+                    if (mseLessonNameToMaxGrade.has(name)) {
+                        matchedMaxList = mseLessonNameToMaxGrade.get(name);
+                        break;
+                    }
+                }
+            }
+
+            if (matchedMaxList && matchedMaxList.length > 0) {
+                let maxIdx = 0;
+                for (const el of allEls) {
+                    if (el.children.length === 0) {
+                        const txt = el.textContent.trim();
+
+                        // 1. Выставленная оценка
+                        if (/^\d+(\.\d+)?$/.test(txt)) {
+                            if (maxIdx < matchedMaxList.length) {
+                                el.textContent = `${txt} / ${matchedMaxList[maxIdx++]}`;
+                            }
+                        }
+                        // 2. Еще несданная пара (тире) -> показываем "— / макс"
+                        else if (/^[-–—]$/.test(txt)) {
+                            if (maxIdx < matchedMaxList.length) {
+                                el.textContent = `— / ${matchedMaxList[maxIdx++]}`;
+                                el.style.opacity = '0.6';
+                            }
+                        }
+                    }
+                }
+                popover.setAttribute('data-mse-enhanced', 'true');
+            }
+        });
+    }
+
     const debouncedMutationHandler = () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
@@ -923,6 +1208,8 @@
             enhanceLists();
             enhanceBuildingNames();
             renderFooterFeedback();
+            enhanceGradesTable();
+            enhancePopovers();
 
             if (qs('.main-calendar-form') && !qs('#enhancer-search-container')) setupUI();
 
@@ -1228,6 +1515,50 @@
         }
         #mse-dismiss-btn:hover { background: #dee2e6; }
         @keyframes mseSlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        /* 1. Ширина колонок встреч */
+        th.text-center:not(.p-frozen-column) {
+            width: 105px !important;
+            min-width: 105px !important;
+        }
+
+        /* 2. Общий контейнер ячейки (бывший td.style) */
+        .lesson-realization-wrap {
+            font-size: 12px !important;
+            overflow: visible !important;
+        }
+
+        /* 3. Цифра оценки (бывшие el.style.width / maxWidth / overflow / fontSize) */
+        .lesson-realization:not(.present):not(.absent) {
+            font-size: 12px !important;
+            width: auto !important;
+            max-width: none !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+        }
+
+        /* 4. Максимальная оценка с зелёным подчёркиванием */
+        .mse-max-done {
+            color: #1e293b !important;
+            border-bottom: 2px solid #1c9b4a !important;
+            padding-bottom: 1px !important;
+            font-weight: 500 !important;
+            margin-right: 3px !important;
+            display: inline-block !important;
+        }
+
+        /* 5. Дробь /максимум (бывший badge.style.cssText) */
+        .mse-max-grade {
+            color: #718096 !important;
+            font-size: 10px !important;
+            font-weight: 500 !important;
+            margin-left: 2px !important;
+            margin-right: 3px !important;
+            display: inline !important;
+            vertical-align: baseline !important;
+            line-height: 1 !important;
+            white-space: nowrap !important;
+        }
     `;
     document.head.appendChild(style);
 
