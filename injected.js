@@ -1013,7 +1013,11 @@
             if (numEls.length >= 3) {
                 const totalEarned = Math.round(numEls.reduce((acc, el) => acc + parseFloat(el.textContent), 0) * 100) / 100;
                 numEls[0].innerHTML = `${totalEarned}`;
-                numEls[0].appendChild(createBadge(totalMax));
+                if (totalEarned >= totalMax) {
+                    numEls[0].classList.add('mse-max-done');
+                } else {
+                    numEls[0].appendChild(createBadge(totalMax));
+                }
                 for (let i = 1; i < numEls.length; i++) numEls[i].remove();
                 return;
             }
@@ -1026,8 +1030,15 @@
                     if (node.nodeType === Node.TEXT_NODE && /\b\d/.test(node.textContent)) {
                         const tail = node.textContent.replace(/^.*?(\s*[-–—]?\s*\|\s*[ПНH]|$)/, '$1');
                         const frag = document.createDocumentFragment();
-                        frag.appendChild(document.createTextNode(totalEarned));
-                        frag.appendChild(createBadge(totalMax));
+                        if (totalEarned >= totalMax) {
+                            const maxSpan = document.createElement('span');
+                            maxSpan.className = 'mse-max-done';
+                            maxSpan.textContent = totalEarned;
+                            frag.appendChild(maxSpan);
+                        } else {
+                            frag.appendChild(document.createTextNode(totalEarned));
+                            frag.appendChild(createBadge(totalMax));
+                        }
                         frag.appendChild(document.createTextNode(tail));
                         node.replaceWith(frag);
                         return;
