@@ -1126,11 +1126,16 @@
         if (mseCourseRealizationsMap.size === 0 || mseLessonMaxGrades.size === 0) return;
 
         const meetingColumns = [];
+        let currentTotalColIndex = -1;
         const ths = qsa('table thead th, .p-datatable-thead th, .ui-table-thead th');
         ths.forEach((th, idx) => {
             const match = th.textContent.match(/Встреча\s*(\d+)/i);
             if (match) {
                 meetingColumns.push({ colIndex: idx, meetingNumber: parseInt(match[1], 10) });
+            }
+            // Запоминаем индекс колонки "Текущий итог"
+            if (th.textContent.includes('Текущий итог')) {
+                currentTotalColIndex = idx;
             }
         });
 
@@ -1151,6 +1156,72 @@
             if (!matchedLessons) return;
 
             const tds = qsa('td', row);
+            // Скрытая кнопка на "Текущий итог" (двойной клик)
+            if (currentTotalColIndex !== -1 && tds[currentTotalColIndex]) {
+                const totalTd = tds[currentTotalColIndex];
+                const currentTotalNum = parseFloat(totalTd.textContent.trim());
+
+                if (!isNaN(currentTotalNum) && !totalTd.dataset.mseDblclickAttached) {
+                    totalTd.dataset.mseDblclickAttached = '1';
+
+                    totalTd.addEventListener('dblclick', (e) => {
+                        e.stopPropagation();
+                        const isLost = totalTd.dataset.mseLostMode === '1';
+
+                        if (!isLost) {
+                            // Считаем ТОЧНО в момент клика, когда все базы уже в памяти!
+                            let totalLost = 0;
+
+                            meetingColumns.forEach(({ colIndex, meetingNumber }) => {
+                                const mLesson = matchedLessons[meetingNumber - 1];
+                                const mTd = tds[colIndex];
+                                if (!mLesson || !mTd) return;
+
+                                const mMaxList = mseLessonMaxGrades.get(mLesson.id);
+                                if (!mMaxList) return;
+                                const maxArr = Array.isArray(mMaxList) ? mMaxList : [mMaxList];
+
+                                // Клонируем ячейку и удаляем наши бейджи, чтобы посчитать чистые оценки студента
+                                const clone = mTd.cloneNode(true);
+                                clone.querySelectorAll('.mse-max-grade').forEach(b => b.remove());
+
+                                const gradePart = clone.textContent.split('|')[0] || '';
+                                const matches = [...gradePart.matchAll(/\b(\d+(\.\d+)?)\b/g)];
+
+                                // Если пара была с 3+ оценками (суммированная)
+                                if (maxArr.length >= 3 && matches.length === 1) {
+                                    const sumMax = maxArr.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+                                    const earned = parseFloat(matches[0][1]);
+                                    if (!isNaN(earned) && sumMax > earned) totalLost += (sumMax - earned);
+                                    return;
+                                }
+
+                                // Для обычных пар: считаем недополученное только по реально сданным точкам
+                                matches.forEach((m, idx) => {
+                                    const num = parseFloat(m[1]);
+                                    if (!isNaN(num) && idx < maxArr.length) {
+                                        const maxVal = maxArr[idx];
+                                        if (maxVal > num) totalLost += (maxVal - num);
+                                    }
+                                });
+                            });
+
+                            const lostPoints = Math.round(totalLost * 100) / 100;
+                            totalTd.dataset.mseOrigText = totalTd.textContent.trim();
+                            totalTd.dataset.mseLostMode = '1';
+
+                            if (lostPoints > 0) {
+                                totalTd.innerHTML = `<span style="color: #ff3b30; font-weight: 500;">-${lostPoints}</span>`;
+                            } else {
+                                totalTd.innerHTML = `<span style="color: #34c759; font-weight: 500;">0.00</span>`;
+                            }
+                        } else {
+                            totalTd.innerHTML = totalTd.dataset.mseOrigText;
+                            totalTd.dataset.mseLostMode = '0';
+                        }
+                    });
+                }
+            }
             meetingColumns.forEach(({ colIndex, meetingNumber }) => {
                 const td = tds[colIndex];
                 if (!td) return;
