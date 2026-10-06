@@ -5,3 +5,7 @@
 Thumbs.db
 node_modules/
 .vscode/
+
+.agents/
+.lore/
+_metadata/

@@ -1,5 +1,6 @@
 ﻿(() => {
-    const CURRENT_VERSION = document.querySelector('meta[name="modeus-enhancer-version"]')?.content || '0.0.0';
+    const META_VERSION = 'modeus-enhancer-version';
+    const CURRENT_VERSION = document.querySelector(`meta[name="${META_VERSION}"]`)?.content || '0.0.0';
 
     console.log(
         `%c Modeus Enhancer %c v${CURRENT_VERSION} `,
@@ -17,24 +18,102 @@
         return;
     }
 
+    // DOM-метатеги (мост данных Base64 из content.js, ADR-002)
+    const META_BUILDINGS = 'modeus-buildings-map';
+    const META_REVIEWS = 'modeus-teacher-reviews';
+
+    // Внешние сервисы и репозиторий
+    const GITHUB_USER = 'student1245';
+    const GITHUB_REPO = 'Modeus-Student-Enhancer';
+    const FEEDBACK_BOT_URL = 'https://t.me/Theguestroom_bot';
+
+    // Ключи локальных хранилищ (localStorage / sessionStorage)
+    const STORAGE_KEY_FRIENDS = 'mse_friends_list';
+    const FRIENDS_STORAGE_KEY = STORAGE_KEY_FRIENDS; // обратная совместимость
+    const STORAGE_KEY_AUTH_BACKUP = 'mse_auth_backup';
+    const STORAGE_KEY_MY_SPECIALTY = 'mse_my_specialty';
+    const STORAGE_KEY_MY_PROFILE = 'mse_my_profile';
+    const STORAGE_KEY_MY_PERSON_ID = 'mse_my_person_id';
+    const STORAGE_KEY_LAST_UPDATE_CHECK = 'mse_last_update_check';
+    const STORAGE_KEY_LATEST_RELEASE = 'mse_latest_release';
+    const STORAGE_KEY_DISMISSED_UPDATE_PREFIX = 'mse_dismissed_v';
+
+    // Авторизация OAuth 2.0 и Session Keeper (ADR-001)
+    const OAUTH_CLIENT_ID = 'sKir7YQnOUu4G0eCfn3tTxnBfzca';
+    const OAUTH_REDIRECT_URI = 'https://utmn.modeus.org/';
+    const OAUTH_AUTH_URL = 'https://auth.modeus.org/oauth2/authorize';
+    const AUTH_STORAGE_KEYS = [
+        'access_token',
+        'access_token_stored_at',
+        'expires_at',
+        'id_token',
+        'id_token_claims_obj',
+        'id_token_expires_at',
+        'id_token_stored_at',
+        'nonce',
+        'session_state'
+    ];
+
+    // Эндпоинты Modeus API и GitHub API
+    const API_BASE = 'https://utmn.modeus.org';
+    const API_CALENDAR_SEARCH = `${API_BASE}/schedule-calendar-v2/api/calendar/events/search?tz=Asia/Tyumen`;
+    const API_CALENDAR_EVENTS = `${API_BASE}/schedule-calendar-v2/api/calendar/events`;
+    const API_COURSES = `${API_BASE}/courses/api/course-units`;
+    const API_BOOKING = `${API_BASE}/course-unit-booking/api/v1/students`;
+    const API_GITHUB_LATEST = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/releases/latest`;
+
+    // Интервалы времени и лимиты
+    const SESSION_CHECK_INTERVAL_MS = 20000;              // Проверка жизни токена каждые 20 сек
+    const SESSION_REFRESH_THRESHOLD_SEC = 60;             // Порог запуска тихой сессии (за 60 сек)
+    const SESSION_BURN_THRESHOLD_SEC = 90;                // Порог дожигания сервером старого токена
+    const SESSION_SMART_WAIT_MARGIN_SEC = 3;              // Запас ожидания истечения токена в секундах
+    const SESSION_POLL_INTERVAL_MS = 50;                  // Опрос хэша фрейма каждые 50 мс
+    const SESSION_IFRAME_TIMEOUT_MS = 12000;              // Таймаут ожидания фрейма обновления
+    const DOM_CHECK_READY_INTERVAL_MS = 200;              // Опрос готовности календаря при старте
+    const MUTATION_DEBOUNCE_DELAY_MS = 250;               // Дебаунс реакции на мутации DOM
+    const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000;  // Кэш проверки релизов GitHub (2 часа)
+    const SEARCH_SUGGESTIONS_LIMIT = 7;                   // Максимум подсказок студентов в поиске
+    const PE_SCHEDULE_DAYS = 21;                          // Горизонт дней для расписания физкультуры
+
+    // Идентификаторы элементов DOM
+    const ID_SILENT_REFRESHER = 'mse-silent-refresher';
+    const ID_SEARCH_CONTAINER = 'enhancer-search-container';
+    const ID_STOP_BUTTON = 'enhancer-stop-button';
+    const ID_TEACHER_TOOLTIP = 'teacher-tooltip';
+    const ID_STYLES = 'enhancer-styles';
+    const ID_FRIENDS_MENU = 'mse-friends-menu';
+    const ID_RETURN_TO_ME_MENU = 'mse-return-to-me-menu';
+    const ID_UPDATE_BADGE = 'mse-update-badge';
+    const ID_UPDATE_POPUP = 'mse-update-popup';
+    const ID_FEEDBACK_FOOTER = 'mse-feedback-footer';
+    const ID_OPEN_PE_BTN = 'mse-open-pe-btn';
+
+    // Справочники корпусов и отзывы
     let buildingMap = {};
     let teacherReviews = new Map();
+
+    // Профиль пользователя
+    let mySpecialty = localStorage.getItem(STORAGE_KEY_MY_SPECIALTY) || null;
+    let myProfile = localStorage.getItem(STORAGE_KEY_MY_PROFILE) || null;
+    let myPersonId = localStorage.getItem(STORAGE_KEY_MY_PERSON_ID) || null;
+
+    // Календарь и поиск общих пар
+    let currentWeekStart = null;
+    let currentEventId = null;
     let eventCache = new Map();
     let uniqueStudents = new Map();
     let lastSearchResults = new Map();
-    let currentEventId = null;
     let selectedStudents = new Set();
-    let debounceTimer;
-    const FRIENDS_STORAGE_KEY = 'mse_friends_list';
-    let mySpecialty = localStorage.getItem('mse_my_specialty') || null;
-    let myProfile = localStorage.getItem('mse_my_profile') || null;
-    let myPersonId = localStorage.getItem('mse_my_person_id') || null;
-    let currentWeekStart = null;
 
-    let mseCourseRealizationsMap = new Map(); // Название предмета -> список пар по порядку
-    let mseLessonMaxGrades = new Map();        // lessonId -> максимальный балл
-    let mseLessonNameToMaxGrade = new Map();   // Название пары -> максимальный балл
-    let mseLoadedCourseUnits = new Set();      // Защита от повторных скачиваний
+    // Успеваемость и технологические карты
+    let mseCourseRealizationsMap = new Map();
+    let mseLessonMaxGrades = new Map();
+    let mseLessonNameToMaxGrade = new Map();
+    let mseLoadedCourseUnits = new Set();
+
+    // Служебные переменные
+    let debounceTimer;
+    let lastPeData = null;
 
     const qs = (sel, root = document) => root.querySelector(sel);
     const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -117,9 +196,142 @@
     }
     interceptNetworkRequests();
 
+    let isSilentRefreshing = false;
+    let smartWaitTimer = null;
+
+    function saveAuthTokensBackup() {
+        const token = sessionStorage.getItem('access_token');
+        if (!token) return;
+
+        const backupData = {};
+        AUTH_STORAGE_KEYS.forEach(key => {
+            const val = sessionStorage.getItem(key);
+            if (val !== null) backupData[key] = val;
+        });
+
+        try {
+            localStorage.setItem(STORAGE_KEY_AUTH_BACKUP, JSON.stringify(backupData));
+        } catch (e) {
+            console.warn('[MSE Keeper] Не удалось сохранить бэкап сессии', e);
+        }
+    }
+
+    function triggerSilentRefresh() {
+        if (isSilentRefreshing) return;
+        isSilentRefreshing = true;
+
+        console.log('[MSE Keeper] Сессия скоро истекает. Запуск тихого фонового продления...');
+
+        const redirectUri = encodeURIComponent(OAUTH_REDIRECT_URI);
+        const nonce = Math.random().toString(36).substring(2);
+        const state = Math.random().toString(36).substring(2);
+
+        const authUrl = `${OAUTH_AUTH_URL}?response_type=id_token%20token&client_id=${OAUTH_CLIENT_ID}&state=${state}&redirect_uri=${redirectUri}&scope=openid&nonce=${nonce}`;
+
+        const ifr = document.createElement('iframe');
+        ifr.id = ID_SILENT_REFRESHER;
+        ifr.style.cssText = 'position: absolute !important; width: 0 !important; height: 0 !important; border: none !important; display: none !important;';
+        ifr.src = authUrl;
+        document.body.appendChild(ifr);
+
+        let resolved = false;
+
+        const checkTokens = () => {
+            if (resolved) return;
+            try {
+                const hash = ifr.contentWindow?.location?.hash;
+                if (hash && hash.includes('access_token')) {
+                    resolved = true;
+                    clearInterval(pollTimer);
+
+                    const params = new URLSearchParams(hash.replace(/^#/, ''));
+                    const accessToken = params.get('access_token');
+                    const idToken = params.get('id_token');
+                    const expiresIn = Number(params.get('expires_in') || 3600);
+                    const sessionState = params.get('session_state');
+
+                    if (accessToken) {
+                        const oldToken = sessionStorage.getItem('access_token');
+                        const now = Date.now();
+                        const expiresAt = now + expiresIn * 1000;
+
+                        sessionStorage.setItem('access_token', accessToken);
+                        sessionStorage.setItem('access_token_stored_at', String(now));
+                        sessionStorage.setItem('expires_at', String(expiresAt));
+                        if (idToken) sessionStorage.setItem('id_token', idToken);
+                        if (sessionState) sessionStorage.setItem('session_state', sessionState);
+
+                        saveAuthTokensBackup();
+
+                        // 1. Если сервер все еще дожигает старый токен:
+                        if (accessToken === oldToken && expiresIn <= SESSION_BURN_THRESHOLD_SEC) {
+                            console.log(`[MSE Keeper] Сервер еще дожигает старый токен (осталось ${expiresIn} сек). Ждем точного завершения...`);
+                            clearTimeout(smartWaitTimer);
+                            smartWaitTimer = setTimeout(() => {
+                                smartWaitTimer = null;
+                                triggerSilentRefresh();
+                            }, (expiresIn + SESSION_SMART_WAIT_MARGIN_SEC) * 1000);
+                        } else {
+                            // 2. УСПЕХ: сбрасываем любые таймеры ожидания!
+                            clearTimeout(smartWaitTimer);
+                            smartWaitTimer = null;
+
+                            const totalMin = Math.round(expiresIn / 60);
+                            console.log(`%c[MSE Keeper] Токен успешно продлен в фоне! Новый срок жизни: ~${totalMin} мин.`, 'color: #00dd00; font-weight: bold;');
+                        }
+                    }
+
+                    ifr.remove();
+                    isSilentRefreshing = false;
+                }
+            } catch (e) { }
+        };
+
+        const pollTimer = setInterval(checkTokens, SESSION_POLL_INTERVAL_MS);
+        ifr.onload = checkTokens;
+
+        setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                clearInterval(pollTimer);
+                ifr.remove();
+                isSilentRefreshing = false;
+                console.warn('[MSE Keeper] Тайм-аут фонового обновления');
+            }
+        }, SESSION_IFRAME_TIMEOUT_MS);
+    }
+
+    // Мониторим здоровье токена каждые 20 секунд
+    function monitorSessionHealth() {
+        saveAuthTokensBackup();
+
+        // ВАЖНО: Если мы уже завели точный таймер ожидания смерти токена — не лезем параллельно!
+        if (smartWaitTimer) return;
+
+        const expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
+        if (!expiresAt) return;
+
+        const secondsLeft = Math.round((expiresAt - Date.now()) / 1000);
+
+        // Обновляем за 60 секунд до конца
+        if (secondsLeft <= SESSION_REFRESH_THRESHOLD_SEC) {
+            triggerSilentRefresh();
+        }
+    }
+
+    saveAuthTokensBackup();
+    setInterval(monitorSessionHealth, SESSION_CHECK_INTERVAL_MS);
+
+    // Удаляем бэкап при явном выходе
+    window.addEventListener('click', (e) => {
+        if (e.target.closest('a[href*="logout"], button[id*="logout"], .logout-btn')) {
+            localStorage.removeItem(STORAGE_KEY_AUTH_BACKUP);
+        }
+    });
+
     (function loadDataFromMeta() {
         try {
-            const buildingsMeta = qs('meta[name="modeus-buildings-map"]');
+            const buildingsMeta = qs(`meta[name="${META_BUILDINGS}"]`);
             if (buildingsMeta?.content) {
                 const json = decodeURIComponent(escape(atob(buildingsMeta.content)));
                 buildingMap = JSON.parse(json) || {};
@@ -127,7 +339,7 @@
             }
         } catch (e) { console.warn('[MSE] Ошибка загрузки buildings.json', e); }
         try {
-            const reviewsMeta = qs('meta[name="modeus-teacher-reviews"]');
+            const reviewsMeta = qs(`meta[name="${META_REVIEWS}"]`);
             if (reviewsMeta?.content) {
                 const json = decodeURIComponent(escape(atob(reviewsMeta.content)));
                 teacherReviews = new Map(Object.entries(JSON.parse(json) || {}));
@@ -184,8 +396,8 @@
         if (!mainMenuContainer) { return; }
 
         // Удаляем старые панели, если они были
-        qs('#mse-friends-menu')?.remove();
-        qs('#mse-return-to-me-menu')?.remove();
+        qs(`#${ID_FRIENDS_MENU}`)?.remove();
+        qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
 
         const friends = getFriends();
         const friendListHTML = friends.length > 0
@@ -201,7 +413,7 @@
 
         // 1. Панель «Друзья» (цельная, нормальный выпадающий список)
         const friendsMenuPanel = document.createElement('div');
-        friendsMenuPanel.id = 'mse-friends-menu';
+        friendsMenuPanel.id = ID_FRIENDS_MENU;
         friendsMenuPanel.className = 'p-panelmenu-panel ng-star-inserted';
         friendsMenuPanel.innerHTML = `
             <div class="p-component p-panelmenu-header">
@@ -221,7 +433,7 @@
         // 2. Отдельная панель «Вернуться к себе» — идет строго ПОД блоком друзей
         if (myPersonId) {
             const returnMenuPanel = document.createElement('div');
-            returnMenuPanel.id = 'mse-return-to-me-menu';
+            returnMenuPanel.id = ID_RETURN_TO_ME_MENU;
             returnMenuPanel.className = 'p-panelmenu-panel ng-star-inserted';
             returnMenuPanel.innerHTML = `
                 <div class="p-component p-panelmenu-header">
@@ -258,7 +470,7 @@
 
     const renderFooterFeedback = () => {
         const aside = qs('modeus-aside-panel');
-        if (!aside || qs('#mse-feedback-footer')) return;
+        if (!aside || qs(`#${ID_FEEDBACK_FOOTER}`)) return;
 
         // Находим строку с почтой техподдержки Modeus
         const mailEl = qsa('modeus-aside-panel *').find(el =>
@@ -267,11 +479,11 @@
 
         if (mailEl) {
             const feedbackDiv = document.createElement('div');
-            feedbackDiv.id = 'mse-feedback-footer';
+            feedbackDiv.id = ID_FEEDBACK_FOOTER;
             feedbackDiv.style.cssText = 'margin-top: 10px; margin-bottom: 10px; font-size: 12px; line-height: 1.4;';
             feedbackDiv.innerHTML = `
                 <div style="opacity: 0.85;">Баги и отзывы (Enhancer):</div>
-                <a href="https://t.me/Theguestroom_bot" target="_blank" style="color: #f0f4f7; text-decoration: underline;">
+                <a href="${FEEDBACK_BOT_URL}" target="_blank" style="color: #f0f4f7; text-decoration: underline;">
                     Telegram: @Theguestroom_bot
                 </a>
             `;
@@ -401,11 +613,12 @@
         if (window.studentEnhancer.originalXhrSend) XMLHttpRequest.prototype.send = window.studentEnhancer.originalXhrSend;
         if (window.studentEnhancer.originalPushState) history.pushState = window.studentEnhancer.originalPushState;
         window.removeEventListener('popstate', processUrlChange);
-        qs('#enhancer-search-container')?.remove();
-        qs('#teacher-tooltip')?.remove();
-        qs('#enhancer-stop-button')?.remove();
-        qs('#enhancer-styles')?.remove();
-        qs('#mse-friends-menu')?.remove();
+        qs(`#${ID_SEARCH_CONTAINER}`)?.remove();
+        qs(`#${ID_TEACHER_TOOLTIP}`)?.remove();
+        qs(`#${ID_STOP_BUTTON}`)?.remove();
+        qs(`#${ID_STYLES}`)?.remove();
+        qs(`#${ID_FRIENDS_MENU}`)?.remove();
+        qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
         clearSearch();
         delete window.studentEnhancer;
         console.log('%c[MSE] Скрипт остановлен.', 'color: red; font-weight: bold;');
@@ -458,10 +671,10 @@
         qsa('.teachers-list li > div:not(.title) div:not([data-enhanced-teacher])').forEach(div => {
             const teacherName = normalizeName(div.textContent);
             div.addEventListener('mouseenter', (e) => {
-                let tooltip = qs('#teacher-tooltip');
+                let tooltip = qs(`#${ID_TEACHER_TOOLTIP}`);
                 if (!tooltip) {
                     tooltip = document.createElement('div');
-                    tooltip.id = 'teacher-tooltip';
+                    tooltip.id = ID_TEACHER_TOOLTIP;
                     document.body.appendChild(tooltip);
                 }
                 const review = teacherReviews.get(teacherName);
@@ -471,7 +684,7 @@
                 tooltip.style.top = `${window.scrollY + rect.bottom + 5}px`;
                 tooltip.style.display = 'block';
             });
-            div.addEventListener('mouseleave', () => qs('#teacher-tooltip')?.remove());
+            div.addEventListener('mouseleave', () => qs(`#${ID_TEACHER_TOOLTIP}`)?.remove());
             div.setAttribute('data-enhanced-teacher', 'true');
         });
     };
@@ -587,7 +800,7 @@
         });
 
         if (matches.length > 0) {
-            suggestionsBox.innerHTML = matches.slice(0, 7).map(s =>
+            suggestionsBox.innerHTML = matches.slice(0, SEARCH_SUGGESTIONS_LIMIT).map(s =>
                 `<div class="suggestion-item" data-name="${s.fullName}">
                     <div class="suggestion-name">${s.fullName}</div>
                     <div class="suggestion-details">${s.details}</div>
@@ -652,7 +865,7 @@
             const myJwtPersonId = parseJwt(token).person_id || parseJwt(token).sub;
 
             myPersonId = myJwtPersonId;
-            localStorage.setItem('mse_my_person_id', myPersonId);
+            localStorage.setItem(STORAGE_KEY_MY_PERSON_ID, myPersonId);
 
             const activePersonId = getActiveCalendarPersonId(myJwtPersonId);
 
@@ -673,7 +886,7 @@
             if (statusEl) statusEl.textContent = '1/2: Загрузка событий...';
 
             // Запрашиваем события именно того человека, чей календарь открыт на экране!
-            const eventsResponse = await fetch("https://utmn.modeus.org/schedule-calendar-v2/api/calendar/events/search?tz=Asia/Tyumen", {
+            const eventsResponse = await fetch(API_CALENDAR_SEARCH, {
                 method: "POST",
                 headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
                 body: JSON.stringify({ size: 500, timeMin, timeMax, attendeePersonId: [activePersonId] })
@@ -700,7 +913,7 @@
             uniqueStudents.clear();
 
             const attendeePromises = events.map(event =>
-                fetch(`https://utmn.modeus.org/schedule-calendar-v2/api/calendar/events/${event.id}/attendees`, { headers: { "authorization": `Bearer ${token}` } })
+                fetch(`${API_CALENDAR_EVENTS}/${event.id}/attendees`, { headers: { "authorization": `Bearer ${token}` } })
                     .then(res => res.ok ? res.json() : [])
                     .then(attendees => {
                         loadedCount++;
@@ -719,11 +932,11 @@
                         if (s.personId === myJwtPersonId) {
                             if (s.specialtyName) {
                                 mySpecialty = s.specialtyName.trim();
-                                localStorage.setItem('mse_my_specialty', mySpecialty);
+                                localStorage.setItem(STORAGE_KEY_MY_SPECIALTY, mySpecialty);
                             }
                             if (s.specialtyProfile) {
                                 myProfile = s.specialtyProfile.trim();
-                                localStorage.setItem('mse_my_profile', myProfile);
+                                localStorage.setItem(STORAGE_KEY_MY_PROFILE, myProfile);
                             }
                         }
 
@@ -761,23 +974,20 @@
 
     // ПРОВЕРКА ОБНОВЛЕНИЯ КОДА РАСШИРЕНИЯ
     const checkExtensionUpdate = async () => {
-        const GITHUB_USER = 'student1245';
-        const GITHUB_REPO = 'Modeus-Student-Enhancer';
-
         // Чтобы не спамить запросами к GitHub, проверяем не чаще одного раза в 2 часа
-        const lastCheck = localStorage.getItem('mse_last_update_check');
-        const cachedRelease = localStorage.getItem('mse_latest_release');
+        const lastCheck = localStorage.getItem(STORAGE_KEY_LAST_UPDATE_CHECK);
+        const cachedRelease = localStorage.getItem(STORAGE_KEY_LATEST_RELEASE);
         let releaseData = null;
 
-        if (lastCheck && (Date.now() - Number(lastCheck) < 2 * 60 * 60 * 1000) && cachedRelease) {
+        if (lastCheck && (Date.now() - Number(lastCheck) < UPDATE_CHECK_INTERVAL_MS) && cachedRelease) {
             try { releaseData = JSON.parse(cachedRelease); } catch (e) { }
         } else {
             try {
-                const res = await fetch(`https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/releases/latest`);
+                const res = await fetch(API_GITHUB_LATEST);
                 if (res.ok) {
                     releaseData = await res.json();
-                    localStorage.setItem('mse_latest_release', JSON.stringify(releaseData));
-                    localStorage.setItem('mse_last_update_check', String(Date.now()));
+                    localStorage.setItem(STORAGE_KEY_LATEST_RELEASE, JSON.stringify(releaseData));
+                    localStorage.setItem(STORAGE_KEY_LAST_UPDATE_CHECK, String(Date.now()));
                 }
             } catch (e) { }
         }
@@ -802,9 +1012,9 @@
         if (latestVersion && isNewerVersion(latestVersion, CURRENT_VERSION)) {
             // 1. Маленький бейдж возле поиска
             const controls = qs('#search-controls');
-            if (controls && !qs('#mse-update-badge')) {
+            if (controls && !qs(`#${ID_UPDATE_BADGE}`)) {
                 const badge = document.createElement('a');
-                badge.id = 'mse-update-badge';
+                badge.id = ID_UPDATE_BADGE;
                 badge.href = releaseData.html_url;
                 badge.target = '_blank';
                 badge.title = 'Доступна новая версия расширения!';
@@ -813,9 +1023,9 @@
             }
 
             // 2. Всплывающее предложение (если пользователь не нажимал "Позже" в этой сессии)
-            if (localStorage.getItem('mse_dismissed_v' + latestVersion) !== '1' && !qs('#mse-update-popup')) {
+            if (localStorage.getItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + latestVersion) !== '1' && !qs(`#${ID_UPDATE_POPUP}`)) {
                 const popup = document.createElement('div');
-                popup.id = 'mse-update-popup';
+                popup.id = ID_UPDATE_POPUP;
                 popup.innerHTML = `
                     <div class="mse-update-title">🚀 Доступно обновление Enhancer!</div>
                     <div class="mse-update-text">Вышла версия <b>v${latestVersion}</b> с новыми функциями и исправлениями. Перейдите по ссылке, чтобы узнать, что появилось нового!</div>
@@ -827,7 +1037,7 @@
                 document.body.appendChild(popup);
 
                 qs('#mse-dismiss-btn', popup).addEventListener('click', () => {
-                    localStorage.setItem('mse_dismissed_v' + latestVersion, '1');
+                    localStorage.setItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + latestVersion, '1');
                     popup.remove();
                 });
                 qs('#mse-update-btn', popup).addEventListener('click', () => {
@@ -879,10 +1089,10 @@
 
     const setupUI = () => {
         const toolbar = qs('.main-calendar-form');
-        if (!toolbar || qs('#enhancer-search-container')) return;
+        if (!toolbar || qs(`#${ID_SEARCH_CONTAINER}`)) return;
 
         const container = document.createElement('div');
-        container.id = 'enhancer-search-container';
+        container.id = ID_SEARCH_CONTAINER;
         container.innerHTML = `
             <span id="search-status" style="display: block;"></span>
             <div id="search-controls" style="display: none;">
@@ -962,7 +1172,7 @@
             if (mseLoadedCourseUnits.has(cuId)) return;
             mseLoadedCourseUnits.add(cuId);
 
-            fetch(`https://utmn.modeus.org/courses/api/course-units/${cuId}/lessons-technology`, {
+            fetch(`${API_COURSES}/${cuId}/lessons-technology`, {
                 headers: { "authorization": `Bearer ${token}` }
             })
                 .then(r => r.json())
@@ -1293,7 +1503,7 @@
             enhanceGradesTable();
             enhancePopovers();
 
-            if (qs('.main-calendar-form') && !qs('#enhancer-search-container')) setupUI();
+            if (qs('.main-calendar-form') && !qs(`#${ID_SEARCH_CONTAINER}`)) setupUI();
 
             // Если выбран хоть один человек — всегда держим подсветку включенной (даже если кликнули на пару)
             if (selectedStudents.size > 0) {
@@ -1303,9 +1513,9 @@
             if (window.location.href.includes('/learning-path-selection/menus/')) {
                 const mainHeader = Array.from(document.querySelectorAll('h2, h1')).find(el => el.textContent.includes('Физическая культура'));
 
-                if (mainHeader && !document.getElementById('mse-open-pe-btn')) {
+                if (mainHeader && !document.getElementById(ID_OPEN_PE_BTN)) {
                     const peBtn = document.createElement('button');
-                    peBtn.id = 'mse-open-pe-btn';
+                    peBtn.id = ID_OPEN_PE_BTN;
                     peBtn.innerHTML = '⚡ Умный подбор секций';
                     peBtn.style.cssText = 'margin-left: 15px; background: #2563eb; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2); transition: background 0.15s; white-space: nowrap;';
 
@@ -1328,7 +1538,7 @@
                             const token = sessionStorage.getItem('id_token');
 
                             // 1. Получаем меню кампании (узнаем ID модулей 1 и 2 семестра)
-                            const menuRes = await fetch(`https://utmn.modeus.org/course-unit-booking/api/v1/students/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu`, {
+                            const menuRes = await fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu`, {
                                 headers: { "authorization": `Bearer ${token}` }
                             });
                             const menuData = await menuRes.json();
@@ -1339,7 +1549,7 @@
 
                             // 2. Параллельно загружаем все команды для всех найденных модулей
                             const modulePromises = menuData.moduleElements.map(m =>
-                                fetch(`https://utmn.modeus.org/course-unit-booking/api/v1/students/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu/module-elements/${m.id}`, { headers: { "authorization": `Bearer ${token}` } })
+                                fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu/module-elements/${m.id}`, { headers: { "authorization": `Bearer ${token}` } })
                                     .then(r => r.json())
                             );
                             const allModulesData = await Promise.all(modulePromises);
@@ -1349,9 +1559,9 @@
                             const personId = parseJwt(token).person_id || parseJwt(token).sub;
 
                             const now = new Date();
-                            const future = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
+                            const future = new Date(now.getTime() + PE_SCHEDULE_DAYS * 24 * 60 * 60 * 1000);
 
-                            const schedRes = await fetch("https://utmn.modeus.org/schedule-calendar-v2/api/calendar/events/search?tz=Asia/Tyumen", {
+                            const schedRes = await fetch(API_CALENDAR_SEARCH, {
                                 method: "POST",
                                 headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
                                 body: JSON.stringify({ size: 500, timeMin: now.toISOString(), timeMax: future.toISOString(), attendeePersonId: [personId] })
@@ -1401,25 +1611,25 @@
             }
 
             if (window.location.href.includes('/schedule-calendar/')) {
-                if (qs('modeus-main-menu') && !qs('#mse-friends-menu')) renderFriendsMenu();
+                if (qs('modeus-main-menu') && !qs(`#${ID_FRIENDS_MENU}`)) renderFriendsMenu();
             } else {
-                qs('#mse-friends-menu')?.remove();
-                qs('#mse-return-to-me-menu')?.remove();
+                qs(`#${ID_FRIENDS_MENU}`)?.remove();
+                qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
             }
 
             const header = qs('.event-card-container__header');
-            if (header && !qs('#enhancer-stop-button')) {
+            if (header && !qs(`#${ID_STOP_BUTTON}`)) {
                 const stopButton = document.createElement('span');
-                stopButton.id = 'enhancer-stop-button';
+                stopButton.id = ID_STOP_BUTTON;
                 stopButton.innerHTML = `<i class="fa fa-ban" style="margin-right: 4px;"></i>Стоп-скрипт`;
                 stopButton.addEventListener('click', stopAndCleanUp);
                 header.insertBefore(stopButton, header.firstChild);
             }
-        }, 250);
+        }, MUTATION_DEBOUNCE_DELAY_MS);
     };
 
     const style = document.createElement('style');
-    style.id = 'enhancer-styles';
+    style.id = ID_STYLES;
     style.innerHTML = `
         /* Кнопка Стоп-скрипт */
         #enhancer-stop-button { cursor: pointer; color: #dc3545; opacity: 0.8; } 
@@ -1670,7 +1880,7 @@
                 renderFriendsMenu();
             }
         }
-    }, 200);
+    }, DOM_CHECK_READY_INTERVAL_MS);
 
     console.log('%c[MSE] Скрипт запущен!', 'color: #2196F3; font-size: 16px; font-weight: bold;');
 })();

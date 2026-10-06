@@ -12,12 +12,32 @@
   "permissions": [
     "storage",
     "tabs",
-    "scripting"
+    "scripting",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
-    "https://utmn.modeus.org/*"
+    "https://utmn.modeus.org/*",
+    "https://fs.utmn.ru/*"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
   "content_scripts": [
+    {
+      "matches": [
+        "https://utmn.modeus.org/*"
+      ],
+      "js": [
+        "keeper-early.js"
+      ],
+      "run_at": "document_start"
+    },
     {
       "matches": [
         "https://utmn.modeus.org/*"
