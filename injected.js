@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
     const META_VERSION = 'modeus-enhancer-version';
     const CURRENT_VERSION = document.querySelector(`meta[name="${META_VERSION}"]`)?.content || '0.0.0';
 
@@ -111,13 +111,32 @@
     let mseLessonNameToMaxGrade = new Map();
     let mseLoadedCourseUnits = new Set();
 
-    // Служебные переменные
-    let debounceTimer;
+    // Служебные переменные и таймеры
+    let debounceTimer = null;
+    let checkReadyTimer = null;
+    let sessionHealthInterval = null;
     let lastPeData = null;
+
+    // Сохранение оригинальных нативных методов сети и истории браузера
+    const nativeFetch = window.fetch;
+    const nativeXhrOpen = XMLHttpRequest.prototype.open;
+    const nativeXhrSend = XMLHttpRequest.prototype.send;
+    const nativePushState = history.pushState;
 
     const qs = (sel, root = document) => root.querySelector(sel);
     const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
     const normalizeName = name => name ? name.trim().replace(/\s+/g, ' ').replace(/ё/g, 'е').replace(/Ё/g, 'Е').normalize() : '';
+
+    // Безопасное экранирование HTML для защиты от XSS
+    const escapeHtml = (str) => {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    };
 
     const processPersonSearchResponse = (responseText) => {
         try {
@@ -140,10 +159,9 @@
     };
 
     function interceptNetworkRequests() {
-        const originalFetch = window.fetch;
         window.fetch = async (...args) => {
             const url = args[0] instanceof Request ? args[0].url : args[0];
-            const response = await originalFetch(...args);
+            const response = await nativeFetch(...args);
 
             if (url.includes('/api/people/persons/search')) {
                 const responseText = await response.clone().text();
@@ -162,12 +180,9 @@
             return response;
         };
 
-        const originalXhrOpen = XMLHttpRequest.prototype.open;
-        const originalXhrSend = XMLHttpRequest.prototype.send;
-
         XMLHttpRequest.prototype.open = function (method, url) {
             this._mseUrl = typeof url === 'string' ? url : (url ? url.toString() : '');
-            return originalXhrOpen.apply(this, arguments);
+            return nativeXhrOpen.apply(this, arguments);
         };
 
         XMLHttpRequest.prototype.send = function (body) {
@@ -191,7 +206,7 @@
                     }
                 }
             });
-            originalXhrSend.apply(this, arguments);
+            return nativeXhrSend.apply(this, arguments);
         };
     }
     interceptNetworkRequests();
@@ -320,20 +335,32 @@
     }
 
     saveAuthTokensBackup();
-    setInterval(monitorSessionHealth, SESSION_CHECK_INTERVAL_MS);
+    sessionHealthInterval = setInterval(monitorSessionHealth, SESSION_CHECK_INTERVAL_MS);
 
-    // Удаляем бэкап при явном выходе
-    window.addEventListener('click', (e) => {
+    // Удаляем бэкап при явном выходе (с возможностью снятия слушателя при очистке)
+    const handleLogoutClick = (e) => {
         if (e.target.closest('a[href*="logout"], button[id*="logout"], .logout-btn')) {
             localStorage.removeItem(STORAGE_KEY_AUTH_BACKUP);
         }
-    });
+    };
+    window.addEventListener('click', handleLogoutClick);
+
+    // Безопасное декодирование Base64 в UTF-8 без устаревших escape/unescape
+    const decodeBase64Utf8 = (base64) => {
+        try {
+            const binary = atob(base64);
+            const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+            return new TextDecoder('utf-8').decode(bytes);
+        } catch (e) {
+            return decodeURIComponent(escape(atob(base64)));
+        }
+    };
 
     (function loadDataFromMeta() {
         try {
             const buildingsMeta = qs(`meta[name="${META_BUILDINGS}"]`);
             if (buildingsMeta?.content) {
-                const json = decodeURIComponent(escape(atob(buildingsMeta.content)));
+                const json = decodeBase64Utf8(buildingsMeta.content);
                 buildingMap = JSON.parse(json) || {};
                 console.log('[MSE] Загружено корпусов:', Object.keys(buildingMap).length);
             }
@@ -341,7 +368,7 @@
         try {
             const reviewsMeta = qs(`meta[name="${META_REVIEWS}"]`);
             if (reviewsMeta?.content) {
-                const json = decodeURIComponent(escape(atob(reviewsMeta.content)));
+                const json = decodeBase64Utf8(reviewsMeta.content);
                 teacherReviews = new Map(Object.entries(JSON.parse(json) || {}));
                 console.log('[MSE] Загружено отзывов о преподавателях:', teacherReviews.size);
             }
@@ -403,10 +430,10 @@
         const friendListHTML = friends.length > 0
             ? friends.map(friend => `
                 <li class="p-menuitem ng-star-inserted" style="position: relative;">
-                    <a role="treeitem" class="p-menuitem-link ng-star-inserted" href="${generateFriendUrl(friend.id)}" title="${friend.fullName}">
-                        <span class="p-menuitem-text ng-star-inserted">${friend.fullName}</span>
+                    <a role="treeitem" class="p-menuitem-link ng-star-inserted" href="${generateFriendUrl(friend.id)}" title="${escapeHtml(friend.fullName)}">
+                        <span class="p-menuitem-text ng-star-inserted">${escapeHtml(friend.fullName)}</span>
                     </a>
-                    <span class="mse-remove-friend-btn" data-id="${friend.id}" title="Удалить из друзей">×</span>
+                    <span class="mse-remove-friend-btn" data-id="${escapeHtml(friend.id)}" title="Удалить из друзей">×</span>
                 </li>
             `).join('')
             : '<li class="p-menuitem ng-star-inserted"><a class="p-menuitem-link" style="opacity: 0.6; cursor: default;"><span class="p-menuitem-text">Нет друзей</span></a></li>';
@@ -608,20 +635,41 @@
     };
 
     const stopAndCleanUp = () => {
-        if (window.studentEnhancer?.observer) window.studentEnhancer.observer.disconnect();
-        if (window.studentEnhancer.originalFetch) window.fetch = window.studentEnhancer.originalFetch;
-        if (window.studentEnhancer.originalXhrSend) XMLHttpRequest.prototype.send = window.studentEnhancer.originalXhrSend;
-        if (window.studentEnhancer.originalPushState) history.pushState = window.studentEnhancer.originalPushState;
+        // 1. Остановка наблюдателей и таймеров
+        if (window.studentEnhancer?.observer) {
+            window.studentEnhancer.observer.disconnect();
+        }
+        if (sessionHealthInterval) clearInterval(sessionHealthInterval);
+        if (checkReadyTimer) clearInterval(checkReadyTimer);
+        if (smartWaitTimer) clearTimeout(smartWaitTimer);
+        if (debounceTimer) clearTimeout(debounceTimer);
+
+        // 2. Полное восстановление нативных прототипов и методов браузера
+        window.fetch = nativeFetch;
+        XMLHttpRequest.prototype.open = nativeXhrOpen;
+        XMLHttpRequest.prototype.send = nativeXhrSend;
+        history.pushState = nativePushState;
+
+        // 3. Снятие глобальных обработчиков событий
         window.removeEventListener('popstate', processUrlChange);
+        window.removeEventListener('click', handleLogoutClick);
+
+        // 4. Очистка внедрённых DOM-элементов
         qs(`#${ID_SEARCH_CONTAINER}`)?.remove();
         qs(`#${ID_TEACHER_TOOLTIP}`)?.remove();
         qs(`#${ID_STOP_BUTTON}`)?.remove();
         qs(`#${ID_STYLES}`)?.remove();
         qs(`#${ID_FRIENDS_MENU}`)?.remove();
         qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
+        qs(`#${ID_SILENT_REFRESHER}`)?.remove();
+        qs(`#${ID_UPDATE_BADGE}`)?.remove();
+        qs(`#${ID_UPDATE_POPUP}`)?.remove();
+        qs(`#${ID_FEEDBACK_FOOTER}`)?.remove();
+        qs(`#${ID_OPEN_PE_BTN}`)?.remove();
+
         clearSearch();
         delete window.studentEnhancer;
-        console.log('%c[MSE] Скрипт остановлен.', 'color: red; font-weight: bold;');
+        console.log('%c[MSE] Скрипт полностью остановлен, нативные прототипы и таймеры очищены.', 'color: red; font-weight: bold;');
     };
 
     const enhanceLists = () => {
@@ -654,7 +702,7 @@
                     const tooltipText = myProfile
                         ? `Обучается на вашем направлении и профиле (${myProfile})`
                         : 'Обучается на вашем направлении';
-                    badges += `<span title="${tooltipText}" style="cursor:help; margin-right:4px;">🎓</span>`;
+                    badges += `<span title="${escapeHtml(tooltipText)}" style="cursor:help; margin-right:4px;">🎓</span>`;
                 }
 
                 // Убрал inline-block, теперь фон будет облегать текст без разрыва
@@ -662,8 +710,8 @@
                     customStyle = 'background: rgba(40, 167, 69, 0.3); border-radius: 3px; padding: 0 3px; font-weight: bold; color: #000;';
                 }
 
-                // Сборка: Иконки -> Имя -> Специальность
-                p.innerHTML = `${badges}<span style="${customStyle}">${studentInfo.fullName}</span><span class="student-details">${studentInfo.details}</span>`;
+                // Сборка: Иконки -> Имя -> Специальность с безопасным экранированием
+                p.innerHTML = `${badges}<span style="${customStyle}">${escapeHtml(studentInfo.fullName)}</span><span class="student-details">${escapeHtml(studentInfo.details)}</span>`;
                 p.setAttribute('data-enhanced', 'true');
             }
         });
@@ -678,7 +726,12 @@
                     document.body.appendChild(tooltip);
                 }
                 const review = teacherReviews.get(teacherName);
-                tooltip.innerHTML = review ? `<div class="tooltip-header">${review.emoji} ${review.type}</div><div class="tooltip-body">${review.review}</div>` : `<div class="tooltip-header">🤔</div><div class="tooltip-body">Нет информации об этом преподавателе.</div>`;
+                if (review) {
+                    const safeReview = escapeHtml(review.review).replace(/&lt;br\s*\/?&gt;/gi, '<br>');
+                    tooltip.innerHTML = `<div class="tooltip-header">${escapeHtml(review.emoji)} ${escapeHtml(review.type)}</div><div class="tooltip-body">${safeReview}</div>`;
+                } else {
+                    tooltip.innerHTML = `<div class="tooltip-header">🤔</div><div class="tooltip-body">Нет информации об этом преподавателе.</div>`;
+                }
                 const rect = e.target.getBoundingClientRect();
                 tooltip.style.left = `${window.scrollX + rect.left}px`;
                 tooltip.style.top = `${window.scrollY + rect.bottom + 5}px`;
@@ -724,7 +777,7 @@
                     const matchText = document.createElement('div');
                     matchText.className = 'mse-event-match-tooltip';
                     matchText.title = `Совместная пара с:\n• ${fullNamesList}`;
-                    matchText.innerHTML = `<strong>С вами:</strong> ${shortNames}`;
+                    matchText.innerHTML = `<strong>С вами:</strong> ${escapeHtml(shortNames)}`;
 
                     const container = el.querySelector('.fc-content') || el;
                     container.appendChild(matchText);
@@ -762,7 +815,7 @@
             wrapper.style.display = 'block';
             countSpan.textContent = selectedStudents.size;
             container.innerHTML = [...selectedStudents].map(name =>
-                `<div class="selected-student-tag">${name}<button class="remove-student-btn" data-name="${name}">×</button></div>`
+                `<div class="selected-student-tag">${escapeHtml(name)}<button class="remove-student-btn" data-name="${escapeHtml(name)}">×</button></div>`
             ).join('');
 
             qsa('.remove-student-btn', container).forEach(btn => {
@@ -801,9 +854,9 @@
 
         if (matches.length > 0) {
             suggestionsBox.innerHTML = matches.slice(0, SEARCH_SUGGESTIONS_LIMIT).map(s =>
-                `<div class="suggestion-item" data-name="${s.fullName}">
-                    <div class="suggestion-name">${s.fullName}</div>
-                    <div class="suggestion-details">${s.details}</div>
+                `<div class="suggestion-item" data-name="${escapeHtml(s.fullName)}">
+                    <div class="suggestion-name">${escapeHtml(s.fullName)}</div>
+                    <div class="suggestion-details">${escapeHtml(s.details)}</div>
                 </div>`
             ).join('');
             suggestionsBox.style.display = 'block';
@@ -1007,6 +1060,9 @@
         };
 
         const latestVersion = releaseData.tag_name?.replace(/[^0-9.]/g, '');
+        const safeReleaseUrl = /^https?:\/\//i.test(releaseData.html_url || '')
+            ? escapeHtml(releaseData.html_url)
+            : '#';
 
         // Проверяем: строго если на GitHub версия ВЫШЕ текущей
         if (latestVersion && isNewerVersion(latestVersion, CURRENT_VERSION)) {
@@ -1015,10 +1071,10 @@
             if (controls && !qs(`#${ID_UPDATE_BADGE}`)) {
                 const badge = document.createElement('a');
                 badge.id = ID_UPDATE_BADGE;
-                badge.href = releaseData.html_url;
+                badge.href = safeReleaseUrl;
                 badge.target = '_blank';
                 badge.title = 'Доступна новая версия расширения!';
-                badge.innerHTML = `<span>⚡ v${latestVersion}</span>`;
+                badge.innerHTML = `<span>⚡ v${escapeHtml(latestVersion)}</span>`;
                 controls.insertBefore(badge, controls.firstChild);
             }
 
@@ -1028,9 +1084,9 @@
                 popup.id = ID_UPDATE_POPUP;
                 popup.innerHTML = `
                     <div class="mse-update-title">🚀 Доступно обновление Enhancer!</div>
-                    <div class="mse-update-text">Вышла версия <b>v${latestVersion}</b> с новыми функциями и исправлениями. Перейдите по ссылке, чтобы узнать, что появилось нового!</div>
+                    <div class="mse-update-text">Вышла версия <b>v${escapeHtml(latestVersion)}</b> с новыми функциями и исправлениями. Перейдите по ссылке, чтобы узнать, что появилось нового!</div>
                     <div class="mse-update-actions">
-                        <a href="${releaseData.html_url}" target="_blank" id="mse-update-btn">Посмотреть / Скачать</a>
+                        <a href="${safeReleaseUrl}" target="_blank" id="mse-update-btn">Посмотреть / Скачать</a>
                         <button id="mse-dismiss-btn">Позже</button>
                     </div>
                 `;
@@ -1857,23 +1913,25 @@
     const observer = new MutationObserver(debouncedMutationHandler);
     observer.observe(document.body, { childList: true, subtree: true });
 
-    const originalPushState = history.pushState;
     history.pushState = function (...args) {
-        originalPushState.apply(history, args);
+        nativePushState.apply(history, args);
         setTimeout(processUrlChange, 100);
     };
     window.addEventListener('popstate', processUrlChange);
 
     window.studentEnhancer = {
         observer,
-        originalPushState,
-        originalFetch: window.fetch,
-        originalXhrSend: XMLHttpRequest.prototype.send
+        nativePushState,
+        nativeFetch,
+        nativeXhrOpen,
+        nativeXhrSend,
+        stop: stopAndCleanUp
     };
 
-    const checkReady = setInterval(() => {
+    checkReadyTimer = setInterval(() => {
         if (qs('.main-calendar-form') && qs('modeus-main-menu')) {
-            clearInterval(checkReady);
+            clearInterval(checkReadyTimer);
+            checkReadyTimer = null;
             setupUI();
             processUrlChange();
             if (window.location.href.includes('/schedule-calendar/')) {
