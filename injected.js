@@ -2,6 +2,7 @@
     const META_VERSION = 'modeus-enhancer-version';
     const CURRENT_VERSION = document.querySelector(`meta[name="${META_VERSION}"]`)?.content || '0.0.0';
     const STORAGE_KEY_DEBUG = 'mse_debug'; // Флаг режима отладки (1 / true)
+    const STORAGE_KEY_AUTH_BACKUP = 'mse_auth_backup';
 
     // Стартовая визитка расширения (выводится всегда при запуске)
     console.log(
@@ -72,35 +73,176 @@
         }
     };
 
-    const getSessionStatus = () => {
-        const accessToken = sessionStorage.getItem('access_token');
-        const expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
+    // Безопасное декодирование Base64 в UTF-8 без устаревших escape/unescape
+    const decodeBase64Utf8 = (base64) => {
+        try {
+            const binary = atob(base64);
+            const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+            return new TextDecoder('utf-8').decode(bytes);
+        } catch {
+            return decodeURIComponent(escape(atob(base64)));
+        }
+    };
 
-        if (!accessToken) {
-            return { hasToken: false, secondsLeft: 0, statusText: 'Токен отсутствует в sessionStorage' };
+    // Безопасный парсинг JWT-токена с поддержкой UTF-8 в payload
+    const parseJwt = (token) => {
+        try {
+            if (!token || typeof token !== 'string') return {};
+            const payload = token.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
+            if (!payload) return {};
+            return JSON.parse(decodeBase64Utf8(payload));
+        } catch (e) {
+            logger.warn('Ошибка парсинга JWT:', e);
+            return {};
+        }
+    };
+
+    // Форматирование секунд в читаемый интервал (~X ч Y мин Z сек)
+    const formatDuration = (totalSeconds) => {
+        if (!totalSeconds || totalSeconds <= 0) return '0 сек';
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        if (hours > 0) {
+            return `~${hours} ч ${minutes} мин ${seconds} сек`;
+        }
+        if (minutes > 0) {
+            return `~${minutes} мин ${seconds} сек`;
+        }
+        return `~${seconds} сек`;
+    };
+
+    // Оценка статуса и времени жизни токена
+    const evaluateTokenLifetime = (token, expiresAt, tokenLabel = 'Токен') => {
+        if (!token) {
+            return {
+                hasToken: false,
+                secondsLeft: 0,
+                statusText: `${tokenLabel} отсутствует в sessionStorage`,
+                formattedTime: '0 сек'
+            };
         }
         if (!expiresAt) {
-            return { hasToken: true, secondsLeft: 0, statusText: 'Токен активен (expires_at не задан)' };
+            return {
+                hasToken: true,
+                secondsLeft: 0,
+                statusText: `${tokenLabel} активен (expires_at не задан)`,
+                formattedTime: 'не определено'
+            };
         }
 
         const secondsLeft = Math.round((expiresAt - Date.now()) / 1000);
         if (secondsLeft <= 0) {
-            return { hasToken: true, secondsLeft, statusText: `Токен истек (${Math.abs(secondsLeft)} сек. назад)` };
+            const expiredAgo = Math.abs(secondsLeft);
+            return {
+                hasToken: true,
+                secondsLeft,
+                statusText: `${tokenLabel} истек (${expiredAgo} сек. назад)`,
+                formattedTime: `истек (${expiredAgo} сек. назад)`
+            };
         }
 
-        const minLeft = Math.floor(secondsLeft / 60);
-        const secMod = secondsLeft % 60;
+        const formattedTime = formatDuration(secondsLeft);
         return {
             hasToken: true,
             secondsLeft,
-            statusText: `Активен (~${minLeft} мин ${secMod} сек)`
+            statusText: `Активен (${formattedTime})`,
+            formattedTime
+        };
+    };
+
+    // Определение времени истечения суточного ID-токена (24 часа)
+    const getMainTokenExpiresAt = (idToken) => {
+        let expiresAt = Number(sessionStorage.getItem('id_token_expires_at') || 0);
+        if (expiresAt > 0) return expiresAt;
+
+        if (idToken) {
+            const claims = parseJwt(idToken);
+            if (claims?.exp) {
+                expiresAt = Number(claims.exp) * 1000;
+                try {
+                    sessionStorage.setItem('id_token_expires_at', String(expiresAt));
+                } catch {}
+                return expiresAt;
+            }
+        }
+
+        try {
+            const claimsRaw = sessionStorage.getItem('id_token_claims_obj');
+            if (claimsRaw) {
+                const claims = JSON.parse(claimsRaw);
+                if (claims?.exp) {
+                    expiresAt = Number(claims.exp) * 1000;
+                    sessionStorage.setItem('id_token_expires_at', String(expiresAt));
+                    return expiresAt;
+                }
+            }
+        } catch {}
+
+        try {
+            const backupRaw = localStorage.getItem(STORAGE_KEY_AUTH_BACKUP);
+            if (backupRaw) {
+                const backup = JSON.parse(backupRaw);
+                expiresAt = Number(backup['id_token_expires_at'] || 0);
+                if (!expiresAt && backup['id_token']) {
+                    const backupClaims = parseJwt(backup['id_token']);
+                    if (backupClaims?.exp) expiresAt = Number(backupClaims.exp) * 1000;
+                }
+            }
+        } catch {}
+
+        return expiresAt;
+    };
+
+    // Статус краткосрочного access-токена (1 час, автопродление Session Keeper)
+    const getAccessTokenStatus = () => {
+        const accessToken = sessionStorage.getItem('access_token');
+        let expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
+        if (!expiresAt && accessToken) {
+            const claims = parseJwt(accessToken);
+            if (claims?.exp) expiresAt = Number(claims.exp) * 1000;
+        }
+        return evaluateTokenLifetime(accessToken, expiresAt, 'Токен');
+    };
+
+    // Статус основного суточного токена (24 часа, определяет необходимость логина)
+    const getMainTokenStatus = () => {
+        let idToken = sessionStorage.getItem('id_token');
+        if (!idToken) {
+            try {
+                const backupRaw = localStorage.getItem(STORAGE_KEY_AUTH_BACKUP);
+                if (backupRaw) {
+                    const backup = JSON.parse(backupRaw);
+                    if (backup['id_token']) idToken = backup['id_token'];
+                }
+            } catch {}
+        }
+        const expiresAt = getMainTokenExpiresAt(idToken);
+        return evaluateTokenLifetime(idToken, expiresAt, 'Основной токен');
+    };
+
+    // Сводный статус сессионных токенов
+    const getSessionStatus = () => {
+        const access = getAccessTokenStatus();
+        const main = getMainTokenStatus();
+        return {
+            access,
+            main,
+            hasToken: access.hasToken,
+            secondsLeft: access.secondsLeft,
+            statusText: access.statusText
         };
     };
 
     const printDebugStatus = () => {
         const session = getSessionStatus();
+        const mainLifeText = session.main.hasToken
+            ? ` | Основной токен (до логина): ${session.main.statusText} | Остаток жизни: ${session.main.secondsLeft} сек.`
+            : ` | Основной токен (до логина): ${session.main.statusText}`;
+
         console.log(
-            `%c[MSE Status] Версия: v${CURRENT_VERSION} | Статус токена: ${session.statusText} | Остаток жизни: ${session.secondsLeft} сек.`,
+            `%c[MSE Status] Версия: v${CURRENT_VERSION} | Статус токена: ${session.access.statusText} | Остаток жизни: ${session.access.secondsLeft} сек.${mainLifeText}`,
             'color: #0284c7; font-weight: bold;'
         );
         if (typeof printDatabaseStatus === 'function') printDatabaseStatus();
@@ -151,7 +293,6 @@
     // Ключи локальных хранилищ (localStorage / sessionStorage)
     const STORAGE_KEY_FRIENDS = 'mse_friends_list';
     const FRIENDS_STORAGE_KEY = STORAGE_KEY_FRIENDS; // обратная совместимость
-    const STORAGE_KEY_AUTH_BACKUP = 'mse_auth_backup';
     const STORAGE_KEY_MY_SPECIALTY = 'mse_my_specialty';
     const STORAGE_KEY_MY_PROFILE = 'mse_my_profile';
     const STORAGE_KEY_MY_PERSON_ID = 'mse_my_person_id';
@@ -460,7 +601,15 @@
                         sessionStorage.setItem('access_token', accessToken);
                         sessionStorage.setItem('access_token_stored_at', String(now));
                         sessionStorage.setItem('expires_at', String(expiresAt));
-                        if (idToken) sessionStorage.setItem('id_token', idToken);
+                        if (idToken) {
+                            sessionStorage.setItem('id_token', idToken);
+                            const idClaims = parseJwt(idToken);
+                            if (idClaims?.exp) {
+                                sessionStorage.setItem('id_token_expires_at', String(idClaims.exp * 1000));
+                                sessionStorage.setItem('id_token_claims_obj', JSON.stringify(idClaims));
+                                sessionStorage.setItem('id_token_stored_at', String(now));
+                            }
+                        }
                         if (sessionState) sessionStorage.setItem('session_state', sessionState);
 
                         saveAuthTokensBackup();
@@ -479,7 +628,11 @@
                             smartWaitTimer = null;
 
                             const totalMin = Math.round(expiresIn / 60);
-                            logger.session(`Ответ получен! Токен успешно продлен в фоне. Новый срок жизни: ${expiresIn} сек. (~${totalMin} мин.)`);
+                            const mainToken = getMainTokenStatus();
+                            const mainInfo = mainToken.hasToken
+                                ? ` | Основной токен (до логина): осталось ${mainToken.secondsLeft} сек. (${mainToken.formattedTime})`
+                                : '';
+                            logger.session(`Ответ получен! Токен успешно продлен в фоне. Новый срок жизни: ${expiresIn} сек. (~${totalMin} мин.)${mainInfo}`);
                         }
                     }
 
@@ -512,14 +665,21 @@
         // ВАЖНО: Если мы уже завели точный таймер ожидания смерти токена — не лезем параллельно!
         if (smartWaitTimer) return;
 
+        const mainToken = getMainTokenStatus();
+        const mainTokenLog = mainToken.hasToken
+            ? `основной (24ч, до логина): осталось ${mainToken.secondsLeft} сек. (${mainToken.formattedTime})`
+            : `основной токен: ${mainToken.statusText}`;
+
         const expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
         if (!expiresAt) {
-            logger.session('Мониторинг сессии: expires_at не найден в sessionStorage (пропуск проверки)');
+            logger.session(`Мониторинг сессии: expires_at не найден в sessionStorage (пропуск проверки) | ${mainTokenLog}`);
             return;
         }
 
         const secondsLeft = Math.round((expiresAt - Date.now()) / 1000);
-        logger.session(`Проверка токена: осталось ${secondsLeft} сек. (порог автопродления: ${SESSION_REFRESH_THRESHOLD_SEC} сек.)`);
+        logger.session(
+            `Проверка токена: осталось ${secondsLeft} сек. (порог автопродления: ${SESSION_REFRESH_THRESHOLD_SEC} сек.) | ${mainTokenLog}`
+        );
 
         // Обновляем за 60 секунд до конца
         if (secondsLeft <= SESSION_REFRESH_THRESHOLD_SEC) {
@@ -537,30 +697,6 @@
         }
     };
     window.addEventListener('click', handleLogoutClick);
-
-    // Безопасное декодирование Base64 в UTF-8 без устаревших escape/unescape
-    const decodeBase64Utf8 = (base64) => {
-        try {
-            const binary = atob(base64);
-            const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-            return new TextDecoder('utf-8').decode(bytes);
-        } catch (e) {
-            return decodeURIComponent(escape(atob(base64)));
-        }
-    };
-
-    // Безопасный парсинг JWT-токена с поддержкой UTF-8 в payload
-    const parseJwt = (token) => {
-        try {
-            if (!token || typeof token !== 'string') return {};
-            const payload = token.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
-            if (!payload) return {};
-            return JSON.parse(decodeBase64Utf8(payload));
-        } catch (e) {
-            logger.warn('Ошибка парсинга JWT:', e);
-            return {};
-        }
-    };
 
     const databaseState = {
         buildings: { loaded: false, count: 0, source: 'не загружено' },
