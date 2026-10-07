@@ -12,11 +12,47 @@ window.MSE_PE = (function () {
 
     let allModules = [];
     let enrolledTeamsMap = new Map();
+    let teamToModulesMap = new Map(); // teamId -> Set of moduleElementIds
     let apiStudentId = '';
     let apiCampaignId = '';
     let localTeacherReviews = new Map();
 
+    const showToast = (message, type = 'info') => {
+        if (typeof window.showToast === 'function') {
+            window.showToast(message, type);
+        } else {
+            alert(message);
+        }
+    };
+
+    const escapeHtml = (str) => {
+        if (str == null) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    };
+
+    function updateTeamAvailable(teamId, delta) {
+        allModules.forEach(mod => {
+            if (mod.cycles && Array.isArray(mod.cycles)) {
+                mod.cycles.forEach(cycle => {
+                    if (cycle.teams && Array.isArray(cycle.teams)) {
+                        cycle.teams.forEach(t => {
+                            if (t.id === teamId && typeof t.available === 'number') {
+                                t.available = Math.max(0, t.available + delta);
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+
     let currentModalGroup = [];
+    let currentModalItemIds = new Set();
     let currentModalTimeIdx = 0;
     let currentModalSport = '';
     let currentModalDay = '';
@@ -144,18 +180,37 @@ window.MSE_PE = (function () {
     }
 
     function parseData() {
-        courses = []; sportsSet.clear(); campusesSet.clear(); enrolledTeamsMap.clear();
+        courses = [];
+        sportsSet.clear();
+        campusesSet.clear();
+        enrolledTeamsMap.clear();
+        teamToModulesMap.clear();
 
         allModules.forEach(mod => {
+            const mId = mod.moduleElementId || mod.id;
             if (mod.selectedTeamIds && mod.selectedTeamIds.length > 0) {
-                mod.selectedTeamIds.forEach(tid => enrolledTeamsMap.set(tid, mod.moduleElementId));
+                mod.selectedTeamIds.forEach(tid => enrolledTeamsMap.set(tid, mId));
             }
         });
 
         const uniqueTeams = new Map();
         allModules.forEach(mod => {
-            if (mod.cycles && mod.cycles.length > 0 && mod.cycles[0].teams) {
-                mod.cycles[0].teams.forEach(t => uniqueTeams.set(t.id, t));
+            const mId = mod.moduleElementId || mod.id;
+            if (mod.cycles && Array.isArray(mod.cycles)) {
+                mod.cycles.forEach(cycle => {
+                    if (cycle.teams && Array.isArray(cycle.teams)) {
+                        cycle.teams.forEach(t => {
+                            if (!teamToModulesMap.has(t.id)) {
+                                teamToModulesMap.set(t.id, new Set());
+                            }
+                            teamToModulesMap.get(t.id).add(mId);
+
+                            if (!uniqueTeams.has(t.id)) {
+                                uniqueTeams.set(t.id, t);
+                            }
+                        });
+                    }
+                });
             }
         });
 
@@ -168,16 +223,23 @@ window.MSE_PE = (function () {
                 let rawLoc = match[4].trim();
                 let campusObj = resolveCampus(rawLoc);
 
-                sportsSet.add(sport); campusesSet.add(campusObj.name);
+                sportsSet.add(sport);
+                campusesSet.add(campusObj.name);
 
                 courses.push({
-                    id: t.id, secNum: idx + 1,
-                    sport: sport, day: match[2], time: match[3],
+                    id: t.id,
+                    secNum: idx + 1,
+                    sport: sport,
+                    day: match[2],
+                    time: match[3],
                     slotIdx: getSlotIndex(match[3]),
                     loc: rawLoc,
-                    campus: campusObj.name, address: campusObj.address, mapLink: campusObj.link,
+                    campus: campusObj.name,
+                    address: campusObj.address,
+                    mapLink: campusObj.link,
                     prof: t.teachers?.[0] || "Не указан",
-                    avail: t.available ?? 0, total: t.limit ?? 0,
+                    avail: t.available ?? 0,
+                    total: t.limit ?? 0,
                     enrolled: enrolledTeamsMap.has(t.id)
                 });
             }
@@ -289,7 +351,7 @@ window.MSE_PE = (function () {
         try {
             const person = await getPersonIdByName(name);
             if (!person) {
-                alert("Студент не найден.\nПроверьте ФИО или добавьте его в друзья в главном календаре (иконка ❤️).");
+                showToast("Студент не найден. Проверьте ФИО или добавьте его в друзья в главном календаре (иконка ❤️).", 'warning');
                 btn.innerText = "Поиск";
                 btn.disabled = false;
                 input.disabled = false;
@@ -349,7 +411,7 @@ window.MSE_PE = (function () {
 
             renderGrid();
         } catch (e) {
-            alert("Ошибка при загрузке расписания друга: " + e.message);
+            showToast("Ошибка при загрузке расписания друга: " + e.message, 'error');
             btn.innerText = "Поиск";
             btn.disabled = false;
             input.disabled = false;
@@ -471,18 +533,29 @@ window.MSE_PE = (function () {
     }
 
     function openPeModal(sport, day, time, items, timeIdx) {
-        currentModalGroup = items; currentModalSport = sport; currentModalDay = day; currentModalTime = time; currentModalTimeIdx = timeIdx;
+        currentModalGroup = items;
+        currentModalItemIds = new Set(items.map(i => i.id));
+        currentModalSport = sport;
+        currentModalDay = day;
+        currentModalTime = time;
+        currentModalTimeIdx = timeIdx;
         const emoji = sportEmojis[sport] || '🏅';
-        document.getElementById('mse-pe-mTitle').innerText = `${emoji} ${sport}`; document.getElementById('mse-pe-mSubtitle').innerText = `${dayFullNames[day] || day} • ${time} • ${items.length} секций`;
-        renderModalBody(); document.getElementById('mse-pe-modal-overlay').style.display = 'flex';
+        document.getElementById('mse-pe-mTitle').innerText = `${emoji} ${sport}`;
+        document.getElementById('mse-pe-mSubtitle').innerText = `${dayFullNames[day] || day} • ${time} • ${items.length} секций`;
+        renderModalBody();
+        document.getElementById('mse-pe-modal-overlay').style.display = 'flex';
     }
 
     window.closePeModal = function (e) { if (e && e.target !== e.currentTarget) return; document.getElementById('mse-pe-modal-overlay').style.display = 'none'; }
 
     function renderModalBody() {
-        const body = document.getElementById('mse-pe-modal-body'); body.innerHTML = ''; const emoji = sportEmojis[currentModalSport] || '🏅';
+        const body = document.getElementById('mse-pe-modal-body');
+        body.innerHTML = '';
+        const emoji = sportEmojis[currentModalSport] || '🏅';
+
         currentModalGroup.forEach((item, index) => {
-            const card = document.createElement('div'); card.className = `section-card ${item.enrolled ? 'enrolled-card' : ''}`;
+            const card = document.createElement('div');
+            card.className = `section-card ${item.enrolled ? 'enrolled-card' : ''}`;
             let commuteStatus = '🟢 Успеваешь (перемена 20 мин)';
             if (item.campus === "Эко-парк" && (currentModalTimeIdx === 1 || currentModalTimeIdx === 2)) commuteStatus = '🔴 Не успеваешь (нужно 35+ мин)';
             if (item.campus === "Олимпия" && currentModalTimeIdx === 1) commuteStatus = '🟡 Впритык (перемена 15 мин)';
@@ -490,6 +563,55 @@ window.MSE_PE = (function () {
 
             const rev = localTeacherReviews.get(item.prof);
             const reviewHtml = rev ? `<div style="margin-left:22px; margin-top:2px; font-size:12px; color:#1e293b;"><b>Рейтинг:</b> ${rev.emoji} ${rev.type}</div><div class="review-box"><b>Отзывы:</b> ${rev.review.replace(/<br>/g, ' ')}</div>` : `<div style="margin-left:22px; margin-top:2px; font-size:12px; color:var(--muted);">🤔 Нет отзывов о преподавателе</div>`;
+
+            let actionBtnHtml = '';
+            if (item.enrolled) {
+                actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-unenroll-lg" onclick="MSE_PE.apiToggle('${item.id}', false)">🔴 ОТПИСАТЬСЯ</button>`;
+            } else if (item.avail <= 0) {
+                actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-disabled-lg" disabled title="В секции не осталось свободных мест">🔒 Нет мест</button>`;
+            } else {
+                const validModuleIds = teamToModulesMap.get(item.id);
+                const candidateModules = allModules.filter(mod => {
+                    const mId = mod.moduleElementId || mod.id;
+                    return validModuleIds && validModuleIds.has(mId);
+                });
+                const emptyModule = candidateModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
+
+                if (emptyModule) {
+                    actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-enroll-lg" onclick="MSE_PE.apiToggle('${item.id}', true)">🟢 ЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>`;
+                } else {
+                    const occupiedModule = candidateModules.find(mod => mod.selectedTeamIds && mod.selectedTeamIds.length > 0);
+                    const oldTeamId = occupiedModule ? occupiedModule.selectedTeamIds[0] : null;
+                    const targetModuleId = occupiedModule ? (occupiedModule.moduleElementId || occupiedModule.id) : null;
+
+                    if (occupiedModule && oldTeamId && targetModuleId) {
+                        let oldTeamName = '';
+                        const oldCourse = courses.find(c => c.id === oldTeamId);
+                        if (oldCourse) {
+                            oldTeamName = `${oldCourse.sport} (Секция №${oldCourse.secNum}, ${dayFullNames[oldCourse.day] || oldCourse.day} ${oldCourse.time})`;
+                        } else {
+                            let foundName = null;
+                            if (occupiedModule.cycles) {
+                                for (const cycle of occupiedModule.cycles) {
+                                    const t = (cycle.teams || []).find(team => team.id === oldTeamId);
+                                    if (t && t.name) {
+                                        foundName = t.name;
+                                        break;
+                                    }
+                                }
+                            }
+                            oldTeamName = foundName || 'текущая секция';
+                        }
+
+                        actionBtnHtml = `
+                            <button id="btn-team-${item.id}" class="btn-action btn-swap-lg" onclick="MSE_PE.apiSwap('${item.id}', '${oldTeamId}', '${targetModuleId}')">🔄 ПЕРЕЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>
+                            <div class="swap-notice">⚠️ Заменит: <b>${escapeHtml(oldTeamName)}</b></div>
+                        `;
+                    } else {
+                        actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-enroll-lg" onclick="MSE_PE.apiToggle('${item.id}', true)">🟢 ЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>`;
+                    }
+                }
+            }
 
             card.innerHTML = `
                 <div class="sec-header"><div>${emoji} ${item.sport} (Секция №${item.secNum})</div>${item.enrolled ? '<span style="color:#d97706; font-size:12px; font-weight:700;">⭐ Вы записаны</span>' : ''}</div>
@@ -499,7 +621,7 @@ window.MSE_PE = (function () {
                 <div class="info-block"><div class="info-title">⏰ Время: <span>${dayFullNames[item.day]}, ${item.time}</span></div><div class="info-sub">Дорога от пред. пары: <b>${commuteStatus}</b></div></div>
                 <div class="info-block"><div class="info-title">👤 Преподаватель: <span>${item.prof}</span></div>${reviewHtml}</div>
                 <div class="info-block"><div class="info-title">👥 Места: <span style="color:${item.avail > 0 ? '#16a34a' : '#dc2626'}">Осталось ${item.avail} из ${item.total}</span></div></div>
-                ${item.enrolled ? `<button id="btn-team-${item.id}" class="btn-action btn-unenroll-lg" onclick="MSE_PE.apiToggle('${item.id}', false)">🔴 ОТПИСАТЬСЯ</button>` : `<button id="btn-team-${item.id}" class="btn-action btn-enroll-lg" onclick="MSE_PE.apiToggle('${item.id}', true)">🟢 ЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>`}
+                ${actionBtnHtml}
             `;
             body.appendChild(card);
         });
@@ -507,40 +629,320 @@ window.MSE_PE = (function () {
 
     async function apiToggleAction(teamId, isEnroll) {
         let targetModuleId = null;
+
         if (isEnroll) {
-            const emptyModule = allModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
-            if (!emptyModule) { alert('Вы уже выбрали максимальное количество секций.\nСначала отпишитесь от одной из них.'); return; }
-            targetModuleId = emptyModule.moduleElementId;
+            const validModuleIds = teamToModulesMap.get(teamId);
+            if (!validModuleIds || validModuleIds.size === 0) {
+                console.error('[MSE PE] Не удалось найти модуль для команды:', { teamId, allModules });
+                showToast('Не удалось определить модуль для выбранной секции.', 'error');
+                return;
+            }
+
+            // Ищем модули, в которых действительно доступна эта команда
+            const candidateModules = allModules.filter(mod => {
+                const mId = mod.moduleElementId || mod.id;
+                return validModuleIds.has(mId);
+            });
+
+            // Выбираем модуль, где еще не выбрана секция
+            const emptyModule = candidateModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
+
+            if (!emptyModule) {
+                console.warn('[MSE PE] Все доступные модули для этой секции уже заняты:', { teamId, candidateModules });
+                showToast('В модуле для этой секции уже выбрана другая команда. Сначала отпишитесь от неё.', 'warning');
+                return;
+            }
+
+            targetModuleId = emptyModule.moduleElementId || emptyModule.id;
         } else {
-            targetModuleId = enrolledTeamsMap.get(teamId);
-            if (!targetModuleId) { alert('Не удалось определить, в каком модуле находится эта секция.'); return; }
+            // При отписке ищем модуль, где эта команда сейчас записана
+            const enrolledModule = allModules.find(mod => mod.selectedTeamIds && mod.selectedTeamIds.includes(teamId));
+            if (enrolledModule) {
+                targetModuleId = enrolledModule.moduleElementId || enrolledModule.id;
+            } else {
+                targetModuleId = enrolledTeamsMap.get(teamId);
+            }
+
+            if (!targetModuleId) {
+                console.error('[MSE PE] Не удалось найти модуль для отмены записи:', { teamId, enrolledTeamsMap: Array.from(enrolledTeamsMap.entries()) });
+                showToast('Не удалось определить модуль для отмены записи.', 'error');
+                return;
+            }
         }
 
         const btn = document.getElementById(`btn-team-${teamId}`);
-        if (btn) { btn.disabled = true; btn.innerText = "⏳ Отправка запроса..."; }
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = "⏳ Отправка запроса...";
+        }
+
         const token = sessionStorage.getItem('id_token');
         const url = `https://utmn.modeus.org/course-unit-booking/api/v1/students/${apiStudentId}/campaigns/${apiCampaignId}/student-campaign-menu/module-elements/${targetModuleId}/selected-teams`;
+        const method = isEnroll ? 'POST' : 'DELETE';
+        const bodyData = [teamId];
+
+        // 1. Детальное логирование ПЕРЕД отправкой запроса
+        console.log(
+            '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
+            `Запрос на ${isEnroll ? 'запись' : 'отписку'}:`,
+            {
+                method,
+                url,
+                moduleId: targetModuleId,
+                teamId,
+                body: bodyData
+            }
+        );
 
         try {
-            const res = await fetch(url, { method: isEnroll ? 'POST' : 'DELETE', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify([teamId]) });
-            if (!res.ok) { let errorMsg = `HTTP ${res.status}`; try { const errorJson = await res.json(); if (errorJson.message) errorMsg = errorJson.message; } catch (e) { } throw new Error(errorMsg); }
+            const res = await fetch(url, {
+                method,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(bodyData)
+            });
 
-            const modToUpdate = allModules.find(m => m.moduleElementId === targetModuleId);
-            if (isEnroll) {
-                modToUpdate.selectedTeamIds = [teamId]; const course = courses.find(c => c.id === teamId);
-                if (course) course.avail = Math.max(0, course.avail - 1);
-            } else {
-                modToUpdate.selectedTeamIds = []; const course = courses.find(c => c.id === teamId);
-                if (course) course.avail = Math.min(course.total, course.avail + 1);
+            if (!res.ok) {
+                const rawResponse = await res.text();
+                let errorMsg = `HTTP ${res.status}`;
+                let errorJson = null;
+
+                try {
+                    errorJson = JSON.parse(rawResponse);
+                    if (errorJson.message) errorMsg = errorJson.message;
+                } catch {
+                    // сырой текст
+                }
+
+                // 2. Полный контекст сбоя в console.error
+                console.error(
+                    '[MSE PE] Ошибка ответа сервера при бронировании:',
+                    {
+                        status: res.status,
+                        statusText: res.statusText,
+                        url,
+                        method,
+                        moduleId: targetModuleId,
+                        teamId,
+                        sentBody: bodyData,
+                        rawResponse,
+                        parsedError: errorJson
+                    }
+                );
+
+                throw new Error(errorMsg);
             }
 
-            parseData(); currentModalGroup = courses.filter(c => c.sport === currentModalSport && c.day === currentModalDay && c.time === currentModalTime);
-            renderModalBody(); renderGrid();
-        } catch (err) { alert(`Ошибка ${isEnroll ? 'записи' : 'отмены'}:\n${err.message}`); renderModalBody(); }
+            // Успешный ответ
+            console.log(
+                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
+                `Успешный ответ (HTTP ${res.status}) для ${isEnroll ? 'записи' : 'отмены'}:`,
+                { moduleId: targetModuleId, teamId }
+            );
+
+            const modToUpdate = allModules.find(m => (m.moduleElementId || m.id) === targetModuleId);
+            if (modToUpdate) {
+                if (isEnroll) {
+                    modToUpdate.selectedTeamIds = [teamId];
+                } else {
+                    modToUpdate.selectedTeamIds = modToUpdate.selectedTeamIds ? modToUpdate.selectedTeamIds.filter(id => id !== teamId) : [];
+                }
+            }
+
+            updateTeamAvailable(teamId, isEnroll ? -1 : 1);
+
+            parseData();
+            currentModalGroup = courses.filter(c => currentModalItemIds.has(c.id));
+            if (currentModalGroup.length === 0) {
+                currentModalGroup = courses.filter(c => c.sport === currentModalSport && c.day === currentModalDay && c.slotIdx === currentModalTimeIdx);
+                currentModalItemIds = new Set(currentModalGroup.map(i => i.id));
+            }
+            renderModalBody();
+            renderGrid();
+
+            showToast(isEnroll ? 'Вы успешно записались в секцию!' : 'Запись успешно отменена.', 'success');
+        } catch (err) {
+            showToast(`Ошибка ${isEnroll ? 'записи' : 'отмены'}: ${err.message}`, 'error');
+            renderModalBody();
+        }
+    }
+
+    async function apiSwapAction(newTeamId, oldTeamId, targetModuleId) {
+        const btn = document.getElementById(`btn-team-${newTeamId}`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = "⏳ Перезапись (1/2: отписка)...";
+        }
+
+        const token = sessionStorage.getItem('id_token');
+        const endpointUrl = `https://utmn.modeus.org/course-unit-booking/api/v1/students/${apiStudentId}/campaigns/${apiCampaignId}/student-campaign-menu/module-elements/${targetModuleId}/selected-teams`;
+
+        try {
+            // ШАГ 1: Отмена старой записи (DELETE)
+            console.log(
+                '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
+                'Запрос на перезапись [1/2] - Отмена старой секции (DELETE):',
+                {
+                    method: 'DELETE',
+                    url: endpointUrl,
+                    moduleId: targetModuleId,
+                    oldTeamId,
+                    body: [oldTeamId]
+                }
+            );
+
+            const delRes = await fetch(endpointUrl, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify([oldTeamId])
+            });
+
+            if (!delRes.ok) {
+                const rawResponse = await delRes.text();
+                let errorMsg = `HTTP ${delRes.status}`;
+                let errorJson = null;
+                try {
+                    errorJson = JSON.parse(rawResponse);
+                    if (errorJson.message) errorMsg = errorJson.message;
+                } catch {
+                    // сырой текст
+                }
+
+                console.error(
+                    '[MSE PE] Ошибка ответа сервера при отмене старой секции (шаг 1 перезаписи):',
+                    {
+                        status: delRes.status,
+                        statusText: delRes.statusText,
+                        url: endpointUrl,
+                        method: 'DELETE',
+                        moduleId: targetModuleId,
+                        oldTeamId,
+                        sentBody: [oldTeamId],
+                        rawResponse,
+                        parsedError: errorJson
+                    }
+                );
+
+                throw new Error(`Не удалось отписаться от старой секции: ${errorMsg}`);
+            }
+
+            console.log(
+                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
+                `Успешный ответ (HTTP ${delRes.status}) для отмены старой секции [1/2]:`,
+                { moduleId: targetModuleId, oldTeamId }
+            );
+
+            // Синхронизация состояния после отписки
+            const modToUpdate = allModules.find(m => (m.moduleElementId || m.id) === targetModuleId);
+            if (modToUpdate) {
+                modToUpdate.selectedTeamIds = modToUpdate.selectedTeamIds ? modToUpdate.selectedTeamIds.filter(id => id !== oldTeamId) : [];
+            }
+            updateTeamAvailable(oldTeamId, 1);
+            enrolledTeamsMap.delete(oldTeamId);
+
+            // ШАГ 2: Запись в новую секцию (POST)
+            if (btn) {
+                btn.innerText = "⏳ Перезапись (2/2: запись)...";
+            }
+
+            console.log(
+                '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
+                'Запрос на перезапись [2/2] - Запись в новую секцию (POST):',
+                {
+                    method: 'POST',
+                    url: endpointUrl,
+                    moduleId: targetModuleId,
+                    newTeamId,
+                    body: [newTeamId]
+                }
+            );
+
+            const postRes = await fetch(endpointUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify([newTeamId])
+            });
+
+            if (!postRes.ok) {
+                const rawResponse = await postRes.text();
+                let errorMsg = `HTTP ${postRes.status}`;
+                let errorJson = null;
+                try {
+                    errorJson = JSON.parse(rawResponse);
+                    if (errorJson.message) errorMsg = errorJson.message;
+                } catch {
+                    // сырой текст
+                }
+
+                console.error(
+                    '[MSE PE] Ошибка ответа сервера при записи в новую секцию (шаг 2 перезаписи):',
+                    {
+                        status: postRes.status,
+                        statusText: postRes.statusText,
+                        url: endpointUrl,
+                        method: 'POST',
+                        moduleId: targetModuleId,
+                        newTeamId,
+                        sentBody: [newTeamId],
+                        rawResponse,
+                        parsedError: errorJson
+                    }
+                );
+
+                parseData();
+                currentModalGroup = courses.filter(c => currentModalItemIds.has(c.id));
+                if (currentModalGroup.length === 0) {
+                    currentModalGroup = courses.filter(c => c.sport === currentModalSport && c.day === currentModalDay && c.slotIdx === currentModalTimeIdx);
+                    currentModalItemIds = new Set(currentModalGroup.map(i => i.id));
+                }
+                renderModalBody();
+                renderGrid();
+
+                throw new Error(`Старая запись отменена, но записаться в новую секцию не удалось: ${errorMsg}`);
+            }
+
+            console.log(
+                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
+                `Успешный ответ (HTTP ${postRes.status}) для записи в новую секцию [2/2]:`,
+                { moduleId: targetModuleId, newTeamId }
+            );
+
+            if (modToUpdate) {
+                modToUpdate.selectedTeamIds = [newTeamId];
+            }
+            updateTeamAvailable(newTeamId, -1);
+            enrolledTeamsMap.set(newTeamId, targetModuleId);
+
+            parseData();
+            currentModalGroup = courses.filter(c => currentModalItemIds.has(c.id));
+            if (currentModalGroup.length === 0) {
+                currentModalGroup = courses.filter(c => c.sport === currentModalSport && c.day === currentModalDay && c.slotIdx === currentModalTimeIdx);
+                currentModalItemIds = new Set(currentModalGroup.map(i => i.id));
+            }
+            renderModalBody();
+            renderGrid();
+
+            showToast('Вы успешно перезаписались в секцию!', 'success');
+        } catch (err) {
+            showToast(`Ошибка перезаписи: ${err.message}`, 'error');
+            renderModalBody();
+        }
     }
 
     return {
         apiToggle: apiToggleAction,
+        apiSwap: apiSwapAction,
         openModal: function (modulesData, scheduleData, campaignId, studentId, teacherReviews) {
             allModules = modulesData; currentSchedule = scheduleData; apiCampaignId = campaignId; apiStudentId = studentId; localTeacherReviews = teacherReviews;
             parseData();

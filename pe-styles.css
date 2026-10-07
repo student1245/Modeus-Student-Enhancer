@@ -513,6 +513,33 @@
     background: #b91c1c;
 }
 
+#mse-pe-overlay .btn-swap-lg {
+    background: #d97706;
+    color: white;
+}
+
+#mse-pe-overlay .btn-swap-lg:hover:not(:disabled) {
+    background: #b45309;
+}
+
+#mse-pe-overlay .btn-disabled-lg {
+    background: #94a3b8;
+    color: #f1f5f9;
+    cursor: not-allowed;
+}
+
+#mse-pe-overlay .swap-notice {
+    font-size: 11.5px;
+    color: #92400e;
+    background: #fef3c7;
+    border: 1px dashed #f59e0b;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-top: 4px;
+    text-align: center;
+    line-height: 1.4;
+}
+
 /* --- Форма поиска друга (Жесткие стили против Модеуса) --- */
 #mse-pe-overlay .friend-input-wrapper {
     display: inline-flex !important;
