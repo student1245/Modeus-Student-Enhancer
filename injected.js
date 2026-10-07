@@ -1,7 +1,9 @@
 (() => {
     const META_VERSION = 'modeus-enhancer-version';
     const CURRENT_VERSION = document.querySelector(`meta[name="${META_VERSION}"]`)?.content || '0.0.0';
+    const STORAGE_KEY_DEBUG = 'mse_debug'; // Флаг режима отладки (1 / true)
 
+    // Стартовая визитка расширения (выводится всегда при запуске)
     console.log(
         `%c Modeus Enhancer %c v${CURRENT_VERSION} `,
         'background: #2196F3; color: #fff; padding: 3px 5px; border-radius: 3px 0 0 3px; font-weight: bold;',
@@ -13,8 +15,111 @@
     console.log('Расширение для улучшения интерфейса Modeus. Добавляет отзывы о преподавателях, список друзей, поиск общих пар и улучшает отображение названий корпусов.');
     console.log('----------------------------------------');
 
+    // Динамическая проверка флага отладки (runtime без перезагрузки)
+    const isDebug = () => {
+        try {
+            return localStorage.getItem(STORAGE_KEY_DEBUG) === 'true' ||
+                   localStorage.getItem(STORAGE_KEY_DEBUG) === '1' ||
+                   window.__MSE_DEBUG__ === true;
+        } catch {
+            return window.__MSE_DEBUG__ === true;
+        }
+    };
+
+    // Обход фильтра Verbose в DevTools: отладочные логи выводятся через console.log с цветовой контекстуализацией
+    const logger = {
+        isDebug,
+        debug(...args) {
+            if (isDebug()) {
+                console.log('%c[MSE]', 'color: #2196F3; font-weight: bold;', ...args);
+            }
+        },
+        info(...args) {
+            if (isDebug()) {
+                console.log('%c[MSE]', 'color: #2196F3; font-weight: bold;', ...args);
+            }
+        },
+        session(...args) {
+            if (isDebug()) {
+                console.log('%c[MSE Session]', 'color: #0284c7; font-weight: bold;', ...args);
+            }
+        },
+        network(...args) {
+            if (isDebug()) {
+                console.log('%c[MSE Network]', 'color: #8b5cf6; font-weight: bold;', ...args);
+            }
+        },
+        calendar(...args) {
+            if (isDebug()) {
+                console.log('%c[MSE Calendar]', 'color: #10b981; font-weight: bold;', ...args);
+            }
+        },
+        db(...args) {
+            if (isDebug()) {
+                console.log('%c[MSE DB]', 'color: #f59e0b; font-weight: bold;', ...args);
+            }
+        },
+        warn(...args) {
+            console.warn('[MSE]', ...args);
+        },
+        error(...args) {
+            console.error('[MSE]', ...args);
+        }
+    };
+
+    const getSessionStatus = () => {
+        const accessToken = sessionStorage.getItem('access_token');
+        const expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
+
+        if (!accessToken) {
+            return { hasToken: false, secondsLeft: 0, statusText: 'Токен отсутствует в sessionStorage' };
+        }
+        if (!expiresAt) {
+            return { hasToken: true, secondsLeft: 0, statusText: 'Токен активен (expires_at не задан)' };
+        }
+
+        const secondsLeft = Math.round((expiresAt - Date.now()) / 1000);
+        if (secondsLeft <= 0) {
+            return { hasToken: true, secondsLeft, statusText: `Токен истек (${Math.abs(secondsLeft)} сек. назад)` };
+        }
+
+        const minLeft = Math.floor(secondsLeft / 60);
+        const secMod = secondsLeft % 60;
+        return {
+            hasToken: true,
+            secondsLeft,
+            statusText: `Активен (~${minLeft} мин ${secMod} сек)`
+        };
+    };
+
+    const printDebugStatus = () => {
+        const session = getSessionStatus();
+        console.log(
+            `%c[MSE Status] Версия: v${CURRENT_VERSION} | Статус токена: ${session.statusText} | Остаток жизни: ${session.secondsLeft} сек.`,
+            'color: #0284c7; font-weight: bold;'
+        );
+    };
+
+    window.MSE_logger = logger;
+    window.MSE_status = printDebugStatus;
+    window.MSE_enableDebug = () => {
+        try {
+            localStorage.setItem(STORAGE_KEY_DEBUG, '1');
+        } catch {}
+        window.__MSE_DEBUG__ = true;
+        console.log('[MSE] Режим отладки ВКЛЮЧЕН (мгновенно, F5 не требуется)');
+        printDebugStatus();
+    };
+    window.MSE_disableDebug = () => {
+        try {
+            localStorage.removeItem(STORAGE_KEY_DEBUG);
+        } catch {}
+        window.__MSE_DEBUG__ = false;
+        console.log('[MSE] Режим отладки ВЫКЛЮЧЕН');
+    };
+
     if (window.studentEnhancer) {
-        console.log('%c[MSE] Скрипт уже запущен.', 'color: orange;');
+        logger.warn('Скрипт уже запущен.');
         return;
     }
 
@@ -75,12 +180,13 @@
     const SEARCH_SUGGESTIONS_LIMIT = 7;                   // Максимум подсказок студентов в поиске
     const PE_SCHEDULE_DAYS = 21;                          // Горизонт дней для расписания физкультуры
 
-    // Идентификаторы элементов DOM
+    // Классы и идентификаторы элементов DOM
+    const CLASS_MSE_ACTIVE = 'mse-active';
     const ID_SILENT_REFRESHER = 'mse-silent-refresher';
     const ID_SEARCH_CONTAINER = 'enhancer-search-container';
     const ID_STOP_BUTTON = 'enhancer-stop-button';
     const ID_TEACHER_TOOLTIP = 'teacher-tooltip';
-    const ID_STYLES = 'enhancer-styles';
+    const ID_TOAST_CONTAINER = 'mse-toast-container';
     const ID_FRIENDS_MENU = 'mse-friends-menu';
     const ID_RETURN_TO_ME_MENU = 'mse-return-to-me-menu';
     const ID_UPDATE_BADGE = 'mse-update-badge';
@@ -138,10 +244,71 @@
             .replace(/'/g, '&#39;');
     };
 
+    // Неблокирующие всплывающие уведомления (Toast) вместо alert()
+    const showToast = (message, type = 'info', durationMs = 4000) => {
+        let container = qs(`#${ID_TOAST_CONTAINER}`);
+        if (!container) {
+            container = document.createElement('div');
+            container.id = ID_TOAST_CONTAINER;
+            document.body.appendChild(container);
+        }
+
+        const icons = {
+            info: 'ℹ️',
+            success: '✅',
+            warning: '⚠️',
+            error: '❌'
+        };
+
+        const toast = document.createElement('div');
+        toast.className = `mse-toast mse-toast-${type}`;
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'mse-toast-icon';
+        iconSpan.textContent = icons[type] || 'ℹ️';
+
+        const textSpan = document.createElement('span');
+        textSpan.className = 'mse-toast-message';
+        textSpan.textContent = message;
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'mse-toast-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.setAttribute('aria-label', 'Закрыть');
+
+        toast.appendChild(iconSpan);
+        toast.appendChild(textSpan);
+        toast.appendChild(closeBtn);
+        container.appendChild(toast);
+
+        const dismiss = () => {
+            if (toast.classList.contains('mse-toast-hiding')) return;
+            toast.classList.add('mse-toast-hiding');
+            setTimeout(() => {
+                toast.remove();
+                if (container && container.childNodes.length === 0) {
+                    container.remove();
+                }
+            }, 300);
+        };
+
+        closeBtn.addEventListener('click', dismiss);
+        if (durationMs > 0) {
+            setTimeout(dismiss, durationMs);
+        }
+    };
+
+    window.showToast = showToast;
+    window.MSE_showToast = showToast;
+
+    // Активация стилей расширения (styles.css)
+    document.body.classList.add(CLASS_MSE_ACTIVE);
+
     const processPersonSearchResponse = (responseText) => {
         try {
             const data = JSON.parse(responseText);
             const persons = data?._embedded?.persons || [];
+            logger.network(`Поиск персон (/persons/search): найдено ${persons.length} чел.`);
             lastSearchResults.clear();
             persons.forEach(person => {
                 if (person.id && person.fullName) {
@@ -154,7 +321,7 @@
             });
             setTimeout(updateAddFriendButtons, 300);
         } catch (e) {
-            console.warn('[MSE] Не удалось обработать ответ от /persons/search', e);
+            logger.warn('Не удалось обработать ответ от /persons/search', e);
         }
     };
 
@@ -173,9 +340,10 @@
                     const data = await response.clone().json();
                     if (data.cycles && data.cycles.length > 0 && data.cycles[0].teams) {
                         lastPeData = data;
-                        console.log('[MSE] Данные секций перехвачены!');
+                        const teamsCount = data.cycles[0].teams.length;
+                        logger.network(`Физкультура (/module-elements/): перехвачены секции (цикл: "${data.cycles[0].name || '1'}", команд: ${teamsCount})`);
                     }
-                } catch (e) { console.warn('[MSE] Ошибка парсинга физры', e); }
+                } catch (e) { logger.warn('Ошибка парсинга физры:', e); }
             }
             return response;
         };
@@ -202,7 +370,7 @@
                         if (typeof data === 'string') data = JSON.parse(data);
                         processPrimaryGradesData(data);
                     } catch (e) {
-                        console.warn('[MSE] Ошибка чтения primary:', e);
+                        logger.warn('Ошибка чтения primary:', e);
                     }
                 }
             });
@@ -227,15 +395,18 @@
         try {
             localStorage.setItem(STORAGE_KEY_AUTH_BACKUP, JSON.stringify(backupData));
         } catch (e) {
-            console.warn('[MSE Keeper] Не удалось сохранить бэкап сессии', e);
+            logger.warn('Не удалось сохранить бэкап сессии', e);
         }
     }
 
     function triggerSilentRefresh() {
-        if (isSilentRefreshing) return;
+        if (isSilentRefreshing) {
+            logger.session('Запрос на продление отклонен: фоновый iframe уже запущен');
+            return;
+        }
         isSilentRefreshing = true;
 
-        console.log('[MSE Keeper] Сессия скоро истекает. Запуск тихого фонового продления...');
+        logger.session('Сессия скоро истекает. Запуск скрытого iframe для фонового продления...');
 
         const redirectUri = encodeURIComponent(OAUTH_REDIRECT_URI);
         const nonce = Math.random().toString(36).substring(2);
@@ -280,7 +451,7 @@
 
                         // 1. Если сервер все еще дожигает старый токен:
                         if (accessToken === oldToken && expiresIn <= SESSION_BURN_THRESHOLD_SEC) {
-                            console.log(`[MSE Keeper] Сервер еще дожигает старый токен (осталось ${expiresIn} сек). Ждем точного завершения...`);
+                            logger.session(`Ответ получен: сервер еще дожигает старый токен (осталось ${expiresIn} сек.). Ждем точного завершения...`);
                             clearTimeout(smartWaitTimer);
                             smartWaitTimer = setTimeout(() => {
                                 smartWaitTimer = null;
@@ -292,14 +463,16 @@
                             smartWaitTimer = null;
 
                             const totalMin = Math.round(expiresIn / 60);
-                            console.log(`%c[MSE Keeper] Токен успешно продлен в фоне! Новый срок жизни: ~${totalMin} мин.`, 'color: #00dd00; font-weight: bold;');
+                            logger.session(`Ответ получен! Токен успешно продлен в фоне. Новый срок жизни: ${expiresIn} сек. (~${totalMin} мин.)`);
                         }
                     }
 
                     ifr.remove();
                     isSilentRefreshing = false;
                 }
-            } catch (e) { }
+            } catch (e) {
+                // Штатная ошибка безопасности (CORS) пока во фрейме идет переадресация через Keycloak
+            }
         };
 
         const pollTimer = setInterval(checkTokens, SESSION_POLL_INTERVAL_MS);
@@ -311,7 +484,7 @@
                 clearInterval(pollTimer);
                 ifr.remove();
                 isSilentRefreshing = false;
-                console.warn('[MSE Keeper] Тайм-аут фонового обновления');
+                logger.warn('[MSE Session] Тайм-аут фонового обновления токена');
             }
         }, SESSION_IFRAME_TIMEOUT_MS);
     }
@@ -324,9 +497,13 @@
         if (smartWaitTimer) return;
 
         const expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
-        if (!expiresAt) return;
+        if (!expiresAt) {
+            logger.session('Мониторинг сессии: expires_at не найден в sessionStorage (пропуск проверки)');
+            return;
+        }
 
         const secondsLeft = Math.round((expiresAt - Date.now()) / 1000);
+        logger.session(`Проверка токена: осталось ${secondsLeft} сек. (порог автопродления: ${SESSION_REFRESH_THRESHOLD_SEC} сек.)`);
 
         // Обновляем за 60 секунд до конца
         if (secondsLeft <= SESSION_REFRESH_THRESHOLD_SEC) {
@@ -362,24 +539,28 @@
             if (buildingsMeta?.content) {
                 const json = decodeBase64Utf8(buildingsMeta.content);
                 buildingMap = JSON.parse(json) || {};
-                console.log('[MSE] Загружено корпусов:', Object.keys(buildingMap).length);
+                logger.db(`База корпусов: успешно загружено ${Object.keys(buildingMap).length} корпусов`);
+            } else {
+                logger.db('База корпусов: метатег не найден (мост данных ожидает инициализации)');
             }
-        } catch (e) { console.warn('[MSE] Ошибка загрузки buildings.json', e); }
+        } catch (e) { logger.warn('Ошибка загрузки buildings.json', e); }
         try {
             const reviewsMeta = qs(`meta[name="${META_REVIEWS}"]`);
             if (reviewsMeta?.content) {
                 const json = decodeBase64Utf8(reviewsMeta.content);
                 teacherReviews = new Map(Object.entries(JSON.parse(json) || {}));
-                console.log('[MSE] Загружено отзывов о преподавателях:', teacherReviews.size);
+                logger.db(`База отзывов: успешно загружено ${teacherReviews.size} отзывов о преподавателях`);
+            } else {
+                logger.db('База отзывов: метатег не найден (мост данных ожидает инициализации)');
             }
-        } catch (e) { console.warn('[MSE] Ошибка загрузки teacher_reviews.json', e); }
+        } catch (e) { logger.warn('Ошибка загрузки teacher_reviews.json', e); }
     })();
 
     const getFriends = () => {
         try {
             return JSON.parse(localStorage.getItem(FRIENDS_STORAGE_KEY) || '[]');
         } catch (e) {
-            console.warn('[MSE] Ошибка чтения списка друзей из localStorage.', e);
+            logger.warn('Ошибка чтения списка друзей из localStorage', e);
             localStorage.removeItem(FRIENDS_STORAGE_KEY);
             return [];
         }
@@ -654,11 +835,12 @@
         window.removeEventListener('popstate', processUrlChange);
         window.removeEventListener('click', handleLogoutClick);
 
-        // 4. Очистка внедрённых DOM-элементов
+        // 4. Очистка внедрённых DOM-элементов и деактивация стилей
+        document.body.classList.remove(CLASS_MSE_ACTIVE);
         qs(`#${ID_SEARCH_CONTAINER}`)?.remove();
         qs(`#${ID_TEACHER_TOOLTIP}`)?.remove();
         qs(`#${ID_STOP_BUTTON}`)?.remove();
-        qs(`#${ID_STYLES}`)?.remove();
+        qs(`#${ID_TOAST_CONTAINER}`)?.remove();
         qs(`#${ID_FRIENDS_MENU}`)?.remove();
         qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
         qs(`#${ID_SILENT_REFRESHER}`)?.remove();
@@ -669,7 +851,7 @@
 
         clearSearch();
         delete window.studentEnhancer;
-        console.log('%c[MSE] Скрипт полностью остановлен, нативные прототипы и таймеры очищены.', 'color: red; font-weight: bold;');
+        logger.debug('Скрипт полностью остановлен, нативные прототипы и таймеры очищены.');
     };
 
     const enhanceLists = () => {
@@ -866,12 +1048,14 @@
     };
 
     const linkDomEventsToCache = () => {
-        if (eventCache.size === 0) return;
+        if (eventCache.size === 0) return 0;
         const assignedIds = new Set();
+        let linkedCount = 0;
         qsa('.fc-time-grid-event').forEach(el => {
             const existingId = el.getAttribute('data-event-id');
             if (existingId && eventCache.has(existingId)) {
                 assignedIds.add(existingId);
+                linkedCount++;
                 return;
             }
             const title = normalizeName(qs('.fc-title', el)?.textContent);
@@ -885,10 +1069,12 @@
                 if ((cacheFull === title || cacheName === title || cacheFull.includes(title)) && data.startsAtLocal.includes(time)) {
                     el.setAttribute('data-event-id', id);
                     assignedIds.add(id);
+                    linkedCount++;
                     break;
                 }
             }
         });
+        return linkedCount;
     };
 
     const getActiveCalendarPersonId = (myJwtPersonId) => {
@@ -901,7 +1087,9 @@
                     return filter.attendee[0].key;
                 }
             }
-        } catch (e) { }
+        } catch (e) {
+            logger.warn('Не удалось распарсить eventsFilter из URL:', e);
+        }
         return myJwtPersonId;
     };
 
@@ -948,6 +1136,7 @@
             if (!eventsResponse.ok) throw new Error(`Ошибка API (события): ${eventsResponse.status}`);
             const eventsData = await eventsResponse.json();
             const events = eventsData._embedded?.events || [];
+            logger.calendar(`Этап 1: загружено ${events.length} событий на неделю (${timeMin.slice(0, 10)} — ${timeMax.slice(0, 10)})`);
 
             if (events.length === 0) {
                 if (statusEl) statusEl.textContent = 'Событий на неделе нет.';
@@ -1013,14 +1202,18 @@
                 eventCache.set(event.id, { name: event.name, fullDisplayName: `${moduleShortName} / ${event.name}`, startsAtLocal: event.startsAtLocal, attendees: studentList });
             });
 
-            linkDomEventsToCache();
+            logger.calendar(`Этап 2: загружены участники для ${events.length} событий (уникальных студентов: ${uniqueStudents.size})`);
+
+            const linkedCount = linkDomEventsToCache();
+            logger.calendar(`Этап 3: завершена привязка к DOM (привязано ${linkedCount} карточек событий)`);
+
             if (statusEl) statusEl.style.display = 'none';
             if (controlsEl) controlsEl.style.display = 'flex';
             if (selectedStudents.size > 0) highlightEventsForStudents();
         } catch (err) {
             if (statusEl) { statusEl.textContent = `Ошибка: ${err.message}`; statusEl.style.color = 'red'; }
             if (controlsEl) controlsEl.style.display = 'flex';
-            console.error('[MSE]', err);
+            logger.error('Критическая ошибка загрузки данных расписания:', err);
         }
         checkExtensionUpdate();
     };
@@ -1033,7 +1226,7 @@
         let releaseData = null;
 
         if (lastCheck && (Date.now() - Number(lastCheck) < UPDATE_CHECK_INTERVAL_MS) && cachedRelease) {
-            try { releaseData = JSON.parse(cachedRelease); } catch (e) { }
+            try { releaseData = JSON.parse(cachedRelease); } catch (e) { logger.warn('Не удалось распарсить кэш релиза:', e); }
         } else {
             try {
                 const res = await fetch(API_GITHUB_LATEST);
@@ -1042,7 +1235,9 @@
                     localStorage.setItem(STORAGE_KEY_LATEST_RELEASE, JSON.stringify(releaseData));
                     localStorage.setItem(STORAGE_KEY_LAST_UPDATE_CHECK, String(Date.now()));
                 }
-            } catch (e) { }
+            } catch (e) {
+                logger.warn('Не удалось проверить обновление расширения на GitHub:', e);
+            }
         }
 
         if (!releaseData) return;
@@ -1111,8 +1306,11 @@
 
         // 1. Открытие карточки пары (боковая панель)
         const param = urlObj.searchParams.get('selectedEvent');
-        let newEventId = null;
-        try { if (param && param !== '""') newEventId = JSON.parse(param).eventId; } catch (e) { }
+        try {
+            if (param && param !== '""') newEventId = JSON.parse(param).eventId;
+        } catch (e) {
+            logger.warn('Не удалось распарсить selectedEvent из URL:', e);
+        }
         if (newEventId !== currentEventId) {
             currentEventId = newEventId;
             setTimeout(() => { enhanceLists(); }, 250);
@@ -1211,6 +1409,9 @@
     function processPrimaryGradesData(data) {
         if (!data || !data.courseUnitRealizations) return;
 
+        const count = data.courseUnitRealizations.length;
+        logger.network(`Успеваемость (/primary): перехвачена таблица результатов, предметов: ${count}`);
+
         const token = sessionStorage.getItem('id_token');
         const uniqueCourseUnits = new Set();
 
@@ -1253,7 +1454,7 @@
                     }
                     enhanceGradesTable();
                 })
-                .catch(e => console.warn('[MSE] Ошибка загрузки техкарты:', e));
+                .catch(e => logger.warn('Ошибка загрузки техкарты:', e));
         });
     }
 
@@ -1581,7 +1782,7 @@
                     peBtn.addEventListener('click', async () => {
                         const urlMatch = window.location.href.match(/menus\/([^\/]+)\/student\/([^\/]+)/);
                         if (!urlMatch) {
-                            alert('Зайдите внутрь кампании физкультуры, чтобы кнопка заработала.');
+                            showToast('Зайдите внутрь кампании физкультуры, чтобы кнопка заработала.', 'warning');
                             return;
                         }
                         const campaignId = urlMatch[1];
@@ -1593,10 +1794,21 @@
                         try {
                             const token = sessionStorage.getItem('id_token');
 
+                            console.log(
+                                '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
+                                'Загрузка меню кампании физкультуры...',
+                                { campaignId, bookingStudentId }
+                            );
+
                             // 1. Получаем меню кампании (узнаем ID модулей 1 и 2 семестра)
                             const menuRes = await fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu`, {
                                 headers: { "authorization": `Bearer ${token}` }
                             });
+                            if (!menuRes.ok) {
+                                const raw = await menuRes.text();
+                                console.error('[MSE PE] Ошибка загрузки меню кампании:', { status: menuRes.status, raw });
+                                throw new Error(`Ошибка загрузки меню: HTTP ${menuRes.status}`);
+                            }
                             const menuData = await menuRes.json();
 
                             if (!menuData.moduleElements || menuData.moduleElements.length === 0) {
@@ -1606,9 +1818,32 @@
                             // 2. Параллельно загружаем все команды для всех найденных модулей
                             const modulePromises = menuData.moduleElements.map(m =>
                                 fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu/module-elements/${m.id}`, { headers: { "authorization": `Bearer ${token}` } })
-                                    .then(r => r.json())
+                                    .then(async r => {
+                                        if (!r.ok) {
+                                            const raw = await r.text();
+                                            console.error('[MSE PE] Ошибка загрузки команд модуля:', { moduleId: m.id, status: r.status, raw });
+                                            throw new Error(`Ошибка модуля ${m.id}: HTTP ${r.status}`);
+                                        }
+                                        const data = await r.json();
+                                        return {
+                                            ...data,
+                                            id: data.id || m.id,
+                                            moduleElementId: data.moduleElementId || data.id || m.id,
+                                            name: data.name || m.name
+                                        };
+                                    })
                             );
                             const allModulesData = await Promise.all(modulePromises);
+
+                            console.log(
+                                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
+                                `Успешно загружено модулей: ${allModulesData.length}`,
+                                allModulesData.map(mod => ({
+                                    moduleId: mod.moduleElementId,
+                                    name: mod.name,
+                                    selectedTeamIds: mod.selectedTeamIds || []
+                                }))
+                            );
 
                             // 3. Загружаем расписание (ВНИМАНИЕ: тут нужен personId из токена, а не bookingStudentId!)
                             const parseJwt = (t) => JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
@@ -1649,10 +1884,11 @@
                             if (window.MSE_PE) {
                                 window.MSE_PE.openModal(allModulesData, blockedSlots, campaignId, bookingStudentId, teacherReviews);
                             } else {
-                                alert('Модуль pe-module.js не загружен.');
+                                showToast('Модуль pe-module.js не загружен.', 'error');
                             }
                         } catch (e) {
-                            alert('Ошибка загрузки: ' + e.message);
+                            logger.error('Ошибка подготовки модального окна физкультуры:', e);
+                            showToast('Ошибка загрузки: ' + e.message, 'error');
                         } finally {
                             peBtn.innerHTML = '⚡ Умный подбор секций';
                             peBtn.disabled = false;
@@ -1684,232 +1920,6 @@
         }, MUTATION_DEBOUNCE_DELAY_MS);
     };
 
-    const style = document.createElement('style');
-    style.id = ID_STYLES;
-    style.innerHTML = `
-        /* Кнопка Стоп-скрипт */
-        #enhancer-stop-button { cursor: pointer; color: #dc3545; opacity: 0.8; } 
-        #enhancer-stop-button:hover { opacity: 1; }
-
-        /* 1. БЛОК ПОИСКА И КНОПОК РАСШИРЕНИЯ (по скриншотам F12) */
-        #enhancer-search-container { 
-            margin-left: auto !important; 
-            position: relative !important; 
-            display: flex !important; 
-            flex-direction: column !important; 
-            align-items: flex-end !important; 
-        }
-
-        #search-controls { 
-            display: flex; 
-            align-items: center; 
-            gap: 5px; 
-        }
-
-        /* Кнопки обновления и добавления друзей */
-        #refresh-data-btn, #add-friends-to-search-btn { 
-            background: #fff; color: #495057; border: 1px solid #ced4da; 
-            border-radius: 4px; width: 30px; height: 30px; cursor: pointer; 
-            display: flex; align-items: center; justify-content: center; padding: 0; 
-        }
-        #refresh-data-btn:hover, #add-friends-to-search-btn:hover { background: #e9ecef; } 
-        #refresh-data-btn:active, #add-friends-to-search-btn:active { background: #dee2e6; }
-
-        /* Поле ввода поиска */
-        #student-search-input { 
-            height: 30px !important; 
-            border: 1px solid #ced4da !important; 
-            border-radius: 4px !important; 
-            padding: 0 10px !important; 
-            min-width: 170px !important; 
-        }
-
-        /* Кнопка сброса поиска */
-        #search-clear-btn { 
-            background: #6c757d; color: white; border: none; border-radius: 4px; 
-            width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center; 
-        } 
-        #search-clear-btn:hover { background: #5a6268; }
-
-        /* Выпадающий список найденных людей (320px с привязкой вправо) */
-        #search-suggestions { 
-            display: none; 
-            position: absolute !important; 
-            top: 100% !important; 
-            left: auto !important; 
-            right: 0 !important; 
-            width: 320px !important; 
-            background: white !important; 
-            border: 1px solid #ddd !important; 
-            z-index: 1000 !important; 
-            max-height: 300px !important; 
-            overflow-y: auto !important; 
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important; 
-            margin-top: 2px !important; 
-            text-align: left !important; 
-            border-radius: 4px;
-        }
-        .suggestion-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee; } 
-        .suggestion-item:hover { background-color: #f5f5f5; }
-        .suggestion-name { font-weight: 500; } 
-        .suggestion-details { font-size: 0.8em; color: #6c757d; }
-
-        /* Кнопка и выпадающий список выбранных студентов (Выбрано: N) */
-        #selected-students-toggle { 
-            background: #fff; border: 1px solid #ced4da; padding: 0 8px; height: 30px; 
-            border-radius: 4px; cursor: pointer; display: flex; align-items: center; 
-            font-size: 12px; color: #495057; white-space: nowrap; 
-        }
-        #selected-students-toggle:hover { background: #f8f9fa; }
-        #selected-students-container { 
-            display: none; position: absolute; top: 100%; left: 0; background: white; border: 1px solid #ddd; 
-            z-index: 1000; max-height: 250px; overflow-y: auto; width: 260px; 
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin-top: 2px; padding: 6px; 
-            flex-direction: column; gap: 5px; border-radius: 4px; 
-        }
-        .selected-student-tag { 
-            background: #28a745; color: white; padding: 4px 8px; border-radius: 4px; 
-            font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 5px; 
-        }
-        .remove-student-btn { 
-            background: rgba(255,255,255,0.3); border: none; color: white; border-radius: 50%; 
-            width: 16px; height: 16px; cursor: pointer; font-size: 12px; line-height: 1; 
-            padding: 0; display: flex; align-items: center; justify-content: center; 
-        }
-        .remove-student-btn:hover { background: rgba(255,255,255,0.6); }
-
-        /* 2. СЕТКА КАЛЕНДАРЯ И ПОДСВЕТКА ПАР */
-        .fc-time-grid-event { transition: opacity 0.3s ease, border 0.3s ease; } 
-        .search-highlight { border: 3px solid #28a745 !important; z-index: 2 !important; } 
-        .search-fade { opacity: 0.25 !important; }
-        
-        .mse-event-match-tooltip { 
-            font-size: 10px; color: #000; background: rgba(40,167,69,0.35); 
-            padding: 2px 4px; border-radius: 3px; margin-top: 3px; 
-            line-height: 1.2; display: block; 
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
-            border-left: 2px solid #28a745; cursor: help;
-        }
-
-        /* 3. ТУЛТИПЫ ПРЕПОДАВАТЕЛЕЙ */
-        #teacher-tooltip { 
-            position: fixed; display: none; background: #333; color: white; 
-            border-radius: 5px; padding: 10px; z-index: 1001; max-width: 300px; 
-            font-size: 14px; line-height: 1.4; pointer-events: none; 
-        }
-        .tooltip-header { font-weight: bold; margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px solid #555; }
-        .student-details { color: #9e9e9e; font-size: 0.85em; display: block; line-height: 1.2; margin-top: 2px; }
-
-        /* 4. БОКОВОЕ МЕНЮ ДРУЗЕЙ */
-        #mse-friends-menu .p-panelmenu-header a { 
-            position: relative !important; display: flex !important; align-items: center !important; cursor: pointer !important;
-        }
-        #mse-friends-menu .p-panelmenu-header .p-menuitem-icon { 
-            margin-right: 14px !important; flex-shrink: 0 !important;
-        }
-        #mse-friends-menu .p-panelmenu-header .p-menuitem-text { flex-grow: 1 !important; }
-        #mse-friends-menu .p-panelmenu-header .p-panelmenu-icon { margin-left: auto !important; display: inline-block !important; }
-
-        #mse-friends-menu li { position: relative !important; }
-        #mse-friends-menu li a { padding-right: 32px !important; }
-        .mse-remove-friend-btn { 
-            position: absolute !important; right: 10px !important; top: 50% !important; 
-            transform: translateY(-50%) !important; cursor: pointer !important; color: #ffffff !important; 
-            opacity: 0.6; font-size: 18px !important; line-height: 1 !important; display: none !important; 
-            padding: 4px !important; z-index: 10 !important;
-        }
-        #mse-friends-menu li:hover .mse-remove-friend-btn { display: block !important; }
-        .mse-remove-friend-btn:hover { opacity: 1 !important; color: #ff5252 !important; }
-
-        /* Кнопка добавления в друзья в штатном мультиселекте */
-        .p-multiselect-item { display: flex !important; align-items: center; }
-        .p-multiselect-item .item { display: flex !important; align-items: center; width: 100%; }
-        .mse-add-friend-btn { cursor: pointer; font-size: 18px; margin-left: auto; padding: 5px 10px; z-index: 5; line-height: 1; -webkit-user-select: none; user-select: none; }
-
-        /* 5. БОКОВАЯ КАРТОЧКА ПАРЫ (ФИКС ШИРИНЫ 325px) */
-        .location-info__header-text { 
-            white-space: normal !important; word-wrap: break-word !important; line-height: 1.2; display: block; margin-top: 4px; 
-        }
-        .calendar-container .event-card-block {
-            flex-shrink: 0 !important; margin-left: 10px !important; width: 325px !important;
-        }
-
-        /* Кнопка обновления в строке поиска */
-        #mse-update-badge {
-            background: #ff9800; color: #fff; font-size: 11px; font-weight: bold;
-            padding: 4px 8px; border-radius: 4px; text-decoration: none;
-            display: flex; align-items: center; cursor: pointer; transition: background 0.2s;
-        }
-        #mse-update-badge:hover { background: #f57c00; }
-
-        /* Всплывающее предложение обновиться в правом нижнем углу */
-        #mse-update-popup {
-            position: fixed; bottom: 25px; right: 25px; z-index: 10000;
-            background: #ffffff; border: 1px solid #ced4da; border-radius: 8px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2); padding: 15px; width: 290px;
-            font-family: Roboto, sans-serif; animation: mseSlideUp 0.3s ease-out;
-        }
-        .mse-update-title { font-weight: bold; font-size: 14px; color: #212529; margin-bottom: 6px; }
-        .mse-update-text { font-size: 12px; color: #495057; line-height: 1.4; margin-bottom: 12px; }
-        .mse-update-actions { display: flex; gap: 8px; justify-content: flex-end; }
-        #mse-update-btn {
-            background: #28a745; color: white; text-decoration: none; font-size: 12px;
-            padding: 5px 12px; border-radius: 4px; font-weight: 500;
-        }
-        #mse-update-btn:hover { background: #218838; }
-        #mse-dismiss-btn {
-            background: #e9ecef; border: none; color: #495057; font-size: 12px;
-            padding: 5px 10px; border-radius: 4px; cursor: pointer;
-        }
-        #mse-dismiss-btn:hover { background: #dee2e6; }
-        @keyframes mseSlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-        /* 1. Ширина колонок встреч */
-        th.text-center:not(.p-frozen-column) {
-            width: 105px !important;
-            min-width: 105px !important;
-        }
-
-        /* 2. Общий контейнер ячейки (бывший td.style) */
-        .lesson-realization-wrap {
-            font-size: 12px !important;
-            overflow: visible !important;
-        }
-
-        /* 3. Цифра оценки (бывшие el.style.width / maxWidth / overflow / fontSize) */
-        .lesson-realization:not(.present):not(.absent) {
-            font-size: 12px !important;
-            width: auto !important;
-            max-width: none !important;
-            overflow: visible !important;
-            text-overflow: clip !important;
-        }
-
-        /* 4. Максимальная оценка с зелёным подчёркиванием */
-        .mse-max-done {
-            color: #1e293b !important;
-            border-bottom: 2px solid #1c9b4a !important;
-            padding-bottom: 1px !important;
-            font-weight: 500 !important;
-            margin-right: 3px !important;
-            display: inline-block !important;
-        }
-
-        /* 5. Дробь /максимум (бывший badge.style.cssText) */
-        .mse-max-grade {
-            color: #718096 !important;
-            font-size: 10px !important;
-            font-weight: 500 !important;
-            margin-left: 2px !important;
-            margin-right: 3px !important;
-            display: inline !important;
-            vertical-align: baseline !important;
-            line-height: 1 !important;
-            white-space: nowrap !important;
-        }
-    `;
-    document.head.appendChild(style);
-
     const observer = new MutationObserver(debouncedMutationHandler);
     observer.observe(document.body, { childList: true, subtree: true });
 
@@ -1940,5 +1950,5 @@
         }
     }, DOM_CHECK_READY_INTERVAL_MS);
 
-    console.log('%c[MSE] Скрипт запущен!', 'color: #2196F3; font-size: 16px; font-weight: bold;');
+    logger.debug('Скрипт запущен!');
 })();

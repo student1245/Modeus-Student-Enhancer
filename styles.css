@@ -1,0 +1,567 @@
+/* Keyframe Animations (Глобальные анимации) */
+@keyframes mseSlideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes mseToastSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-15px) scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* ==========================================================================
+   Компоненты интерфейса MSE (активны только при наличии body.mse-active)
+   При вызове «Стоп-скрипт» класс mse-active снимается, и все стили мгновенно отключаются.
+   ========================================================================== */
+body.mse-active {
+
+    /* 1. Кнопка Стоп-скрипт */
+    #enhancer-stop-button {
+        cursor: pointer;
+        color: #dc3545;
+        opacity: 0.8;
+    }
+
+    #enhancer-stop-button:hover {
+        opacity: 1;
+    }
+
+    /* 2. Блок поиска и кнопок расширения */
+    #enhancer-search-container {
+        margin-left: auto !important;
+        position: relative !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: flex-end !important;
+    }
+
+    #search-controls {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    #refresh-data-btn,
+    #add-friends-to-search-btn {
+        background: #fff;
+        color: #495057;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        width: 30px;
+        height: 30px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+    }
+
+    #refresh-data-btn:hover,
+    #add-friends-to-search-btn:hover {
+        background: #e9ecef;
+    }
+
+    #refresh-data-btn:active,
+    #add-friends-to-search-btn:active {
+        background: #dee2e6;
+    }
+
+    #student-search-input {
+        height: 30px !important;
+        border: 1px solid #ced4da !important;
+        border-radius: 4px !important;
+        padding: 0 10px !important;
+        min-width: 170px !important;
+    }
+
+    #search-clear-btn {
+        background: #6c757d;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        width: 30px;
+        height: 30px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    #search-clear-btn:hover {
+        background: #5a6268;
+    }
+
+    #search-suggestions {
+        display: none;
+        position: absolute !important;
+        top: 100% !important;
+        left: auto !important;
+        right: 0 !important;
+        width: 320px !important;
+        background: white !important;
+        border: 1px solid #ddd !important;
+        z-index: 1000 !important;
+        max-height: 300px !important;
+        overflow-y: auto !important;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1) !important;
+        margin-top: 2px !important;
+        text-align: left !important;
+        border-radius: 4px;
+    }
+
+    .suggestion-item {
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+    }
+
+    .suggestion-item:hover {
+        background-color: #f5f5f5;
+    }
+
+    .suggestion-name {
+        font-weight: 500;
+    }
+
+    .suggestion-details {
+        font-size: 0.8em;
+        color: #6c757d;
+    }
+
+    #selected-students-toggle {
+        background: #fff;
+        border: 1px solid #ced4da;
+        padding: 0 8px;
+        height: 30px;
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        font-size: 12px;
+        color: #495057;
+        white-space: nowrap;
+    }
+
+    #selected-students-toggle:hover {
+        background: #f8f9fa;
+    }
+
+    #selected-students-container {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        background: white;
+        border: 1px solid #ddd;
+        z-index: 1000;
+        max-height: 250px;
+        overflow-y: auto;
+        width: 260px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        margin-top: 2px;
+        padding: 6px;
+        flex-direction: column;
+        gap: 5px;
+        border-radius: 4px;
+    }
+
+    .selected-student-tag {
+        background: #28a745;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 5px;
+    }
+
+    .remove-student-btn {
+        background: rgba(255, 255, 255, 0.3);
+        border: none;
+        color: white;
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .remove-student-btn:hover {
+        background: rgba(255, 255, 255, 0.6);
+    }
+
+    /* 3. Сетка календаря и подсветка пар */
+    .fc-time-grid-event {
+        transition: opacity 0.3s ease, border 0.3s ease;
+    }
+
+    .search-highlight {
+        border: 3px solid #28a745 !important;
+        z-index: 2 !important;
+    }
+
+    .search-fade {
+        opacity: 0.25 !important;
+    }
+
+    .mse-event-match-tooltip {
+        font-size: 10px;
+        color: #000;
+        background: rgba(40, 167, 69, 0.35);
+        padding: 2px 4px;
+        border-radius: 3px;
+        margin-top: 3px;
+        line-height: 1.2;
+        display: block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        border-left: 2px solid #28a745;
+        cursor: help;
+    }
+
+    /* 4. Тултипы преподавателей */
+    #teacher-tooltip {
+        position: fixed;
+        display: none;
+        background: #333;
+        color: white;
+        border-radius: 5px;
+        padding: 10px;
+        z-index: 1001;
+        max-width: 300px;
+        font-size: 14px;
+        line-height: 1.4;
+        pointer-events: none;
+    }
+
+    .tooltip-header {
+        font-weight: bold;
+        margin-bottom: 5px;
+        padding-bottom: 5px;
+        border-bottom: 1px solid #555;
+    }
+
+    .student-details {
+        color: #9e9e9e;
+        font-size: 0.85em;
+        display: block;
+        line-height: 1.2;
+        margin-top: 2px;
+    }
+
+    /* 5. Боковое меню друзей */
+    #mse-friends-menu .p-panelmenu-header a {
+        position: relative !important;
+        display: flex !important;
+        align-items: center !important;
+        cursor: pointer !important;
+    }
+
+    #mse-friends-menu .p-panelmenu-header .p-menuitem-icon {
+        margin-right: 14px !important;
+        flex-shrink: 0 !important;
+    }
+
+    #mse-friends-menu .p-panelmenu-header .p-menuitem-text {
+        flex-grow: 1 !important;
+    }
+
+    #mse-friends-menu .p-panelmenu-header .p-panelmenu-icon {
+        margin-left: auto !important;
+        display: inline-block !important;
+    }
+
+    #mse-friends-menu li {
+        position: relative !important;
+    }
+
+    #mse-friends-menu li a {
+        padding-right: 32px !important;
+    }
+
+    .mse-remove-friend-btn {
+        position: absolute !important;
+        right: 10px !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        cursor: pointer !important;
+        color: #ffffff !important;
+        opacity: 0.6;
+        font-size: 18px !important;
+        line-height: 1 !important;
+        display: none !important;
+        padding: 4px !important;
+        z-index: 10 !important;
+    }
+
+    #mse-friends-menu li:hover .mse-remove-friend-btn {
+        display: block !important;
+    }
+
+    .mse-remove-friend-btn:hover {
+        opacity: 1 !important;
+        color: #ff5252 !important;
+    }
+
+    /* Кнопка добавления в друзья в штатном мультиселекте */
+    .p-multiselect-item {
+        display: flex !important;
+        align-items: center;
+    }
+
+    .p-multiselect-item .item {
+        display: flex !important;
+        align-items: center;
+        width: 100%;
+    }
+
+    .mse-add-friend-btn {
+        cursor: pointer;
+        font-size: 18px;
+        margin-left: auto;
+        padding: 5px 10px;
+        z-index: 5;
+        line-height: 1;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    /* 6. Боковая карточка пары (фикс ширины 325px) */
+    .location-info__header-text {
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        line-height: 1.2;
+        display: block;
+        margin-top: 4px;
+    }
+
+    .calendar-container .event-card-block {
+        flex-shrink: 0 !important;
+        margin-left: 10px !important;
+        width: 325px !important;
+    }
+
+    /* 7. Бейдж и всплывающее предложение обновиться */
+    #mse-update-badge {
+        background: #ff9800;
+        color: #fff;
+        font-size: 11px;
+        font-weight: bold;
+        padding: 4px 8px;
+        border-radius: 4px;
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+
+    #mse-update-badge:hover {
+        background: #f57c00;
+    }
+
+    #mse-update-popup {
+        position: fixed;
+        bottom: 25px;
+        right: 25px;
+        z-index: 10000;
+        background: #ffffff;
+        border: 1px solid #ced4da;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        padding: 15px;
+        width: 290px;
+        font-family: Roboto, sans-serif;
+        animation: mseSlideUp 0.3s ease-out;
+    }
+
+    .mse-update-title {
+        font-weight: bold;
+        font-size: 14px;
+        color: #212529;
+        margin-bottom: 6px;
+    }
+
+    .mse-update-text {
+        font-size: 12px;
+        color: #495057;
+        line-height: 1.4;
+        margin-bottom: 12px;
+    }
+
+    .mse-update-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+    }
+
+    #mse-update-btn {
+        background: #28a745;
+        color: white;
+        text-decoration: none;
+        font-size: 12px;
+        padding: 5px 12px;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+
+    #mse-update-btn:hover {
+        background: #218838;
+    }
+
+    #mse-dismiss-btn {
+        background: #e9ecef;
+        border: none;
+        color: #495057;
+        font-size: 12px;
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    #mse-dismiss-btn:hover {
+        background: #dee2e6;
+    }
+
+    /* 8. Таблица успеваемости (Results Table) */
+    th.text-center:not(.p-frozen-column) {
+        width: 105px !important;
+        min-width: 105px !important;
+    }
+
+    .lesson-realization-wrap {
+        font-size: 12px !important;
+        overflow: visible !important;
+    }
+
+    .lesson-realization:not(.present):not(.absent) {
+        font-size: 12px !important;
+        width: auto !important;
+        max-width: none !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+    }
+
+    .mse-max-done {
+        color: #1e293b !important;
+        border-bottom: 2px solid #1c9b4a !important;
+        padding-bottom: 1px !important;
+        font-weight: 500 !important;
+        margin-right: 3px !important;
+        display: inline-block !important;
+    }
+
+    .mse-max-grade {
+        color: #718096 !important;
+        font-size: 10px !important;
+        font-weight: 500 !important;
+        margin-left: 2px !important;
+        margin-right: 3px !important;
+        display: inline !important;
+        vertical-align: baseline !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
+    }
+
+    /* 9. Toast Notifications (баннеры обратной связи вместо alert) */
+    #mse-toast-container {
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        z-index: 999999;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+        max-width: 380px;
+    }
+
+    .mse-toast {
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #1e293b;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.08);
+        font-size: 13px;
+        line-height: 1.4;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        animation: mseToastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+        border-left: 4px solid #2196f3;
+    }
+
+    .mse-toast.mse-toast-hiding {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+
+    .mse-toast-info {
+        border-left-color: #2196f3;
+    }
+
+    .mse-toast-success {
+        border-left-color: #16a34a;
+    }
+
+    .mse-toast-warning {
+        border-left-color: #f59e0b;
+    }
+
+    .mse-toast-error {
+        border-left-color: #ef4444;
+    }
+
+    .mse-toast-icon {
+        font-size: 18px;
+        flex-shrink: 0;
+        line-height: 1;
+    }
+
+    .mse-toast-message {
+        flex-grow: 1;
+        word-break: break-word;
+    }
+
+    .mse-toast-close {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0;
+        margin-left: 4px;
+        flex-shrink: 0;
+        transition: color 0.15s;
+    }
+
+    .mse-toast-close:hover {
+        color: #334155;
+    }
+}

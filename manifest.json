@@ -43,6 +43,7 @@
         "https://utmn.modeus.org/*"
       ],
       "css": [
+        "styles.css",
         "pe-styles.css"
       ],
       "js": [
@@ -59,6 +60,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "styles.css",
         "injected.js",
         "pe-module.js",
         "buildings.json",
