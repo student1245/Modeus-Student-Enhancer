@@ -59,6 +59,11 @@
                 console.log('%c[MSE DB]', 'color: #f59e0b; font-weight: bold;', ...args);
             }
         },
+        update(...args) {
+            if (isDebug()) {
+                console.log('%c[MSE Update]', 'color: #ec4899; font-weight: bold;', ...args);
+            }
+        },
         warn(...args) {
             console.warn('[MSE]', ...args);
         },
@@ -98,6 +103,8 @@
             `%c[MSE Status] Версия: v${CURRENT_VERSION} | Статус токена: ${session.statusText} | Остаток жизни: ${session.secondsLeft} сек.`,
             'color: #0284c7; font-weight: bold;'
         );
+        if (typeof printDatabaseStatus === 'function') printDatabaseStatus();
+        if (typeof printUpdateStatus === 'function') printUpdateStatus();
     };
 
     window.MSE_logger = logger;
@@ -116,6 +123,15 @@
         } catch {}
         window.__MSE_DEBUG__ = false;
         console.log('[MSE] Режим отладки ВЫКЛЮЧЕН');
+    };
+    window.MSE_checkUpdates = (force = true) => {
+        if (typeof checkExtensionUpdate === 'function') return checkExtensionUpdate({ force });
+    };
+    window.MSE_testUpdate = (mockVersion = '9.9.9') => {
+        if (typeof simulateUpdate === 'function') return simulateUpdate(mockVersion);
+    };
+    window.MSE_simulateUpdate = (mockVersion = '9.9.9') => {
+        if (typeof simulateUpdate === 'function') return simulateUpdate(mockVersion);
     };
 
     if (window.studentEnhancer) {
@@ -546,28 +562,63 @@
         }
     };
 
-    (function loadDataFromMeta() {
+    const databaseState = {
+        buildings: { loaded: false, count: 0, source: 'не загружено' },
+        reviews: { loaded: false, count: 0, source: 'не загружено' }
+    };
+
+    const loadBuildingsDatabase = () => {
         try {
             const buildingsMeta = qs(`meta[name="${META_BUILDINGS}"]`);
             if (buildingsMeta?.content) {
+                const source = buildingsMeta.getAttribute('data-source') || 'DOM-метатег';
                 const json = decodeBase64Utf8(buildingsMeta.content);
                 buildingMap = JSON.parse(json) || {};
-                logger.db(`База корпусов: успешно загружено ${Object.keys(buildingMap).length} корпусов`);
+                const count = Object.keys(buildingMap).length;
+                databaseState.buildings = { loaded: true, count, source };
+                logger.db(`База корпусов: успешно инициализирована (${count} корпусов, источник: ${source})`);
             } else {
                 logger.db('База корпусов: метатег не найден (мост данных ожидает инициализации)');
             }
-        } catch (e) { logger.warn('Ошибка загрузки buildings.json', e); }
+        } catch (e) {
+            logger.warn('Ошибка загрузки базы корпусов (buildings.json):', e);
+        }
+    };
+
+    const loadTeacherReviewsDatabase = () => {
         try {
             const reviewsMeta = qs(`meta[name="${META_REVIEWS}"]`);
             if (reviewsMeta?.content) {
+                const source = reviewsMeta.getAttribute('data-source') || 'DOM-метатег';
                 const json = decodeBase64Utf8(reviewsMeta.content);
                 teacherReviews = new Map(Object.entries(JSON.parse(json) || {}));
-                logger.db(`База отзывов: успешно загружено ${teacherReviews.size} отзывов о преподавателях`);
+                const count = teacherReviews.size;
+                databaseState.reviews = { loaded: true, count, source };
+                logger.db(`База отзывов: успешно инициализирована (${count} отзывов, источник: ${source})`);
             } else {
                 logger.db('База отзывов: метатег не найден (мост данных ожидает инициализации)');
             }
-        } catch (e) { logger.warn('Ошибка загрузки teacher_reviews.json', e); }
-    })();
+        } catch (e) {
+            logger.warn('Ошибка загрузки базы отзывов (teacher_reviews.json):', e);
+        }
+    };
+
+    const initDatabases = () => {
+        loadBuildingsDatabase();
+        loadTeacherReviewsDatabase();
+    };
+
+    const printDatabaseStatus = () => {
+        if (!databaseState.buildings.loaded && !databaseState.reviews.loaded) {
+            initDatabases();
+        }
+        logger.db(
+            `Корпуса: ${databaseState.buildings.count} шт. [${databaseState.buildings.source}] | ` +
+            `Отзывы: ${databaseState.reviews.count} шт. [${databaseState.reviews.source}]`
+        );
+    };
+
+    initDatabases();
 
     const getFriends = () => {
         try {
@@ -1230,84 +1281,163 @@
         checkExtensionUpdate();
     };
 
-    // ПРОВЕРКА ОБНОВЛЕНИЯ КОДА РАСШИРЕНИЯ
-    const checkExtensionUpdate = async () => {
-        // Чтобы не спамить запросами к GitHub, проверяем не чаще одного раза в 2 часа
+    // ----------------------------------------------------
+    // УПРАВЛЕНИЕ И ПРОВЕРКА ОБНОВЛЕНИЙ РАСШИРЕНИЯ
+    // ----------------------------------------------------
+
+    const compareSemVer = (versionA, versionB) => {
+        const partsA = String(versionA).split('.').map(Number);
+        const partsB = String(versionB).split('.').map(Number);
+        const maxLength = Math.max(partsA.length, partsB.length);
+        for (let i = 0; i < maxLength; i++) {
+            const numA = partsA[i] || 0;
+            const numB = partsB[i] || 0;
+            if (numA > numB) return 1;
+            if (numA < numB) return -1;
+        }
+        return 0;
+    };
+
+    const isVersionGreater = (latest, current) => compareSemVer(latest, current) > 0;
+
+    const getCachedReleaseInfo = () => {
         const lastCheck = localStorage.getItem(STORAGE_KEY_LAST_UPDATE_CHECK);
         const cachedRelease = localStorage.getItem(STORAGE_KEY_LATEST_RELEASE);
-        let releaseData = null;
+        if (!lastCheck || !cachedRelease) return { isFresh: false, release: null, ageMs: 0 };
 
-        if (lastCheck && (Date.now() - Number(lastCheck) < UPDATE_CHECK_INTERVAL_MS) && cachedRelease) {
-            try { releaseData = JSON.parse(cachedRelease); } catch (e) { logger.warn('Не удалось распарсить кэш релиза:', e); }
-        } else {
-            try {
-                const res = await fetch(API_GITHUB_LATEST);
-                if (res.ok) {
-                    releaseData = await res.json();
-                    localStorage.setItem(STORAGE_KEY_LATEST_RELEASE, JSON.stringify(releaseData));
-                    localStorage.setItem(STORAGE_KEY_LAST_UPDATE_CHECK, String(Date.now()));
-                }
-            } catch (e) {
-                logger.warn('Не удалось проверить обновление расширения на GitHub:', e);
+        const ageMs = Date.now() - Number(lastCheck);
+        const isFresh = ageMs < UPDATE_CHECK_INTERVAL_MS;
+        try {
+            return { isFresh, release: JSON.parse(cachedRelease), ageMs };
+        } catch (e) {
+            logger.warn('Не удалось распарсить кэш последнего релиза:', e);
+            return { isFresh: false, release: null, ageMs };
+        }
+    };
+
+    const fetchLatestReleaseFromGitHub = async () => {
+        logger.update(`Запрос к GitHub Releases API (${API_GITHUB_LATEST})...`);
+        try {
+            const response = await fetch(API_GITHUB_LATEST);
+            if (!response.ok) {
+                logger.warn(`GitHub API вернул статус ${response.status} (${response.statusText})`);
+                return null;
+            }
+            const release = await response.json();
+            localStorage.setItem(STORAGE_KEY_LATEST_RELEASE, JSON.stringify(release));
+            localStorage.setItem(STORAGE_KEY_LAST_UPDATE_CHECK, String(Date.now()));
+            logger.update(`Получен ответ от GitHub: релиз ${release.tag_name} (${release.name || 'без названия'})`);
+            return release;
+        } catch (error) {
+            logger.warn('Ошибка сети при запросе к GitHub Releases API:', error);
+            return null;
+        }
+    };
+
+    const resolveLatestRelease = async (forceNetwork = false) => {
+        if (!forceNetwork) {
+            const cached = getCachedReleaseInfo();
+            if (cached.isFresh && cached.release) {
+                const minutesAgo = Math.round(cached.ageMs / 60000);
+                const minutesLeft = Math.round((UPDATE_CHECK_INTERVAL_MS - cached.ageMs) / 60000);
+                const version = cached.release.tag_name || 'неизвестно';
+                logger.update(
+                    `Использован кэш недавней проверки (проверено ${minutesAgo} мин. назад, след. запрос через ${minutesLeft} мин.). Релиз на GitHub: ${version}`
+                );
+                return cached.release;
             }
         }
+        return await fetchLatestReleaseFromGitHub();
+    };
 
-        if (!releaseData) return;
+    const renderUpdateBadge = (latestVersion, releaseUrl) => {
+        const controls = qs('#search-controls');
+        if (!controls || qs(`#${ID_UPDATE_BADGE}`)) return;
 
-        const isNewerVersion = (latest, current) => {
-            const l = latest.split('.').map(Number);
-            const c = current.split('.').map(Number);
-            for (let i = 0; i < Math.max(l.length, c.length); i++) {
-                const numL = l[i] || 0;
-                const numC = c[i] || 0;
-                if (numL > numC) return true;
-                if (numL < numC) return false;
-            }
-            return false;
-        };
+        const badge = document.createElement('a');
+        badge.id = ID_UPDATE_BADGE;
+        badge.href = releaseUrl;
+        badge.target = '_blank';
+        badge.title = 'Доступна новая версия расширения!';
+        badge.innerHTML = `<span>⚡ v${escapeHtml(latestVersion)}</span>`;
+        controls.insertBefore(badge, controls.firstChild);
+    };
+
+    const renderUpdatePopup = (latestVersion, releaseUrl, { forceShow = false } = {}) => {
+        const isDismissed = localStorage.getItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + latestVersion) === '1';
+        if ((isDismissed && !forceShow) || qs(`#${ID_UPDATE_POPUP}`)) return;
+
+        const popup = document.createElement('div');
+        popup.id = ID_UPDATE_POPUP;
+        popup.innerHTML = `
+            <div class="mse-update-title">🚀 Доступно обновление Enhancer!</div>
+            <div class="mse-update-text">Вышла версия <b>v${escapeHtml(latestVersion)}</b> с новыми функциями и исправлениями. Перейдите по ссылке, чтобы узнать, что появилось нового!</div>
+            <div class="mse-update-actions">
+                <a href="${releaseUrl}" target="_blank" id="mse-update-btn">Посмотреть / Скачать</a>
+                <button id="mse-dismiss-btn">Позже</button>
+            </div>
+        `;
+        document.body.appendChild(popup);
+
+        qs('#mse-dismiss-btn', popup)?.addEventListener('click', () => {
+            localStorage.setItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + latestVersion, '1');
+            popup.remove();
+        });
+        qs('#mse-update-btn', popup)?.addEventListener('click', () => {
+            popup.remove();
+        });
+    };
+
+    const checkExtensionUpdate = async ({ force = false } = {}) => {
+        logger.update(`Запуск проверки обновлений (текущая версия: v${CURRENT_VERSION}, force=${force})...`);
+        const releaseData = await resolveLatestRelease(force);
+        if (!releaseData) {
+            logger.update('Проверка обновлений не выполнена (данные о релизе недоступны).');
+            return;
+        }
 
         const latestVersion = releaseData.tag_name?.replace(/[^0-9.]/g, '');
+        if (!latestVersion) {
+            logger.update(`Не удалось определить номер версии из тега: "${releaseData.tag_name}"`);
+            return;
+        }
+
         const safeReleaseUrl = /^https?:\/\//i.test(releaseData.html_url || '')
             ? escapeHtml(releaseData.html_url)
-            : '#';
+            : `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases`;
 
-        // Проверяем: строго если на GitHub версия ВЫШЕ текущей
-        if (latestVersion && isNewerVersion(latestVersion, CURRENT_VERSION)) {
-            // 1. Маленький бейдж возле поиска
-            const controls = qs('#search-controls');
-            if (controls && !qs(`#${ID_UPDATE_BADGE}`)) {
-                const badge = document.createElement('a');
-                badge.id = ID_UPDATE_BADGE;
-                badge.href = safeReleaseUrl;
-                badge.target = '_blank';
-                badge.title = 'Доступна новая версия расширения!';
-                badge.innerHTML = `<span>⚡ v${escapeHtml(latestVersion)}</span>`;
-                controls.insertBefore(badge, controls.firstChild);
-            }
-
-            // 2. Всплывающее предложение (если пользователь не нажимал "Позже" в этой сессии)
-            if (localStorage.getItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + latestVersion) !== '1' && !qs(`#${ID_UPDATE_POPUP}`)) {
-                const popup = document.createElement('div');
-                popup.id = ID_UPDATE_POPUP;
-                popup.innerHTML = `
-                    <div class="mse-update-title">🚀 Доступно обновление Enhancer!</div>
-                    <div class="mse-update-text">Вышла версия <b>v${escapeHtml(latestVersion)}</b> с новыми функциями и исправлениями. Перейдите по ссылке, чтобы узнать, что появилось нового!</div>
-                    <div class="mse-update-actions">
-                        <a href="${safeReleaseUrl}" target="_blank" id="mse-update-btn">Посмотреть / Скачать</a>
-                        <button id="mse-dismiss-btn">Позже</button>
-                    </div>
-                `;
-                document.body.appendChild(popup);
-
-                qs('#mse-dismiss-btn', popup).addEventListener('click', () => {
-                    localStorage.setItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + latestVersion, '1');
-                    popup.remove();
-                });
-                qs('#mse-update-btn', popup).addEventListener('click', () => {
-                    popup.remove();
-                });
-            }
+        if (isVersionGreater(latestVersion, CURRENT_VERSION)) {
+            logger.update(`🔥 Найдено обновление! Текущая: v${CURRENT_VERSION} -> Доступна: v${latestVersion}. Отображаем баннер.`);
+            renderUpdateBadge(latestVersion, safeReleaseUrl);
+            renderUpdatePopup(latestVersion, safeReleaseUrl);
+        } else {
+            logger.update(`✅ У вас установлена актуальная версия v${CURRENT_VERSION} (на GitHub: v${latestVersion}). Обновлений нет.`);
         }
+    };
+
+    const simulateUpdate = (mockVersion = '9.9.9') => {
+        logger.update(`🧪 Симуляция обновления: запуск тестирования интерфейса для версии v${mockVersion} (текущая: v${CURRENT_VERSION})`);
+        const fallbackUrl = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases`;
+        try {
+            localStorage.removeItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + mockVersion);
+        } catch {}
+        qs(`#${ID_UPDATE_BADGE}`)?.remove();
+        qs(`#${ID_UPDATE_POPUP}`)?.remove();
+        renderUpdateBadge(mockVersion, fallbackUrl);
+        renderUpdatePopup(mockVersion, fallbackUrl, { forceShow: true });
+        logger.update(`🧪 Элементы интерфейса обновления (бейдж и модальное окно) успешно отрисованы.`);
+    };
+
+    const printUpdateStatus = () => {
+        const lastCheck = Number(localStorage.getItem(STORAGE_KEY_LAST_UPDATE_CHECK) || 0);
+        const cachedRelease = localStorage.getItem(STORAGE_KEY_LATEST_RELEASE);
+        let cachedVersion = 'нет данных';
+        try {
+            if (cachedRelease) cachedVersion = JSON.parse(cachedRelease).tag_name || 'нет данных';
+        } catch {}
+        const minutesAgo = lastCheck ? Math.round((Date.now() - lastCheck) / 60000) : null;
+        const timeText = minutesAgo !== null ? `${minutesAgo} мин. назад` : 'никогда';
+        logger.update(`Текущая: v${CURRENT_VERSION} | На GitHub: ${cachedVersion} | Посл. проверка: ${timeText}`);
     };
 
     let lastCalendarParam = null;
@@ -1975,5 +2105,13 @@
         }
     }, DOM_CHECK_READY_INTERVAL_MS);
 
+    // Фоновая проверка обновлений при старте приложения
+    setTimeout(() => {
+        checkExtensionUpdate({ force: false });
+    }, 1500);
+
     logger.debug('Скрипт запущен!');
+    if (isDebug()) {
+        printDebugStatus();
+    }
 })();

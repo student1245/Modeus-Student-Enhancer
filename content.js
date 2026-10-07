@@ -10,37 +10,74 @@
   const GITHUB_BRANCH = 'main';
   const RAW_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}`;
 
-  // Универсальная функция: сначала ищет на GitHub, если недоступен — берет локальный файл
-  async function loadJsonData(filename, metaName) {
-    let text = null;
+  const FETCH_TIMEOUT_MS = 2500;
 
-    // 1. Пробуем скачать свежую базу с Гита
+  const isDebug = () => {
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500); // тайм-аут 2.5 сек
+      return localStorage.getItem('mse_debug') === 'true' || localStorage.getItem('mse_debug') === '1';
+    } catch {
+      return false;
+    }
+  };
+
+  const logDb = (...args) => {
+    if (isDebug()) {
+      console.log('%c[MSE DB]', 'color: #f59e0b; font-weight: bold;', ...args);
+    }
+  };
+
+  async function fetchFromGitHub(filename) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const startTime = performance.now();
+    try {
       const res = await fetch(`${RAW_URL}/${filename}?t=${Date.now()}`, { signal: controller.signal });
       clearTimeout(timer);
-      if (res.ok) text = await res.text();
-    } catch (e) {
-      // Игнорируем ошибку сети, сработает локальный файл ниже
-    }
-
-    // 2. Если с Гита не скачалось — берем встроенный локальный файл расширения
-    if (!text) {
-      try {
-        const url = chrome.runtime.getURL(filename);
-        text = await (await fetch(url)).text();
-      } catch (e) {
-        console.warn(`[MSE] Не получилось загрузить ${filename}`, e);
+      if (!res.ok) {
+        logDb(`GitHub вернул HTTP ${res.status} для ${filename}`);
+        return null;
       }
+      const text = await res.text();
+      const durationMs = Math.round(performance.now() - startTime);
+      return { text, source: `GitHub (${durationMs} мс)` };
+    } catch (e) {
+      clearTimeout(timer);
+      logDb(`Запрос к GitHub для ${filename} завершился с ошибкой: ${e.message}`);
+      return null;
     }
+  }
 
-    // 3. Зашиваем данные в meta-тег для injected.js
-    if (text) {
-      const meta = document.createElement('meta');
-      meta.name = metaName;
-      meta.content = btoa(unescape(encodeURIComponent(text)));
-      document.head.appendChild(meta);
+  async function fetchFromLocalBundle(filename) {
+    const startTime = performance.now();
+    try {
+      const url = chrome.runtime.getURL(filename);
+      const res = await fetch(url);
+      const text = await res.text();
+      const durationMs = Math.round(performance.now() - startTime);
+      return { text, source: `локальный пакет (${durationMs} мс)` };
+    } catch (e) {
+      console.warn(`[MSE] Не удалось загрузить ${filename} из локального пакета:`, e);
+      return null;
+    }
+  }
+
+  function mountDataToMeta(metaName, text, source) {
+    const meta = document.createElement('meta');
+    meta.name = metaName;
+    meta.content = btoa(unescape(encodeURIComponent(text)));
+    meta.setAttribute('data-source', source);
+    document.head.appendChild(meta);
+  }
+
+  async function loadJsonData(filename, metaName) {
+    logDb(`Начало загрузки ${filename}: запрос к GitHub...`);
+    const remoteResult = await fetchFromGitHub(filename);
+    const result = remoteResult || (await fetchFromLocalBundle(filename));
+
+    if (result?.text) {
+      const sizeKb = Math.round(result.text.length / 1024);
+      logDb(`Успешно загружено: ${filename} (~${sizeKb} КБ, источник: ${result.source})`);
+      mountDataToMeta(metaName, result.text, result.source);
     }
   }
 
