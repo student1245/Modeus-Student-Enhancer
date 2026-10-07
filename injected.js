@@ -533,6 +533,19 @@
         }
     };
 
+    // Безопасный парсинг JWT-токена с поддержкой UTF-8 в payload
+    const parseJwt = (token) => {
+        try {
+            if (!token || typeof token !== 'string') return {};
+            const payload = token.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
+            if (!payload) return {};
+            return JSON.parse(decodeBase64Utf8(payload));
+        } catch (e) {
+            logger.warn('Ошибка парсинга JWT:', e);
+            return {};
+        }
+    };
+
     (function loadDataFromMeta() {
         try {
             const buildingsMeta = qs(`meta[name="${META_BUILDINGS}"]`);
@@ -1102,7 +1115,6 @@
 
             const token = sessionStorage.getItem('id_token');
             if (!token) throw new Error("Токен не найден.");
-            const parseJwt = (t) => JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
             const myJwtPersonId = parseJwt(token).person_id || parseJwt(token).sub;
 
             myPersonId = myJwtPersonId;
@@ -1305,6 +1317,7 @@
         const urlObj = new URL(currentUrl);
 
         // 1. Открытие карточки пары (боковая панель)
+        let newEventId = null;
         const param = urlObj.searchParams.get('selectedEvent');
         try {
             if (param && param !== '""') newEventId = JSON.parse(param).eventId;
@@ -1859,7 +1872,6 @@
                             );
 
                             // 3. Загружаем расписание (ВНИМАНИЕ: тут нужен personId из токена, а не bookingStudentId!)
-                            const parseJwt = (t) => JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
                             const personId = parseJwt(token).person_id || parseJwt(token).sub;
 
                             const now = new Date();
