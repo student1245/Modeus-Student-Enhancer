@@ -27,49 +27,56 @@
         }
     };
 
+    // Форматирование системного таймштампа выполнения с миллисекундами (ЧЧ:ММ:СС.ммм)
+    const formatLogTimestamp = () => {
+        const d = new Date();
+        const pad = (n, len = 2) => String(n).padStart(len, '0');
+        return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+    };
+
     // Обход фильтра Verbose в DevTools: отладочные логи выводятся через console.log с цветовой контекстуализацией
     const logger = {
         isDebug,
         debug(...args) {
             if (isDebug()) {
-                console.log('%c[MSE]', 'color: #2196F3; font-weight: bold;', ...args);
+                console.log(`%c[${formatLogTimestamp()}] [MSE]`, 'color: #2196F3; font-weight: bold;', ...args);
             }
         },
         info(...args) {
             if (isDebug()) {
-                console.log('%c[MSE]', 'color: #2196F3; font-weight: bold;', ...args);
+                console.log(`%c[${formatLogTimestamp()}] [MSE]`, 'color: #2196F3; font-weight: bold;', ...args);
             }
         },
         session(...args) {
             if (isDebug()) {
-                console.log('%c[MSE Session]', 'color: #0284c7; font-weight: bold;', ...args);
+                console.log(`%c[${formatLogTimestamp()}] [MSE Session]`, 'color: #0284c7; font-weight: bold;', ...args);
             }
         },
         network(...args) {
             if (isDebug()) {
-                console.log('%c[MSE Network]', 'color: #8b5cf6; font-weight: bold;', ...args);
+                console.log(`%c[${formatLogTimestamp()}] [MSE Network]`, 'color: #8b5cf6; font-weight: bold;', ...args);
             }
         },
         calendar(...args) {
             if (isDebug()) {
-                console.log('%c[MSE Calendar]', 'color: #10b981; font-weight: bold;', ...args);
+                console.log(`%c[${formatLogTimestamp()}] [MSE Calendar]`, 'color: #10b981; font-weight: bold;', ...args);
             }
         },
         db(...args) {
             if (isDebug()) {
-                console.log('%c[MSE DB]', 'color: #f59e0b; font-weight: bold;', ...args);
+                console.log(`%c[${formatLogTimestamp()}] [MSE DB]`, 'color: #f59e0b; font-weight: bold;', ...args);
             }
         },
         update(...args) {
             if (isDebug()) {
-                console.log('%c[MSE Update]', 'color: #ec4899; font-weight: bold;', ...args);
+                console.log(`%c[${formatLogTimestamp()}] [MSE Update]`, 'color: #ec4899; font-weight: bold;', ...args);
             }
         },
         warn(...args) {
-            console.warn('[MSE]', ...args);
+            console.warn(`[${formatLogTimestamp()}] [MSE]`, ...args);
         },
         error(...args) {
-            console.error('[MSE]', ...args);
+            console.error(`[${formatLogTimestamp()}] [MSE]`, ...args);
         }
     };
 
@@ -97,15 +104,16 @@
         }
     };
 
-    // Форматирование секунд в читаемый интервал (~X ч Y мин Z сек)
+    // Форматирование секунд в читаемый интервал (~X ч Y мин или ~X мин Y сек)
     const formatDuration = (totalSeconds) => {
-        if (!totalSeconds || totalSeconds <= 0) return '0 сек';
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = totalSeconds % 60;
+        const absSec = Math.abs(Math.floor(totalSeconds || 0));
+        if (absSec === 0) return '0 сек';
+        const hours = Math.floor(absSec / 3600);
+        const minutes = Math.floor((absSec % 3600) / 60);
+        const seconds = absSec % 60;
 
         if (hours > 0) {
-            return `~${hours} ч ${minutes} мин ${seconds} сек`;
+            return `~${hours} ч ${minutes} мин`;
         }
         if (minutes > 0) {
             return `~${minutes} мин ${seconds} сек`;
@@ -113,12 +121,28 @@
         return `~${seconds} сек`;
     };
 
-    // Оценка статуса и времени жизни токена
+    // Компактное и единое представление статуса токена для логов: ~X мин Y сек (Z.ZZZ с)
+    const formatTokenStatusSummary = (tokenStatus) => {
+        if (!tokenStatus?.hasToken) {
+            return 'отсутствует';
+        }
+        if (tokenStatus.secondsLeft <= 0) {
+            const expiredMs = Math.abs(tokenStatus.millisecondsLeft || Math.round(tokenStatus.secondsLeft * 1000));
+            const expiredSec = (expiredMs / 1000).toFixed(3);
+            return `просрочен на ${expiredSec} с (${expiredMs} мс)`;
+        }
+        const duration = formatDuration(tokenStatus.secondsLeft);
+        return `${duration} (${tokenStatus.secondsLeftFormatted} с)`;
+    };
+
+    // Оценка статуса и времени жизни токена с точностью до миллисекунд
     const evaluateTokenLifetime = (token, expiresAt, tokenLabel = 'Токен') => {
         if (!token) {
             return {
                 hasToken: false,
                 secondsLeft: 0,
+                secondsLeftFormatted: '0.000',
+                millisecondsLeft: 0,
                 statusText: `${tokenLabel} отсутствует в sessionStorage`,
                 formattedTime: '0 сек'
             };
@@ -127,40 +151,50 @@
             return {
                 hasToken: true,
                 secondsLeft: 0,
+                secondsLeftFormatted: '0.000',
+                millisecondsLeft: 0,
                 statusText: `${tokenLabel} активен (expires_at не задан)`,
                 formattedTime: 'не определено'
             };
         }
 
-        const secondsLeft = Math.round((expiresAt - Date.now()) / 1000);
-        if (secondsLeft <= 0) {
-            const expiredAgo = Math.abs(secondsLeft);
+        const diffMs = expiresAt - Date.now();
+        const secondsLeft = diffMs / 1000;
+        const secondsLeftFormatted = secondsLeft.toFixed(3);
+
+        if (diffMs <= 0) {
+            const expiredMs = Math.abs(diffMs);
+            const expiredSec = (expiredMs / 1000).toFixed(3);
+            const expiredText = `просрочен на ${expiredSec} с (${expiredMs} мс)`;
             return {
                 hasToken: true,
                 secondsLeft,
-                statusText: `${tokenLabel} истек (${expiredAgo} сек. назад)`,
-                formattedTime: `истек (${expiredAgo} сек. назад)`
+                secondsLeftFormatted,
+                millisecondsLeft: diffMs,
+                statusText: `${tokenLabel} истек (${expiredText})`,
+                formattedTime: expiredText
             };
         }
 
-        const formattedTime = formatDuration(secondsLeft);
+        const durationText = formatDuration(secondsLeft);
         return {
             hasToken: true,
             secondsLeft,
-            statusText: `Активен (${formattedTime})`,
-            formattedTime
+            secondsLeftFormatted,
+            millisecondsLeft: diffMs,
+            statusText: `Активен (${durationText}, ${secondsLeftFormatted} с)`,
+            formattedTime: `${durationText} (${secondsLeftFormatted} с)`
         };
     };
 
     // Определение времени истечения суточного ID-токена (24 часа)
+    // Строго математически опирается на фактические метаданные (клейм exp) самого токена
     const getMainTokenExpiresAt = (idToken) => {
-        let expiresAt = Number(sessionStorage.getItem('id_token_expires_at') || 0);
-        if (expiresAt > 0) return expiresAt;
-
+        // 1. Приоритетный источник: клейм exp из метаданных самого id_token
         if (idToken) {
             const claims = parseJwt(idToken);
-            if (claims?.exp) {
-                expiresAt = Number(claims.exp) * 1000;
+            if (typeof claims?.exp === 'number' && !isNaN(claims.exp)) {
+                const expiresAt = claims.exp * 1000;
                 try {
                     sessionStorage.setItem('id_token_expires_at', String(expiresAt));
                 } catch {}
@@ -168,40 +202,51 @@
             }
         }
 
+        // 2. Вторичный источник: кэшированные клеймы токена
         try {
             const claimsRaw = sessionStorage.getItem('id_token_claims_obj');
             if (claimsRaw) {
                 const claims = JSON.parse(claimsRaw);
-                if (claims?.exp) {
-                    expiresAt = Number(claims.exp) * 1000;
+                if (typeof claims?.exp === 'number' && !isNaN(claims.exp)) {
+                    const expiresAt = claims.exp * 1000;
                     sessionStorage.setItem('id_token_expires_at', String(expiresAt));
                     return expiresAt;
                 }
             }
         } catch {}
 
+        // 3. Fallback: сохраненное значение id_token_expires_at в sessionStorage
+        const storedExpiresAt = Number(sessionStorage.getItem('id_token_expires_at') || 0);
+        if (storedExpiresAt > 0 && !isNaN(storedExpiresAt)) return storedExpiresAt;
+
+        // 4. Fallback: данные из локального бэкапа в localStorage
         try {
             const backupRaw = localStorage.getItem(STORAGE_KEY_AUTH_BACKUP);
             if (backupRaw) {
                 const backup = JSON.parse(backupRaw);
-                expiresAt = Number(backup['id_token_expires_at'] || 0);
-                if (!expiresAt && backup['id_token']) {
+                if (backup['id_token']) {
                     const backupClaims = parseJwt(backup['id_token']);
-                    if (backupClaims?.exp) expiresAt = Number(backupClaims.exp) * 1000;
+                    if (typeof backupClaims?.exp === 'number' && !isNaN(backupClaims.exp)) {
+                        return backupClaims.exp * 1000;
+                    }
                 }
+                const backupExpiresAt = Number(backup['id_token_expires_at'] || 0);
+                if (backupExpiresAt > 0 && !isNaN(backupExpiresAt)) return backupExpiresAt;
             }
         } catch {}
 
-        return expiresAt;
+        return 0;
     };
 
     // Статус краткосрочного access-токена (1 час, автопродление Session Keeper)
     const getAccessTokenStatus = () => {
         const accessToken = sessionStorage.getItem('access_token');
         let expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
-        if (!expiresAt && accessToken) {
+        if (accessToken) {
             const claims = parseJwt(accessToken);
-            if (claims?.exp) expiresAt = Number(claims.exp) * 1000;
+            if (typeof claims?.exp === 'number' && !isNaN(claims.exp)) {
+                expiresAt = claims.exp * 1000;
+            }
         }
         return evaluateTokenLifetime(accessToken, expiresAt, 'Токен');
     };
@@ -237,12 +282,14 @@
 
     const printDebugStatus = () => {
         const session = getSessionStatus();
-        const mainLifeText = session.main.hasToken
-            ? ` | Основной токен (до логина): ${session.main.statusText} | Остаток жизни: ${session.main.secondsLeft} сек.`
-            : ` | Основной токен (до логина): ${session.main.statusText}`;
+        const accessSummary = formatTokenStatusSummary(session.access);
+        const mainSummary = formatTokenStatusSummary(session.main);
+        const circuitBreakerText = typeof isCircuitBreakerOpen !== 'undefined' && isCircuitBreakerOpen
+            ? ' | Circuit Breaker: АКТИВИРОВАН (сессия умерла, авторефреш остановлен)'
+            : '';
 
         console.log(
-            `%c[MSE Status] Версия: v${CURRENT_VERSION} | Статус токена: ${session.access.statusText} | Остаток жизни: ${session.access.secondsLeft} сек.${mainLifeText}`,
+            `%c[${formatLogTimestamp()}] [MSE Status] v${CURRENT_VERSION} | Токен: ${accessSummary} | Основной: ${mainSummary}${circuitBreakerText}`,
             'color: #0284c7; font-weight: bold;'
         );
         if (typeof printDatabaseStatus === 'function') printDatabaseStatus();
@@ -330,7 +377,9 @@
     const SESSION_BURN_THRESHOLD_SEC = 90;                // Порог дожигания сервером старого токена
     const SESSION_SMART_WAIT_MARGIN_SEC = 3;              // Запас ожидания истечения токена в секундах
     const SESSION_POLL_INTERVAL_MS = 50;                  // Опрос хэша фрейма каждые 50 мс
-    const SESSION_IFRAME_TIMEOUT_MS = 12000;              // Таймаут ожидания фрейма обновления
+    const SESSION_IFRAME_TIMEOUT_MS = 20000;              // Таймаут ожидания фрейма обновления (20 сек для запаса сети и ADFS)
+    const SESSION_MAX_REFRESH_ATTEMPTS = 5;               // Предохранитель (Circuit Breaker): макс. попыток тихого рефреша подряд
+    const SESSION_STUCK_TIMEOUT_MS = 25000;               // Предохранитель от сна ПК: макс. время зависания одного рефреша (25 сек)
     const DOM_CHECK_READY_INTERVAL_MS = 200;              // Опрос готовности календаря при старте
     const MUTATION_DEBOUNCE_DELAY_MS = 250;               // Дебаунс реакции на мутации DOM
     const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000;  // Кэш проверки релизов GitHub (2 часа)
@@ -537,17 +586,109 @@
     interceptNetworkRequests();
 
     let isSilentRefreshing = false;
+    let refreshStartedAt = 0;
+    let refreshFailureCount = 0;
+    let isCircuitBreakerOpen = false;
+    let silentRefreshPollTimer = null;
+    let silentRefreshTimeoutTimer = null;
     let smartWaitTimer = null;
+    let lastHealthCheckTimestamp = Date.now();
+
+    // Гарантированная очистка состояния и зависших элементов DOM
+    function cleanupSilentRefresh() {
+        if (silentRefreshPollTimer) {
+            clearInterval(silentRefreshPollTimer);
+            silentRefreshPollTimer = null;
+        }
+        if (silentRefreshTimeoutTimer) {
+            clearTimeout(silentRefreshTimeoutTimer);
+            silentRefreshTimeoutTimer = null;
+        }
+        isSilentRefreshing = false;
+        refreshStartedAt = 0;
+
+        try {
+            const iframes = document.querySelectorAll(`#${ID_SILENT_REFRESHER}`);
+            iframes.forEach(el => el.remove());
+        } catch (e) {
+            logger.warn('Ошибка при удалении iframe рефрешера:', e);
+        }
+    }
+
+    // Срабатывание предохранителя: прекращение запросов, удаление невалидного бэкапа и показ тоста
+    function triggerCircuitBreaker() {
+        // Логический предохранитель: сессия признается окончательно мертвой ТОЛЬКО если access_token реально просрочен (в минусе)
+        const accessStatus = getAccessTokenStatus();
+        if (accessStatus.hasToken && accessStatus.secondsLeft > 0) {
+            logger.session(
+                `Circuit Breaker отложен: access_token все еще активен (осталось ${accessStatus.secondsLeftFormatted} с).`
+            );
+            return;
+        }
+
+        isCircuitBreakerOpen = true;
+        cleanupSilentRefresh();
+
+        // 1. Очищаем невалидный локальный бэкап сессии
+        try {
+            localStorage.removeItem(STORAGE_KEY_AUTH_BACKUP);
+            logger.session('Невалидный бэкап сессии удален из localStorage (Circuit Breaker)');
+        } catch (e) {
+            logger.warn('Ошибка удаления невалидного бэкапа сессии:', e);
+        }
+
+        // 2. Логируем срабатывание предохранителя
+        logger.error(
+            `[MSE Session] Предохранитель (Circuit Breaker) сработал: исчерпан лимит попыток (${SESSION_MAX_REFRESH_ATTEMPTS}) ` +
+            'и токен просрочен. Серверная сессия завершена. Фоновые запросы остановлены во избежание бесконечного спама.'
+        );
+
+        // 3. Показываем понятное персистентное уведомление (тост) о необходимости повторного входа
+        showToast(
+            'Сессия авторизации истекла. Пожалуйста, сохраните изменения и войдите в систему заново.',
+            'error',
+            0
+        );
+    }
+
+    // Сброс состояния предохранителя
+    function resetCircuitBreaker() {
+        if (isCircuitBreakerOpen || refreshFailureCount > 0) {
+            logger.session('Состояние Circuit Breaker сброшено');
+        }
+        refreshFailureCount = 0;
+        isCircuitBreakerOpen = false;
+    }
 
     function saveAuthTokensBackup() {
         const token = sessionStorage.getItem('access_token');
         if (!token) return;
+
+        // Не сохраняем бэкап, если предохранитель активен (сессия признана мертвой)
+        if (isCircuitBreakerOpen) return;
 
         const backupData = {};
         AUTH_STORAGE_KEYS.forEach(key => {
             const val = sessionStorage.getItem(key);
             if (val !== null) backupData[key] = val;
         });
+
+        // Синхронизируем id_token_expires_at строго с метаданными самого токена
+        if (backupData['id_token']) {
+            const claims = parseJwt(backupData['id_token']);
+            if (typeof claims?.exp === 'number' && !isNaN(claims.exp)) {
+                const expMs = claims.exp * 1000;
+                backupData['id_token_expires_at'] = String(expMs);
+
+                // Если суточный токен уже истек, удаляем невалидный бэкап и не перезаписываем его
+                if (expMs <= Date.now()) {
+                    try {
+                        localStorage.removeItem(STORAGE_KEY_AUTH_BACKUP);
+                    } catch {}
+                    return;
+                }
+            }
+        }
 
         try {
             localStorage.setItem(STORAGE_KEY_AUTH_BACKUP, JSON.stringify(backupData));
@@ -557,11 +698,36 @@
     }
 
     function triggerSilentRefresh() {
-        if (isSilentRefreshing) {
-            logger.session('Запрос на продление отклонен: фоновый iframe уже запущен');
+        // 1. Предохранитель Circuit Breaker: если сессия окончательно мертва, прекращаем спамить сервер
+        if (isCircuitBreakerOpen) {
+            logger.session('Запрос на продление отклонен: сработал Circuit Breaker (серверная сессия завершена)');
             return;
         }
+
+        // 2. Устойчивость к спящему режиму / зависанию: проверяем, не завис ли предыдущий рефреш
+        if (isSilentRefreshing) {
+            const elapsed = Date.now() - refreshStartedAt;
+            if (elapsed > SESSION_STUCK_TIMEOUT_MS) {
+                logger.warn(
+                    `[MSE Session] Обнаружен зависший фоновый процесс (прошло ${(elapsed / 1000).toFixed(1)} сек., возможен сон ПК). Принудительный сброс.`
+                );
+                cleanupSilentRefresh();
+                refreshFailureCount++;
+                if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
+                    triggerCircuitBreaker();
+                    return;
+                }
+            } else {
+                logger.session('Запрос на продление отклонен: фоновый iframe уже запущен');
+                return;
+            }
+        }
+
+        // Гарантированно очищаем любые зависшие фреймы перед новым стартом
+        cleanupSilentRefresh();
+
         isSilentRefreshing = true;
+        refreshStartedAt = Date.now();
 
         logger.session('Сессия скоро истекает. Запуск скрытого iframe для фонового продления...');
 
@@ -571,11 +737,22 @@
 
         const authUrl = `${OAUTH_AUTH_URL}?response_type=id_token%20token&client_id=${OAUTH_CLIENT_ID}&state=${state}&redirect_uri=${redirectUri}&scope=openid&nonce=${nonce}`;
 
-        const ifr = document.createElement('iframe');
-        ifr.id = ID_SILENT_REFRESHER;
-        ifr.style.cssText = 'position: absolute !important; width: 0 !important; height: 0 !important; border: none !important; display: none !important;';
-        ifr.src = authUrl;
-        document.body.appendChild(ifr);
+        let ifr;
+        try {
+            ifr = document.createElement('iframe');
+            ifr.id = ID_SILENT_REFRESHER;
+            ifr.style.cssText = 'position: absolute !important; width: 0 !important; height: 0 !important; border: none !important; display: none !important;';
+            ifr.src = authUrl;
+            document.body.appendChild(ifr);
+        } catch (e) {
+            logger.error('[MSE Session] Ошибка вставки iframe рефрешера:', e);
+            cleanupSilentRefresh();
+            refreshFailureCount++;
+            if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
+                triggerCircuitBreaker();
+            }
+            return;
+        }
 
         let resolved = false;
 
@@ -585,7 +762,6 @@
                 const hash = ifr.contentWindow?.location?.hash;
                 if (hash && hash.includes('access_token')) {
                     resolved = true;
-                    clearInterval(pollTimer);
 
                     const params = new URLSearchParams(hash.replace(/^#/, ''));
                     const accessToken = params.get('access_token');
@@ -614,6 +790,10 @@
 
                         saveAuthTokensBackup();
 
+                        // Успех: сбрасываем счетчик ошибок Circuit Breaker
+                        refreshFailureCount = 0;
+                        isCircuitBreakerOpen = false;
+
                         // 1. Если сервер все еще дожигает старый токен:
                         if (accessToken === oldToken && expiresIn <= SESSION_BURN_THRESHOLD_SEC) {
                             logger.session(`Ответ получен: сервер еще дожигает старый токен (осталось ${expiresIn} сек.). Ждем точного завершения...`);
@@ -623,72 +803,126 @@
                                 triggerSilentRefresh();
                             }, (expiresIn + SESSION_SMART_WAIT_MARGIN_SEC) * 1000);
                         } else {
-                            // 2. УСПЕХ: сбрасываем любые таймеры ожидания!
+                            // 2. Полный успех: сбрасываем smartWaitTimer
                             clearTimeout(smartWaitTimer);
                             smartWaitTimer = null;
 
                             const totalMin = Math.round(expiresIn / 60);
-                            const mainToken = getMainTokenStatus();
-                            const mainInfo = mainToken.hasToken
-                                ? ` | Основной токен (до логина): осталось ${mainToken.secondsLeft} сек. (${mainToken.formattedTime})`
-                                : '';
-                            logger.session(`Ответ получен! Токен успешно продлен в фоне. Новый срок жизни: ${expiresIn} сек. (~${totalMin} мин.)${mainInfo}`);
+                            const mainInfo = ` | Основной: ${formatTokenStatusSummary(getMainTokenStatus())}`;
+                            logger.session(`Ответ получен! Токен успешно продлен в фоне. Новый срок жизни: ${expiresIn} с (~${totalMin} мин)${mainInfo}`);
                         }
                     }
 
-                    ifr.remove();
-                    isSilentRefreshing = false;
+                    cleanupSilentRefresh();
                 }
             } catch (e) {
-                // Штатная ошибка безопасности (CORS) пока во фрейме идет переадресация через Keycloak
+                // Штатная ошибка безопасности (CORS) пока во фрейме идет переадресация через Keycloak/ADFS
             }
         };
 
-        const pollTimer = setInterval(checkTokens, SESSION_POLL_INTERVAL_MS);
+        silentRefreshPollTimer = setInterval(checkTokens, SESSION_POLL_INTERVAL_MS);
         ifr.onload = checkTokens;
 
-        setTimeout(() => {
+        silentRefreshTimeoutTimer = setTimeout(() => {
             if (!resolved) {
                 resolved = true;
-                clearInterval(pollTimer);
-                ifr.remove();
-                isSilentRefreshing = false;
-                logger.warn('[MSE Session] Тайм-аут фонового обновления токена');
+                cleanupSilentRefresh();
+                refreshFailureCount++;
+                logger.warn(`[MSE Session] Тайм-аут фонового обновления токена (попытка ${refreshFailureCount}/${SESSION_MAX_REFRESH_ATTEMPTS})`);
+
+                if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
+                    const accessStatus = getAccessTokenStatus();
+                    // Предохранитель срабатывает ТОЛЬКО если токен уже реально просрочен (в минусе)
+                    if (!accessStatus.hasToken || accessStatus.secondsLeft <= 0) {
+                        triggerCircuitBreaker();
+                    } else {
+                        logger.session(
+                            `Лимит попыток (${SESSION_MAX_REFRESH_ATTEMPTS}) исчерпан, но токен еще активен (${accessStatus.secondsLeftFormatted} с). Отсрочка срабатывания Circuit Breaker до фактического истечения.`
+                        );
+                    }
+                }
             }
         }, SESSION_IFRAME_TIMEOUT_MS);
     }
 
     // Мониторим здоровье токена каждые 20 секунд
     function monitorSessionHealth() {
-        saveAuthTokensBackup();
+        const now = Date.now();
+        const timeSinceLastCheck = now - lastHealthCheckTimestamp;
+        lastHealthCheckTimestamp = now;
 
-        // ВАЖНО: Если мы уже завели точный таймер ожидания смерти токена — не лезем параллельно!
-        if (smartWaitTimer) return;
+        // Обнаружение выхода из сна ПК или заморозки фоновой вкладки:
+        // Если прошло существенно больше периода проверки (например, >45 сек при интервале 20 сек)
+        if (timeSinceLastCheck > SESSION_CHECK_INTERVAL_MS * 2.25) {
+            logger.session(
+                `Обнаружен выход из спящего режима (простой ${(timeSinceLastCheck / 1000).toFixed(1)} сек.). Проверка и сброс состояния.`
+            );
+            if (isSilentRefreshing) {
+                cleanupSilentRefresh();
+            }
+        }
 
-        const mainToken = getMainTokenStatus();
-        const mainTokenLog = mainToken.hasToken
-            ? `основной (24ч, до логина): осталось ${mainToken.secondsLeft} сек. (${mainToken.formattedTime})`
-            : `основной токен: ${mainToken.statusText}`;
+        // Если предохранитель сработал — проверяем, не появился ли новый валидный токен (например, ручной логин в другой вкладке)
+        if (isCircuitBreakerOpen) {
+            const accessToken = sessionStorage.getItem('access_token');
+            const expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
+            if (accessToken && expiresAt > now + SESSION_REFRESH_THRESHOLD_SEC * 1000) {
+                logger.session('Обнаружен новый валидный токен. Восстановление работы после Circuit Breaker.');
+                resetCircuitBreaker();
+            } else {
+                return;
+            }
+        }
 
-        const expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
-        if (!expiresAt) {
-            logger.session(`Мониторинг сессии: expires_at не найден в sessionStorage (пропуск проверки) | ${mainTokenLog}`);
+        const accessStatus = getAccessTokenStatus();
+        const mainStatus = getMainTokenStatus();
+
+        // Проверка логического предохранителя: если лимит попыток исчерпан И токен уже реально просрочен
+        if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS && (!accessStatus.hasToken || accessStatus.secondsLeft <= 0)) {
+            triggerCircuitBreaker();
             return;
         }
 
-        const secondsLeft = Math.round((expiresAt - Date.now()) / 1000);
+        saveAuthTokensBackup();
+
+        // Если мы уже завели точный таймер ожидания дожигания токена — не лезем параллельно
+        if (smartWaitTimer) return;
+
+        if (!accessStatus.hasToken) {
+            logger.session(`Мониторинг сессии: access_token не найден в sessionStorage | Основной: ${formatTokenStatusSummary(mainStatus)}`);
+            return;
+        }
+
         logger.session(
-            `Проверка токена: осталось ${secondsLeft} сек. (порог автопродления: ${SESSION_REFRESH_THRESHOLD_SEC} сек.) | ${mainTokenLog}`
+            `Токен: ${formatTokenStatusSummary(accessStatus)} [порог: ${SESSION_REFRESH_THRESHOLD_SEC} с] | Основной: ${formatTokenStatusSummary(mainStatus)}`
         );
 
         // Обновляем за 60 секунд до конца
-        if (secondsLeft <= SESSION_REFRESH_THRESHOLD_SEC) {
+        if (accessStatus.secondsLeft <= SESSION_REFRESH_THRESHOLD_SEC) {
             triggerSilentRefresh();
         }
     }
 
     saveAuthTokensBackup();
     sessionHealthInterval = setInterval(monitorSessionHealth, SESSION_CHECK_INTERVAL_MS);
+
+    // Дополнительный предохранитель от сна ПК при возвращении пользователя на страницу
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+            const now = Date.now();
+            if (isSilentRefreshing && (now - refreshStartedAt > SESSION_STUCK_TIMEOUT_MS)) {
+                logger.warn(
+                    `[MSE Session] Вкладка активирована, фоновый рефреш завис (> ${(SESSION_STUCK_TIMEOUT_MS / 1000)} сек.). Сброс состояния.`
+                );
+                cleanupSilentRefresh();
+                refreshFailureCount++;
+                if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
+                    triggerCircuitBreaker();
+                }
+            }
+        }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Удаляем бэкап при явном выходе (с возможностью снятия слушателя при очистке)
     const handleLogoutClick = (e) => {
@@ -1024,6 +1258,7 @@
         if (checkReadyTimer) clearInterval(checkReadyTimer);
         if (smartWaitTimer) clearTimeout(smartWaitTimer);
         if (debounceTimer) clearTimeout(debounceTimer);
+        cleanupSilentRefresh();
 
         // 2. Полное восстановление нативных прототипов и методов браузера
         window.fetch = nativeFetch;
@@ -1034,6 +1269,7 @@
         // 3. Снятие глобальных обработчиков событий
         window.removeEventListener('popstate', processUrlChange);
         window.removeEventListener('click', handleLogoutClick);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
 
         // 4. Очистка внедрённых DOM-элементов и деактивация стилей
         document.body.classList.remove(CLASS_MSE_ACTIVE);
