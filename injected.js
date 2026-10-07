@@ -1147,7 +1147,7 @@
             }
 
             const courseUnits = eventsData._embedded?.['course-unit-realizations'] || [];
-            const courseUnitMap = new Map(courseUnits.map(cu => [cu.id, cu.nameShort]));
+            const courseUnitMap = new Map(courseUnits.map(courseUnit => [courseUnit.id, courseUnit.nameShort]));
             if (statusEl) statusEl.textContent = `2/2: Загрузка студентов (0/${events.length})`;
             let loadedCount = 0;
 
@@ -1167,31 +1167,31 @@
             const results = await Promise.all(attendeePromises);
             results.forEach(({ event, attendees }) => {
                 const studentList = new Set();
-                attendees.forEach(s => {
-                    if (s.roleId === 'STUDENT') {
-                        const normalized = normalizeName(s.fullName);
+                attendees.forEach(attendee => {
+                    if (attendee.roleId === 'STUDENT') {
+                        const normalized = normalizeName(attendee.fullName);
 
-                        if (s.personId === myJwtPersonId) {
-                            if (s.specialtyName) {
-                                mySpecialty = s.specialtyName.trim();
+                        if (attendee.personId === myJwtPersonId) {
+                            if (attendee.specialtyName) {
+                                mySpecialty = attendee.specialtyName.trim();
                                 localStorage.setItem(STORAGE_KEY_MY_SPECIALTY, mySpecialty);
                             }
-                            if (s.specialtyProfile) {
-                                myProfile = s.specialtyProfile.trim();
+                            if (attendee.specialtyProfile) {
+                                myProfile = attendee.specialtyProfile.trim();
                                 localStorage.setItem(STORAGE_KEY_MY_PROFILE, myProfile);
                             }
                         }
 
                         if (!uniqueStudents.has(normalized)) {
-                            let details = s.specialtyName || 'Специальность не указана';
-                            if (s.specialtyProfile && s.specialtyProfile !== s.specialtyName) details += ` : ${s.specialtyProfile}`;
+                            let details = attendee.specialtyName || 'Специальность не указана';
+                            if (attendee.specialtyProfile && attendee.specialtyProfile !== attendee.specialtyName) details += ` : ${attendee.specialtyProfile}`;
 
                             uniqueStudents.set(normalized, {
-                                id: s.personId,
-                                fullName: s.fullName,
+                                id: attendee.personId,
+                                fullName: attendee.fullName,
                                 details,
-                                specialtyName: s.specialtyName ? s.specialtyName.trim() : null,
-                                specialtyProfile: s.specialtyProfile ? s.specialtyProfile.trim() : null
+                                specialtyName: attendee.specialtyName ? attendee.specialtyName.trim() : null,
+                                specialtyProfile: attendee.specialtyProfile ? attendee.specialtyProfile.trim() : null
                             });
                         }
                         studentList.add(normalized);
@@ -1415,38 +1415,38 @@
         const token = sessionStorage.getItem('id_token');
         const uniqueCourseUnits = new Set();
 
-        data.courseUnitRealizations.forEach(cur => {
-            if (!cur.name || !cur.lessons) return;
+        data.courseUnitRealizations.forEach(courseUnitRealization => {
+            if (!courseUnitRealization.name || !courseUnitRealization.lessons) return;
 
-            const sortedLessons = [...cur.lessons].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
-            const normName = normalizeName(cur.name);
+            const sortedLessons = [...courseUnitRealization.lessons].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+            const normName = normalizeName(courseUnitRealization.name);
             mseCourseRealizationsMap.set(normName, sortedLessons);
 
-            if (cur.courseUnitId) uniqueCourseUnits.add(cur.courseUnitId);
+            if (courseUnitRealization.courseUnitId) uniqueCourseUnits.add(courseUnitRealization.courseUnitId);
         });
 
-        uniqueCourseUnits.forEach(cuId => {
-            if (mseLoadedCourseUnits.has(cuId)) return;
-            mseLoadedCourseUnits.add(cuId);
+        uniqueCourseUnits.forEach(courseUnitId => {
+            if (mseLoadedCourseUnits.has(courseUnitId)) return;
+            mseLoadedCourseUnits.add(courseUnitId);
 
-            fetch(`${API_COURSES}/${cuId}/lessons-technology`, {
+            fetch(`${API_COURSES}/${courseUnitId}/lessons-technology`, {
                 headers: { "authorization": `Bearer ${token}` }
             })
-                .then(r => r.json())
-                .then(tech => {
-                    if (tech.lessonTechnologies) {
-                        tech.lessonTechnologies.forEach(lt => {
-                            if (lt.controlObjects && lt.controlObjects.length > 0) {
+                .then(response => response.json())
+                .then(technologyData => {
+                    if (technologyData.lessonTechnologies) {
+                        technologyData.lessonTechnologies.forEach(lessonTech => {
+                            if (lessonTech.controlObjects && lessonTech.controlObjects.length > 0) {
                                 // Сохраняем список максимумов по порядку точек (например: [10, 2])
-                                const sortedCO = [...lt.controlObjects].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-                                const maxList = sortedCO
-                                    .map(co => co.maxValue)
+                                const sortedControlObjects = [...lessonTech.controlObjects].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+                                const maxGradeList = sortedControlObjects
+                                    .map(controlObj => controlObj.maxValue)
                                     .filter(v => typeof v === 'number' && v > 0);
 
-                                if (maxList.length > 0) {
-                                    mseLessonMaxGrades.set(lt.lessonId, maxList);
-                                    if (lt.lessonName) {
-                                        mseLessonNameToMaxGrade.set(normalizeName(lt.lessonName), maxList);
+                                if (maxGradeList.length > 0) {
+                                    mseLessonMaxGrades.set(lessonTech.lessonId, maxGradeList);
+                                    if (lessonTech.lessonName) {
+                                        mseLessonNameToMaxGrade.set(normalizeName(lessonTech.lessonName), maxGradeList);
                                     }
                                 }
                             }
@@ -1458,77 +1458,79 @@
         });
     }
 
-    function injectMaxGradeBadge(td, maxGrades) {
-        if (!td || td.querySelector('.mse-max-grade') || td.querySelector('.mse-max-done')) return;
-        const maxList = Array.isArray(maxGrades) ? maxGrades : [maxGrades];
-        if (maxList.length === 0) return;
+    function createGradeBadge(maxGrade) {
+        const badge = document.createElement('span');
+        badge.className = 'mse-max-grade';
+        badge.textContent = ` /${maxGrade}`;
+        return badge;
+    }
 
-        // Создаем бейдж (стили придут из CSS класса .mse-max-grade)
-        const createBadge = (max) => {
-            const badge = document.createElement('span');
-            badge.className = 'mse-max-grade';
-            badge.textContent = ` /${max}`;
-            return badge;
-        };
+    function createMaxDoneSpan(text) {
+        const span = document.createElement('span');
+        span.className = 'mse-max-done';
+        span.textContent = text;
+        return span;
+    }
 
-        // Если оценок 3 или больше — суммируем их в один итог
-        if (maxList.length >= 3) {
-            const totalMax = maxList.reduce((acc, m) => acc + (typeof m === 'number' ? m : 0), 0);
-            const numEls = qsa('.lesson-realization:not(.present):not(.absent)', td);
+    function aggregateMultiPointGrades(meetingCell, maxGradeList) {
+        const totalMax = maxGradeList.reduce((acc, m) => acc + (typeof m === 'number' ? m : 0), 0);
+        const numberElements = qsa('.lesson-realization:not(.present):not(.absent)', meetingCell);
 
-            // Вариант 1: если цифры в отдельных span
-            if (numEls.length >= 3) {
-                const totalEarned = Math.round(numEls.reduce((acc, el) => acc + parseFloat(el.textContent), 0) * 100) / 100;
-                numEls[0].innerHTML = `${totalEarned}`;
-                if (totalEarned >= totalMax) {
-                    numEls[0].classList.add('mse-max-done');
-                } else {
-                    numEls[0].appendChild(createBadge(totalMax));
-                }
-                for (let i = 1; i < numEls.length; i++) numEls[i].remove();
-                return;
+        // Вариант 1: если цифры оценок находятся в отдельных элементах .lesson-realization
+        if (numberElements.length >= 3) {
+            const totalEarned = Math.round(numberElements.reduce((acc, el) => acc + parseFloat(el.textContent), 0) * 100) / 100;
+            numberElements[0].innerHTML = `${totalEarned}`;
+            if (totalEarned >= totalMax) {
+                numberElements[0].classList.add('mse-max-done');
+            } else {
+                numberElements[0].appendChild(createGradeBadge(totalMax));
             }
+            for (let i = 1; i < numberElements.length; i++) {
+                numberElements[i].remove();
+            }
+            return true;
+        }
 
-            // Вариант 2: если цифры в текстовом узле
-            const matches = [...td.textContent.matchAll(/\b(\d+(\.\d+)?)\b/g)];
-            if (matches.length >= 3) {
-                const totalEarned = Math.round(matches.reduce((acc, m) => acc + parseFloat(m[1]), 0) * 100) / 100;
-                for (const node of Array.from(td.childNodes)) {
-                    if (node.nodeType === Node.TEXT_NODE && /\b\d/.test(node.textContent)) {
-                        const tail = node.textContent.replace(/^.*?(\s*[-–—]?\s*\|\s*[ПНH]|$)/, '$1');
-                        const frag = document.createDocumentFragment();
-                        if (totalEarned >= totalMax) {
-                            const maxSpan = document.createElement('span');
-                            maxSpan.className = 'mse-max-done';
-                            maxSpan.textContent = totalEarned;
-                            frag.appendChild(maxSpan);
-                        } else {
-                            frag.appendChild(document.createTextNode(totalEarned));
-                            frag.appendChild(createBadge(totalMax));
-                        }
-                        frag.appendChild(document.createTextNode(tail));
-                        node.replaceWith(frag);
-                        return;
+        // Вариант 2: если цифры оценок находятся в текстовом узле ячейки
+        const matches = [...meetingCell.textContent.matchAll(/\b(\d+(\.\d+)?)\b/g)];
+        if (matches.length >= 3) {
+            const totalEarned = Math.round(matches.reduce((acc, m) => acc + parseFloat(m[1]), 0) * 100) / 100;
+            for (const node of Array.from(meetingCell.childNodes)) {
+                if (node.nodeType === Node.TEXT_NODE && /\b\d/.test(node.textContent)) {
+                    const tail = node.textContent.replace(/^.*?(\s*[-–—]?\s*\|\s*[ПНH]|$)/, '$1');
+                    const fragment = document.createDocumentFragment();
+                    if (totalEarned >= totalMax) {
+                        fragment.appendChild(createMaxDoneSpan(totalEarned));
+                    } else {
+                        fragment.appendChild(document.createTextNode(totalEarned));
+                        fragment.appendChild(createGradeBadge(totalMax));
                     }
+                    fragment.appendChild(document.createTextNode(tail));
+                    node.replaceWith(fragment);
+                    return true;
                 }
             }
         }
 
+        return false;
+    }
+
+    function injectIndividualGradeBadges(meetingCell, maxGradeList) {
         let gradeIndex = 0;
 
-        // А. Если оценка лежит в отдельном элементе
-        const leafElements = qsa('.lesson-realization:not(.present):not(.absent)', td);
+        // А. Если оценка лежит в отдельном элементе .lesson-realization
+        const leafElements = qsa('.lesson-realization:not(.present):not(.absent)', meetingCell);
         for (const el of leafElements) {
             const txt = el.textContent.trim();
             if (/^\d+(\.\d+)?$/.test(txt)) {
-                if (gradeIndex < maxList.length) {
-                    const max = maxList[gradeIndex++];
+                if (gradeIndex < maxGradeList.length) {
+                    const max = maxGradeList[gradeIndex++];
                     const val = parseFloat(txt);
 
                     if (val >= max) {
                         el.classList.add('mse-max-done');
                     } else {
-                        el.appendChild(createBadge(max));
+                        el.appendChild(createGradeBadge(max));
                     }
                 }
             }
@@ -1536,15 +1538,15 @@
 
         if (gradeIndex > 0) return;
 
-        // Б. Если внутри текстовый узел
-        for (const node of Array.from(td.childNodes)) {
+        // Б. Если внутри ячейки текстовый узел
+        for (const node of Array.from(meetingCell.childNodes)) {
             if (node.nodeType === Node.TEXT_NODE) {
-                const val = node.textContent;
+                const textContent = node.textContent;
                 const regex = /\b(\d+(\.\d+)?)\b/g;
                 let match;
                 const matches = [];
 
-                while ((match = regex.exec(val)) !== null) {
+                while ((match = regex.exec(textContent)) !== null) {
                     matches.push({ num: match[1], index: match.index });
                 }
 
@@ -1553,30 +1555,27 @@
                     let lastIdx = 0;
 
                     for (const m of matches) {
-                        if (gradeIndex >= maxList.length) break;
-                        const max = maxList[gradeIndex++];
+                        if (gradeIndex >= maxGradeList.length) break;
+                        const max = maxGradeList[gradeIndex++];
                         const numVal = parseFloat(m.num);
 
-                        fragment.appendChild(document.createTextNode(val.substring(lastIdx, m.index)));
+                        fragment.appendChild(document.createTextNode(textContent.substring(lastIdx, m.index)));
 
                         if (numVal >= max) {
-                            const maxSpan = document.createElement('span');
-                            maxSpan.className = 'mse-max-done';
-                            maxSpan.textContent = m.num;
-                            fragment.appendChild(maxSpan);
+                            fragment.appendChild(createMaxDoneSpan(m.num));
                         } else {
                             const numSpan = document.createElement('span');
                             numSpan.className = 'lesson-realization';
                             numSpan.textContent = m.num;
-                            numSpan.appendChild(createBadge(max));
+                            numSpan.appendChild(createGradeBadge(max));
                             fragment.appendChild(numSpan);
                         }
 
                         lastIdx = m.index + m.num.length;
                     }
 
-                    if (lastIdx < val.length) {
-                        let tail = val.substring(lastIdx).replace(/^(\s*[-–—])/, '\u00A0$1');
+                    if (lastIdx < textContent.length) {
+                        const tail = textContent.substring(lastIdx).replace(/^(\s*[-–—])/, '\u00A0$1');
                         fragment.appendChild(document.createTextNode(tail));
                     }
 
@@ -1585,6 +1584,20 @@
                 }
             }
         }
+    }
+
+    function injectMaxGradeBadge(meetingCell, maxGrades) {
+        if (!meetingCell || meetingCell.querySelector('.mse-max-grade') || meetingCell.querySelector('.mse-max-done')) return;
+        const maxGradeList = Array.isArray(maxGrades) ? maxGrades : [maxGrades];
+        if (maxGradeList.length === 0) return;
+
+        // Если контрольных точек 3 или больше — суммируем их в один итог
+        if (maxGradeList.length >= 3 && aggregateMultiPointGrades(meetingCell, maxGradeList)) {
+            return;
+        }
+
+        // Для 1-2 контрольных точек отображаем индивидуальные бейджи
+        injectIndividualGradeBadges(meetingCell, maxGradeList);
     }
 
     // 3. Обновление таблицы оценок
@@ -1640,24 +1653,24 @@
                             let totalLost = 0;
 
                             meetingColumns.forEach(({ colIndex, meetingNumber }) => {
-                                const mLesson = matchedLessons[meetingNumber - 1];
-                                const mTd = tds[colIndex];
-                                if (!mLesson || !mTd) return;
+                                const matchedLesson = matchedLessons[meetingNumber - 1];
+                                const meetingCell = tds[colIndex];
+                                if (!matchedLesson || !meetingCell) return;
 
-                                const mMaxList = mseLessonMaxGrades.get(mLesson.id);
-                                if (!mMaxList) return;
-                                const maxArr = Array.isArray(mMaxList) ? mMaxList : [mMaxList];
+                                const maxGradeList = mseLessonMaxGrades.get(matchedLesson.id);
+                                if (!maxGradeList) return;
+                                const maxGradeArray = Array.isArray(maxGradeList) ? maxGradeList : [maxGradeList];
 
                                 // Клонируем ячейку и удаляем наши бейджи, чтобы посчитать чистые оценки студента
-                                const clone = mTd.cloneNode(true);
+                                const clone = meetingCell.cloneNode(true);
                                 clone.querySelectorAll('.mse-max-grade').forEach(b => b.remove());
 
                                 const gradePart = clone.textContent.split('|')[0] || '';
                                 const matches = [...gradePart.matchAll(/\b(\d+(\.\d+)?)\b/g)];
 
                                 // Если пара была с 3+ оценками (суммированная)
-                                if (maxArr.length >= 3 && matches.length === 1) {
-                                    const sumMax = maxArr.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+                                if (maxGradeArray.length >= 3 && matches.length === 1) {
+                                    const sumMax = maxGradeArray.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
                                     const earned = parseFloat(matches[0][1]);
                                     if (!isNaN(earned) && sumMax > earned) totalLost += (sumMax - earned);
                                     return;
@@ -1666,8 +1679,8 @@
                                 // Для обычных пар: считаем недополученное только по реально сданным точкам
                                 matches.forEach((m, idx) => {
                                     const num = parseFloat(m[1]);
-                                    if (!isNaN(num) && idx < maxArr.length) {
-                                        const maxVal = maxArr[idx];
+                                    if (!isNaN(num) && idx < maxGradeArray.length) {
+                                        const maxVal = maxGradeArray[idx];
                                         if (maxVal > num) totalLost += (maxVal - num);
                                     }
                                 });
@@ -1690,15 +1703,15 @@
                 }
             }
             meetingColumns.forEach(({ colIndex, meetingNumber }) => {
-                const td = tds[colIndex];
-                if (!td) return;
+                const meetingCell = tds[colIndex];
+                if (!meetingCell) return;
 
                 const lesson = matchedLessons[meetingNumber - 1];
                 if (!lesson) return;
 
-                const maxVal = mseLessonMaxGrades.get(lesson.id);
-                if (maxVal) {
-                    injectMaxGradeBadge(td, maxVal);
+                const maxGrades = mseLessonMaxGrades.get(lesson.id);
+                if (maxGrades) {
+                    injectMaxGradeBadge(meetingCell, maxGrades);
                 }
             });
         });
