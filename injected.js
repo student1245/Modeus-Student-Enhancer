@@ -126,12 +126,11 @@
         if (!tokenStatus?.hasToken) {
             return 'отсутствует';
         }
-        if (tokenStatus.secondsLeft <= 0) {
-            const expiredMs = Math.abs(tokenStatus.millisecondsLeft || Math.round(tokenStatus.secondsLeft * 1000));
-            const expiredSec = (expiredMs / 1000).toFixed(3);
-            return `просрочен на ${expiredSec} с (${expiredMs} мс)`;
-        }
         const duration = formatDuration(tokenStatus.secondsLeft);
+        if (tokenStatus.secondsLeft <= 0) {
+            const expiredSec = Math.abs(tokenStatus.secondsLeft || 0).toFixed(3);
+            return `просрочен на ${duration} (${expiredSec} с)`;
+        }
         return `${duration} (${tokenStatus.secondsLeftFormatted} с)`;
     };
 
@@ -163,9 +162,9 @@
         const secondsLeftFormatted = secondsLeft.toFixed(3);
 
         if (diffMs <= 0) {
-            const expiredMs = Math.abs(diffMs);
-            const expiredSec = (expiredMs / 1000).toFixed(3);
-            const expiredText = `просрочен на ${expiredSec} с (${expiredMs} мс)`;
+            const expiredSec = Math.abs(secondsLeft).toFixed(3);
+            const expiredDuration = formatDuration(secondsLeft);
+            const expiredText = `просрочен на ${expiredDuration} (${expiredSec} с)`;
             return {
                 hasToken: true,
                 secondsLeft,
@@ -616,10 +615,14 @@
     }
 
     // Срабатывание предохранителя: прекращение запросов, удаление невалидного бэкапа и показ тоста
-    function triggerCircuitBreaker() {
+    function triggerCircuitBreaker(force = false) {
         // Логический предохранитель: сессия признается окончательно мертвой ТОЛЬКО если access_token реально просрочен (в минусе)
+        // ИЛИ если основной суточный токен уже истек/принудительно передан флаг force
         const accessStatus = getAccessTokenStatus();
-        if (accessStatus.hasToken && accessStatus.secondsLeft > 0) {
+        const mainStatus = getMainTokenStatus();
+        const isMainTokenDead = !mainStatus.hasToken || mainStatus.secondsLeft <= 0;
+
+        if (!force && !isMainTokenDead && accessStatus.hasToken && accessStatus.secondsLeft > 0) {
             logger.session(
                 `Circuit Breaker отложен: access_token все еще активен (осталось ${accessStatus.secondsLeftFormatted} с).`
             );
@@ -639,8 +642,9 @@
 
         // 2. Логируем срабатывание предохранителя
         logger.error(
-            `[MSE Session] Предохранитель (Circuit Breaker) сработал: исчерпан лимит попыток (${SESSION_MAX_REFRESH_ATTEMPTS}) ` +
-            'и токен просрочен. Серверная сессия завершена. Фоновые запросы остановлены во избежание бесконечного спама.'
+            `[MSE Session] Предохранитель (Circuit Breaker) сработал: ${
+                isMainTokenDead ? 'основной токен истек' : `исчерпан лимит попыток (${SESSION_MAX_REFRESH_ATTEMPTS}) и токен просрочен`
+            }. Серверная сессия завершена. Фоновые запросы остановлены во избежание бесконечного спама.`
         );
 
         // 3. Показываем понятное персистентное уведомление (тост) о необходимости повторного входа
@@ -874,8 +878,18 @@
             }
         }
 
-        const accessStatus = getAccessTokenStatus();
+        // Фатальный предохранитель: если основной суточный токен просрочен или отсутствует,
+        // фоновое silent-продление невозможно (требуется интерактивный вход в систему).
         const mainStatus = getMainTokenStatus();
+        if (!mainStatus.hasToken || mainStatus.secondsLeft <= 0) {
+            logger.session(
+                `Основной токен истек или отсутствует (${formatTokenStatusSummary(mainStatus)}). Аварийная остановка фонового обновления.`
+            );
+            triggerCircuitBreaker();
+            return;
+        }
+
+        const accessStatus = getAccessTokenStatus();
 
         // Проверка логического предохранителя: если лимит попыток исчерпан И токен уже реально просрочен
         if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS && (!accessStatus.hasToken || accessStatus.secondsLeft <= 0)) {
