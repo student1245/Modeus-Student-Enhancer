@@ -119,7 +119,7 @@ modeus-beta/
                  checkReady (таймер готовности DOM) -> setupUI() -> loadAllData() -> запуск MutationObserver
 ```
 
-Передача справочников корпусов и отзывов из изолированного мира `content.js` в мир страницы `injected.js` выполняется через синхронный DOM-мост: данные сериализуются в Base64 (`btoa(unescape(encodeURIComponent(text)))`) и сохраняются в теги `<meta>`. Скрипт `injected.js` считывает их из DOM при старте и восстанавливает в структуры памяти. Архитектурное обоснование выбора синхронного DOM-моста вместо асинхронных `postMessage` и `CustomEvent` зафиксировано в [ADR-002](docs/adr/ADR-002-dom-data-bridge-meta-tags.md).
+Передача справочников корпусов и отзывов из изолированного мира `content.js` в мир страницы `injected.js` выполняется через синхронный DOM-мост: данные сериализуются в Base64 через стандартный `TextEncoder` (побайтовое преобразование `Array.from(new TextEncoder().encode(text), b => String.fromCharCode(b)).join('')` → `btoa(...)`) и сохраняются в теги `<meta>`. Скрипт `injected.js` считывает их из DOM при старте, декодирует через симметричный `TextDecoder` и восстанавливает в структуры памяти. Архитектурное обоснование выбора синхронного DOM-моста вместо асинхронных `postMessage` и `CustomEvent` зафиксировано в [ADR-002](docs/adr/ADR-002-dom-data-bridge-meta-tags.md).
 
 ### 1.4. Реестр архитектурных решений (ADR)
 

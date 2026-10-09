@@ -65,7 +65,7 @@ Accepted | Implemented (v2.2.3)
 
 ### Option D — DOM Data Bridge через Base64 `<meta>`-теги (Выбрано)
 - **Описание:**
-  1. `content.js` сериализует текст JSON в Base64 (`btoa(unescape(encodeURIComponent(text)))`).
+  1. `content.js` сериализует текст JSON в Base64 через стандартный `TextEncoder`: побайтовое преобразование `Array.from(new TextEncoder().encode(text), b => String.fromCharCode(b)).join('')` → `btoa(...)`. Этот подход заменяет устаревший `btoa(unescape(encodeURIComponent(text)))` и является stack-safe при данных любого размера (защита от `RangeError: Maximum call stack size exceeded` в V8).
   2. Создает элементы `<meta name="..." content="...">` и синхронно монтирует их в `document.head`.
   3. Строго после добавления мета-тегов монтирует теги `<script src="pe-module.js">` и `<script src="injected.js">` с параметром `async = false`.
   4. Скрипт `injected.js` при старте синхронно считывает контент мета-тегов через `document.querySelector('meta[name="..."]')`, декодирует Base64 и мгновенно инициализирует переменные.
