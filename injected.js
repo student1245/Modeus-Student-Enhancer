@@ -1256,6 +1256,19 @@
         }
     };
 
+    const handleOutsideSearchClick = (e) => {
+        const container = qs(`#${ID_SEARCH_CONTAINER}`);
+        if (container && !container.contains(e.target)) {
+            const suggestions = qs('#search-suggestions', container);
+            if (suggestions) suggestions.style.display = 'none';
+        }
+        const dropdown = qs('#selected-students-dropdown-wrapper');
+        if (dropdown && !dropdown.contains(e.target)) {
+            const cont = qs('#selected-students-container');
+            if (cont) cont.style.display = 'none';
+        }
+    };
+
     const stopAndCleanUp = () => {
         // 1. Остановка наблюдателей и таймеров
         if (window.studentEnhancer?.observer) {
@@ -1277,6 +1290,7 @@
         window.removeEventListener('popstate', processUrlChange);
         window.removeEventListener('click', handleLogoutClick);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
+        document.removeEventListener('click', handleOutsideSearchClick);
 
         // 4. Очистка внедрённых DOM-элементов и деактивация стилей
         document.body.classList.remove(CLASS_MSE_ACTIVE);
@@ -1916,13 +1930,8 @@
             }
         });
 
-        document.addEventListener('click', (e) => {
-            if (!container.contains(e.target)) qs('#search-suggestions').style.display = 'none';
-            if (!qs('#selected-students-dropdown-wrapper')?.contains(e.target)) {
-                const cont = qs('#selected-students-container');
-                if (cont) cont.style.display = 'none';
-            }
-        });
+        document.removeEventListener('click', handleOutsideSearchClick);
+        document.addEventListener('click', handleOutsideSearchClick);
 
         loadAllData();
     };

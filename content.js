@@ -64,7 +64,9 @@
   function mountDataToMeta(metaName, text, source) {
     const meta = document.createElement('meta');
     meta.name = metaName;
-    meta.content = btoa(unescape(encodeURIComponent(text)));
+    const utf8Bytes = new TextEncoder().encode(text);
+    const binaryString = Array.from(utf8Bytes, byte => String.fromCharCode(byte)).join('');
+    meta.content = btoa(binaryString);
     meta.setAttribute('data-source', source);
     document.head.appendChild(meta);
   }

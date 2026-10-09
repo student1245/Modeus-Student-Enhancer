@@ -494,7 +494,7 @@ window.MSE_PE = (function () {
                         if (conflict.user) html += `🎓 У вас пара:<br><b>${conflict.user}</b>`;
                         if (conflict.friend) {
                             if (html !== '') html += `<hr style="margin: 6px 0; border: 0; border-top: 1px dashed #cbd5e1;">`;
-                            html += `👥 У друга (${friendNameForUI}):<br><b>${conflict.friend}</b>`;
+                            html += `👥 У друга (${escapeHtml(friendNameForUI)}):<br><b>${conflict.friend}</b>`;
                         }
                     }
 
@@ -514,12 +514,13 @@ window.MSE_PE = (function () {
                     const group = clusters[sportName];
                     const totalAvail = group.reduce((sum, i) => sum + i.avail, 0);
                     const totalSeats = group.reduce((sum, i) => sum + i.total, 0);
-                    const locs = [...new Set(group.map(i => i.campus))].join(', ');
+                    const locs = [...new Set(group.map(i => escapeHtml(i.campus)))].join(', ');
+                    const safeSportName = escapeHtml(sportName);
                     const card = document.createElement('div');
                     card.className = `s-card ${group.some(i => i.enrolled) ? 'is-enrolled' : ''}`;
                     card.innerHTML = `
                         <div class="card-row-1">
-                            <span class="sport-title">${group.some(i => i.enrolled) ? '⭐ ' : ''}${sportName} <span style="font-weight:normal; font-size:10px;">(${group.length})</span></span>
+                            <span class="sport-title">${group.some(i => i.enrolled) ? '⭐ ' : ''}${safeSportName} <span style="font-weight:normal; font-size:10px;">(${group.length})</span></span>
                             <span class="seats-badge ${totalAvail > 0 ? 'has-seats' : ''}">${totalAvail}/${totalSeats}</span>
                         </div><div class="card-row-2">📍 ${locs}</div>`;
                     card.onclick = () => openPeModal(sportName, day, time, group, tIdx);
@@ -562,7 +563,7 @@ window.MSE_PE = (function () {
             if (item.campus === "Аграрный уник" && (currentModalTimeIdx === 1 || currentModalTimeIdx === 2)) commuteStatus = '🔴 Не успеваешь (очень далеко)';
 
             const rev = localTeacherReviews.get(item.prof);
-            const reviewHtml = rev ? `<div style="margin-left:22px; margin-top:2px; font-size:12px; color:#1e293b;"><b>Рейтинг:</b> ${rev.emoji} ${rev.type}</div><div class="review-box"><b>Отзывы:</b> ${rev.review.replace(/<br>/g, ' ')}</div>` : `<div style="margin-left:22px; margin-top:2px; font-size:12px; color:var(--muted);">🤔 Нет отзывов о преподавателе</div>`;
+            const reviewHtml = rev ? `<div style="margin-left:22px; margin-top:2px; font-size:12px; color:#1e293b;"><b>Рейтинг:</b> ${escapeHtml(rev.emoji)} ${escapeHtml(rev.type)}</div><div class="review-box"><b>Отзывы:</b> ${escapeHtml(rev.review ? rev.review.replace(/<br\s*\/?>/gi, ' ') : '')}</div>` : `<div style="margin-left:22px; margin-top:2px; font-size:12px; color:var(--muted);">🤔 Нет отзывов о преподавателе</div>`;
 
             let actionBtnHtml = '';
             if (item.enrolled) {
@@ -613,13 +614,20 @@ window.MSE_PE = (function () {
                 }
             }
 
+            const safeSport = escapeHtml(item.sport);
+            const safeCampus = escapeHtml(item.campus);
+            const safeAddress = escapeHtml(item.address);
+            const safeProf = escapeHtml(item.prof);
+            const safeLoc = escapeHtml(item.loc);
+            const safeMapLink = escapeHtml(item.mapLink);
+
             card.innerHTML = `
-                <div class="sec-header"><div>${emoji} ${item.sport} (Секция №${item.secNum})</div>${item.enrolled ? '<span style="color:#d97706; font-size:12px; font-weight:700;">⭐ Вы записаны</span>' : ''}</div>
-                <div class="info-block"><div class="info-title">📍 Локация: <span>${item.campus}</span></div>
-                    <div class="info-sub">Адрес: ${item.address} <a href="${item.mapLink}" target="_blank" class="map-link">[Яндекс Карты ↗]</a></div>
-                    <div class="info-sub" style="color: #94a3b8; font-size: 11px;">(В Модеусе: ${item.loc})</div></div>
+                <div class="sec-header"><div>${emoji} ${safeSport} (Секция №${item.secNum})</div>${item.enrolled ? '<span style="color:#d97706; font-size:12px; font-weight:700;">⭐ Вы записаны</span>' : ''}</div>
+                <div class="info-block"><div class="info-title">📍 Локация: <span>${safeCampus}</span></div>
+                    <div class="info-sub">Адрес: ${safeAddress} <a href="${safeMapLink}" target="_blank" class="map-link">[Яндекс Карты ↗]</a></div>
+                    <div class="info-sub" style="color: #94a3b8; font-size: 11px;">(В Модеусе: ${safeLoc})</div></div>
                 <div class="info-block"><div class="info-title">⏰ Время: <span>${dayFullNames[item.day]}, ${item.time}</span></div><div class="info-sub">Дорога от пред. пары: <b>${commuteStatus}</b></div></div>
-                <div class="info-block"><div class="info-title">👤 Преподаватель: <span>${item.prof}</span></div>${reviewHtml}</div>
+                <div class="info-block"><div class="info-title">👤 Преподаватель: <span>${safeProf}</span></div>${reviewHtml}</div>
                 <div class="info-block"><div class="info-title">👥 Места: <span style="color:${item.avail > 0 ? '#16a34a' : '#dc2626'}">Осталось ${item.avail} из ${item.total}</span></div></div>
                 ${actionBtnHtml}
             `;
