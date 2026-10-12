@@ -129,6 +129,7 @@ modeus-beta/
 |---|---|---|---|
 | [ADR-001](docs/adr/ADR-001-silent-session-refresh.md) | Бесшовное фоновое продление сессии (Session Keeper) | Accepted | Скрытый iframe + rules.json (DNR) вместо fetch и редиректа |
 | [ADR-002](docs/adr/ADR-002-dom-data-bridge-meta-tags.md) | Передача данных через &lt;meta&gt;-теги (DOM Data Bridge) | Accepted | Синхронный мост Base64 вместо асинхронного postMessage |
+| [ADR-003](docs/adr/ADR-003-rejection-of-credential-storage.md) | Отказ от хранения учетных данных Active Directory | Accepted | Zero Password Knowledge: сессия ограничена 24 ч, делегирование браузеру и DPAPI |
 
 ---
 
@@ -137,7 +138,7 @@ modeus-beta/
 ### 2.1. Session Keeper
 
 * **Назначение:** Фоновое продление авторизационного токена Modeus (срок жизни токена — 60 минут) и устранение внезапных выбросов на страницу входа с потерей несохраненных данных.
-* **Архитектурный контракт:** Реализован через скрытый `iframe` в связке с модификацией заголовков `sub_frame` через DeclarativeNetRequest (`rules.json`). Технические ограничения CORS/ADFS, запрет на перевод механизма на fetch/редирект вкладки и условия пересмотра решения подробно зафиксированы в [ADR-001](docs/adr/ADR-001-silent-session-refresh.md).
+* **Архитектурный контракт:** Реализован через скрытый `iframe` в связке с модификацией заголовков `sub_frame` через DeclarativeNetRequest (`rules.json`). Технические ограничения CORS/ADFS, запрет на перевод механизма на fetch/редирект вкладки и условия пересмотра решения подробно зафиксированы в [ADR-001](docs/adr/ADR-001-silent-session-refresh.md). Архитектурный отказ от хранения паролей Active Directory и сохранение принципа Zero Password Knowledge зафиксированы в [ADR-003](docs/adr/ADR-003-rejection-of-credential-storage.md).
 * **Монитор сессии и тихий рефреш:**
   * Фоновый таймер (в коде: `monitorSessionHealth()`) запускается каждые 20 секунд.
   * Если до истечения срока действия токена остается менее 60 секунд, вызывается процедура тихого обновления (в коде: `triggerSilentRefresh()`).
