@@ -399,6 +399,9 @@
     const ID_FEEDBACK_FOOTER = 'mse-feedback-footer';
     const ID_OPEN_PE_BTN = 'mse-open-pe-btn';
 
+    // Регулярные выражения
+    const REGEX_BUILDING_CODE = /Корпус-(\d{2})/i;
+
     // Справочники корпусов и отзывы
     let buildingMap = {};
     let teacherReviews = new Map();
@@ -1209,10 +1212,8 @@
     const enhanceBuildingNames = () => {
         if (Object.keys(buildingMap).length === 0) return;
 
-        const buildingRegex = /Корпус-(\d{2})/i;
-
         qsa('.fc-time small.text-muted:not([data-enhanced-building])').forEach(el => {
-            const match = el.textContent.match(buildingRegex);
+            const match = el.textContent.match(REGEX_BUILDING_CODE);
             if (match) {
                 const code = match[1];
                 if (buildingMap[code]) {
@@ -1224,7 +1225,7 @@
 
         qsa('ngb-popover-window p:not([data-enhanced-building])').forEach(el => {
             if (el.textContent.includes('Корпус-')) {
-                const match = el.textContent.match(buildingRegex);
+                const match = el.textContent.match(REGEX_BUILDING_CODE);
                 if (match) {
                     const code = match[1];
                     if (buildingMap[code]) {
@@ -1237,7 +1238,7 @@
 
         const sidebarLocationHeader = qs('.location-info__header-text:not([data-enhanced-building])');
         if (sidebarLocationHeader) {
-            const match = sidebarLocationHeader.textContent.match(buildingRegex);
+            const match = sidebarLocationHeader.textContent.match(REGEX_BUILDING_CODE);
             if (match) {
                 const code = match[1];
                 if (buildingMap[code]) {

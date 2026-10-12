@@ -32,7 +32,6 @@
     const startTime = performance.now();
     try {
       const res = await fetch(`${RAW_URL}/${filename}?t=${Date.now()}`, { signal: controller.signal });
-      clearTimeout(timer);
       if (!res.ok) {
         logDb(`GitHub вернул HTTP ${res.status} для ${filename}`);
         return null;
@@ -41,9 +40,10 @@
       const durationMs = Math.round(performance.now() - startTime);
       return { text, source: `GitHub (${durationMs} мс)` };
     } catch (e) {
-      clearTimeout(timer);
       logDb(`Запрос к GitHub для ${filename} завершился с ошибкой: ${e.message}`);
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
