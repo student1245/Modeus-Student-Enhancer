@@ -247,19 +247,32 @@ window.MSE_PE = (function () {
     }
 
     function initMultiSelects() {
-        selectedSports = new Set(sportsSet); selectedCampuses = new Set(campusesSet);
+        selectedSports = new Set(sportsSet);
+        selectedCampuses = new Set(campusesSet);
         buildOptionsList('sport', sportsSet, selectedSports);
         buildOptionsList('campus', campusesSet, selectedCampuses);
-        updateButtonLabel('sport'); updateButtonLabel('campus');
+        updateButtonLabel('sport');
+        updateButtonLabel('campus');
     }
 
     function buildOptionsList(type, allItems, selectedSet) {
         const container = document.getElementById(`pe-${type}OptionsList`);
-        if (!container) return; container.innerHTML = '';
+        if (!container) return;
+        container.innerHTML = '';
+
         [...allItems].sort().forEach(item => {
-            const label = document.createElement('label'); label.className = 'ms-item';
-            label.innerHTML = `<input type="checkbox" value="${item}" ${selectedSet.has(item) ? 'checked' : ''}> <span>${item}</span>`;
-            label.querySelector('input').onchange = (e) => { e.target.checked ? selectedSet.add(item) : selectedSet.delete(item); updateButtonLabel(type); renderGrid(); };
+            const label = document.createElement('label');
+            label.className = 'ms-item';
+            label.innerHTML = `<input type="checkbox" value="${escapeHtml(item)}" ${selectedSet.has(item) ? 'checked' : ''}> <span>${escapeHtml(item)}</span>`;
+            label.querySelector('input').onchange = (e) => {
+                if (e.target.checked) {
+                    selectedSet.add(item);
+                } else {
+                    selectedSet.delete(item);
+                }
+                updateButtonLabel(type);
+                renderGrid();
+            };
             container.appendChild(label);
         });
     }
@@ -270,26 +283,46 @@ window.MSE_PE = (function () {
         const labelEl = document.getElementById(`pe-${type}Label`);
         if (!labelEl) return;
 
-        if (targetSet.size === total) labelEl.innerText = type === 'sport' ? 'Все виды спорта' : 'Все корпуса';
-        else if (targetSet.size === 0) labelEl.innerText = 'Не выбрано';
-        else if (targetSet.size <= 2) labelEl.innerText = [...targetSet].join(', ');
-        else labelEl.innerText = `Выбрано: ${targetSet.size} из ${total}`;
+        if (targetSet.size === total) {
+            labelEl.innerText = type === 'sport' ? 'Все виды спорта' : 'Все корпуса';
+        } else if (targetSet.size === 0) {
+            labelEl.innerText = 'Не выбрано';
+        } else if (targetSet.size <= 2) {
+            labelEl.innerText = [...targetSet].join(', ');
+        } else {
+            labelEl.innerText = `Выбрано: ${targetSet.size} из ${total}`;
+        }
     }
 
     function selectAllOptions(type, selectAll) {
         const targetSet = type === 'sport' ? selectedSports : selectedCampuses;
         const allSet = type === 'sport' ? sportsSet : campusesSet;
-        targetSet.clear(); if (selectAll) allSet.forEach(v => targetSet.add(v));
-        document.querySelectorAll(`#pe-${type}OptionsList input[type="checkbox"]`).forEach(i => i.checked = selectAll);
-        updateButtonLabel(type); renderGrid();
+        targetSet.clear();
+        if (selectAll) {
+            allSet.forEach(v => targetSet.add(v));
+        }
+        document.querySelectorAll(`#pe-${type}OptionsList input[type="checkbox"]`).forEach(i => {
+            i.checked = selectAll;
+        });
+        updateButtonLabel(type);
+        renderGrid();
     }
 
     window.togglePeMultiSelect = function (id) {
-        const el = document.getElementById(id); const isOpen = el.classList.contains('open');
+        const el = document.getElementById(id);
+        if (!el) return;
+        const isOpen = el.classList.contains('open');
         document.querySelectorAll('.custom-multiselect').forEach(m => m.classList.remove('open'));
-        if (!isOpen) el.classList.add('open');
-    }
-    document.addEventListener('click', (e) => { if (!e.target.closest('.custom-multiselect')) document.querySelectorAll('.custom-multiselect').forEach(m => m.classList.remove('open')); });
+        if (!isOpen) {
+            el.classList.add('open');
+        }
+    };
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.custom-multiselect')) {
+            document.querySelectorAll('.custom-multiselect').forEach(m => m.classList.remove('open'));
+        }
+    });
 
     async function getPersonIdByName(name) {
         // 1. Сначала ищем в локальных друзьях (мгновенно)
@@ -985,11 +1018,22 @@ window.MSE_PE = (function () {
                     });
                 }
             }
-            document.getElementById('pe-onlyAvailable').checked = false; document.getElementById('pe-onlyMySections').checked = false; document.getElementById('pe-considerSchedule').checked = true;
+            document.getElementById('pe-onlyAvailable').checked = false;
+            document.getElementById('pe-onlyMySections').checked = false;
+            document.getElementById('pe-considerSchedule').checked = true;
             window.MSE_PE_clearFriend();
-            initMultiSelects(); document.getElementById('mse-pe-overlay').style.display = 'block'; renderGrid();
+            initMultiSelects();
+            document.getElementById('mse-pe-overlay').style.display = 'block';
+            renderGrid();
         },
         selectAll: selectAllOptions,
-        resetFilters: function () { selectAllOptions('sport', true); selectAllOptions('campus', true); document.getElementById('pe-onlyAvailable').checked = false; document.getElementById('pe-onlyMySections').checked = false; collapsedRows.clear(); renderGrid(); }
+        resetFilters: function () {
+            selectAllOptions('sport', true);
+            selectAllOptions('campus', true);
+            document.getElementById('pe-onlyAvailable').checked = false;
+            document.getElementById('pe-onlyMySections').checked = false;
+            collapsedRows.clear();
+            renderGrid();
+        }
     };
 })();
