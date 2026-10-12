@@ -99,8 +99,8 @@
   peScript.async = false; // Важно, чтобы сохранился порядок загрузки
   (document.head || document.documentElement).appendChild(peScript);
 
-  const s = document.createElement('script');
-  s.src = chrome.runtime.getURL('injected.js');
-  s.async = false;
-  (document.head || document.documentElement).appendChild(s);
+  const coreScriptElement = document.createElement('script');
+  coreScriptElement.src = chrome.runtime.getURL('injected.js');
+  coreScriptElement.async = false;
+  (document.head || document.documentElement).appendChild(coreScriptElement);
 })();
