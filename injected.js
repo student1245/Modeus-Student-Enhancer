@@ -300,7 +300,9 @@
     window.MSE_enableDebug = () => {
         try {
             localStorage.setItem(STORAGE_KEY_DEBUG, '1');
-        } catch {}
+        } catch {
+            // Подавляем исключение: доступ к localStorage может быть заблокирован политиками безопасности или приватным режимом
+        }
         window.__MSE_DEBUG__ = true;
         console.log('[MSE] Режим отладки ВКЛЮЧЕН (мгновенно, F5 не требуется)');
         printDebugStatus();
@@ -308,7 +310,9 @@
     window.MSE_disableDebug = () => {
         try {
             localStorage.removeItem(STORAGE_KEY_DEBUG);
-        } catch {}
+        } catch {
+            // Подавляем исключение: доступ к localStorage может быть заблокирован политиками безопасности или приватным режимом
+        }
         window.__MSE_DEBUG__ = false;
         console.log('[MSE] Режим отладки ВЫКЛЮЧЕН');
     };
@@ -1814,7 +1818,9 @@
         const fallbackUrl = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases`;
         try {
             localStorage.removeItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + mockVersion);
-        } catch {}
+        } catch {
+            // Подавляем исключение: доступ к localStorage может быть заблокирован политиками безопасности или приватным режимом
+        }
         qs(`#${ID_UPDATE_BADGE}`)?.remove();
         qs(`#${ID_UPDATE_POPUP}`)?.remove();
         renderUpdateBadge(mockVersion, fallbackUrl);
@@ -1828,7 +1834,9 @@
         let cachedVersion = 'нет данных';
         try {
             if (cachedRelease) cachedVersion = JSON.parse(cachedRelease).tag_name || 'нет данных';
-        } catch {}
+        } catch {
+            // Игнорируем ошибку парсинга поврежденного кэша релиза из localStorage
+        }
         const minutesAgo = lastCheck ? Math.round((Date.now() - lastCheck) / 60000) : null;
         const timeText = minutesAgo !== null ? `${minutesAgo} мин. назад` : 'никогда';
         logger.update(`Текущая: v${CURRENT_VERSION} | На GitHub: ${cachedVersion} | Посл. проверка: ${timeText}`);
