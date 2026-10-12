@@ -567,7 +567,7 @@ window.MSE_PE = (function () {
 
             let actionBtnHtml = '';
             if (item.enrolled) {
-                actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-unenroll-lg" onclick="MSE_PE.apiToggle('${item.id}', false)">🔴 ОТПИСАТЬСЯ</button>`;
+                actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-unenroll-lg" data-action="unenroll" data-team-id="${item.id}">🔴 ОТПИСАТЬСЯ</button>`;
             } else if (item.avail <= 0) {
                 actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-disabled-lg" disabled title="В секции не осталось свободных мест">🔒 Нет мест</button>`;
             } else {
@@ -579,7 +579,7 @@ window.MSE_PE = (function () {
                 const emptyModule = candidateModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
 
                 if (emptyModule) {
-                    actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-enroll-lg" onclick="MSE_PE.apiToggle('${item.id}', true)">🟢 ЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>`;
+                    actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-enroll-lg" data-action="enroll" data-team-id="${item.id}">🟢 ЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>`;
                 } else {
                     const occupiedModule = candidateModules.find(mod => mod.selectedTeamIds && mod.selectedTeamIds.length > 0);
                     const oldTeamId = occupiedModule ? occupiedModule.selectedTeamIds[0] : null;
@@ -605,11 +605,11 @@ window.MSE_PE = (function () {
                         }
 
                         actionBtnHtml = `
-                            <button id="btn-team-${item.id}" class="btn-action btn-swap-lg" onclick="MSE_PE.apiSwap('${item.id}', '${oldTeamId}', '${targetModuleId}')">🔄 ПЕРЕЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>
+                            <button id="btn-team-${item.id}" class="btn-action btn-swap-lg" data-action="swap" data-team-id="${item.id}" data-old-team-id="${oldTeamId}" data-target-module-id="${targetModuleId}">🔄 ПЕРЕЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>
                             <div class="swap-notice">⚠️ Заменит: <b>${escapeHtml(oldTeamName)}</b></div>
                         `;
                     } else {
-                        actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-enroll-lg" onclick="MSE_PE.apiToggle('${item.id}', true)">🟢 ЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>`;
+                        actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-enroll-lg" data-action="enroll" data-team-id="${item.id}">🟢 ЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>`;
                     }
                 }
             }
@@ -633,6 +633,21 @@ window.MSE_PE = (function () {
             `;
             body.appendChild(card);
         });
+    }
+
+    function syncAndRenderActiveViews() {
+        parseData();
+        currentModalGroup = courses.filter(c => currentModalItemIds.has(c.id));
+        if (currentModalGroup.length === 0) {
+            currentModalGroup = courses.filter(c => 
+                c.sport === currentModalSport && 
+                c.day === currentModalDay && 
+                c.slotIdx === currentModalTimeIdx
+            );
+            currentModalItemIds = new Set(currentModalGroup.map(i => i.id));
+        }
+        renderModalBody();
+        renderGrid();
     }
 
     async function apiToggleAction(teamId, isEnroll) {
@@ -762,14 +777,7 @@ window.MSE_PE = (function () {
 
             updateTeamAvailable(teamId, isEnroll ? -1 : 1);
 
-            parseData();
-            currentModalGroup = courses.filter(c => currentModalItemIds.has(c.id));
-            if (currentModalGroup.length === 0) {
-                currentModalGroup = courses.filter(c => c.sport === currentModalSport && c.day === currentModalDay && c.slotIdx === currentModalTimeIdx);
-                currentModalItemIds = new Set(currentModalGroup.map(i => i.id));
-            }
-            renderModalBody();
-            renderGrid();
+            syncAndRenderActiveViews();
 
             showToast(isEnroll ? 'Вы успешно записались в секцию!' : 'Запись успешно отменена.', 'success');
         } catch (err) {
@@ -908,14 +916,7 @@ window.MSE_PE = (function () {
                     }
                 );
 
-                parseData();
-                currentModalGroup = courses.filter(c => currentModalItemIds.has(c.id));
-                if (currentModalGroup.length === 0) {
-                    currentModalGroup = courses.filter(c => c.sport === currentModalSport && c.day === currentModalDay && c.slotIdx === currentModalTimeIdx);
-                    currentModalItemIds = new Set(currentModalGroup.map(i => i.id));
-                }
-                renderModalBody();
-                renderGrid();
+                syncAndRenderActiveViews();
 
                 throw new Error(`Старая запись отменена, но записаться в новую секцию не удалось: ${errorMsg}`);
             }
@@ -932,14 +933,7 @@ window.MSE_PE = (function () {
             updateTeamAvailable(newTeamId, -1);
             enrolledTeamsMap.set(newTeamId, targetModuleId);
 
-            parseData();
-            currentModalGroup = courses.filter(c => currentModalItemIds.has(c.id));
-            if (currentModalGroup.length === 0) {
-                currentModalGroup = courses.filter(c => c.sport === currentModalSport && c.day === currentModalDay && c.slotIdx === currentModalTimeIdx);
-                currentModalItemIds = new Set(currentModalGroup.map(i => i.id));
-            }
-            renderModalBody();
-            renderGrid();
+            syncAndRenderActiveViews();
 
             showToast('Вы успешно перезаписались в секцию!', 'success');
         } catch (err) {
@@ -978,6 +972,18 @@ window.MSE_PE = (function () {
                 document.body.appendChild(overlay);
                 document.getElementById('mse-pe-close').onclick = () => { overlay.style.display = 'none'; };
                 document.getElementById('pe-considerSchedule').onchange = renderGrid; document.getElementById('pe-onlyAvailable').onchange = renderGrid; document.getElementById('pe-onlyMySections').onchange = renderGrid;
+
+                const modalBody = document.getElementById('mse-pe-modal-body');
+                if (modalBody) {
+                    modalBody.addEventListener('click', (e) => {
+                        const btn = e.target.closest('[data-action]');
+                        if (!btn || btn.disabled) return;
+                        const { action, teamId, oldTeamId, targetModuleId } = btn.dataset;
+                        if (action === 'enroll') apiToggleAction(teamId, true);
+                        else if (action === 'unenroll') apiToggleAction(teamId, false);
+                        else if (action === 'swap') apiSwapAction(teamId, oldTeamId, targetModuleId);
+                    });
+                }
             }
             document.getElementById('pe-onlyAvailable').checked = false; document.getElementById('pe-onlyMySections').checked = false; document.getElementById('pe-considerSchedule').checked = true;
             window.MSE_PE_clearFriend();
