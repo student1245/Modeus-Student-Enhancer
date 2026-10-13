@@ -2,11 +2,13 @@
   "id": "survey_2026_q4_features",
   "enabled": false,
   "minUsageCount": 5,
+  "webhookUrl": "https://script.google.com/macros/s/AKfycbwUgqAKHztog8GakSgnepiYVcLGc5MkmX1OuHxlC4YtI79iMZiNvwRH9MKaRRvRNntBMg/exec",
   "title": "Помогите улучшить Modeus Enhancer",
-  "description": "Пройдите короткий опрос из 2 вопросов прямо здесь, чтобы новые функции были полезны именно вам.",
+  "description": "Пройдите короткий опрос из 2 вопросов, какие новые функции были полезны именно вам.",
   "questions": [
     {
       "id": "favorite_feature",
+      "type": "single",
       "text": "Какая функция для вас самая полезная?",
       "options": [
         "Анти-вылет сессии 24ч",
@@ -17,6 +19,8 @@
     },
     {
       "id": "desired_feature",
+      "type": "multiple",
+      "allowCustom": true,
       "text": "Чего сильнее всего не хватает в Модеусе?",
       "options": [
         "Тёмная тема (Dark Mode)",

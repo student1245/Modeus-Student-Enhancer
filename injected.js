@@ -347,7 +347,7 @@
     const GITHUB_USER = 'student1245';
     const GITHUB_REPO = 'Modeus-Student-Enhancer';
     const FEEDBACK_BOT_URL = 'https://t.me/Theguestroom_bot';
-    const DEFAULT_SURVEY_WEBHOOK_URL = '';
+    const DEFAULT_SURVEY_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwUgqAKHztog8GakSgnepiYVcLGc5MkmX1OuHxlC4YtI79iMZiNvwRH9MKaRRvRNntBMg/exec';
     const SURVEY_SNOOZE_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // 3 дня отсрочки («Позже»)
 
     // Ключи локальных хранилищ (localStorage / sessionStorage)
@@ -2037,6 +2037,121 @@
         } catch (error) {
             logger.warn('Ошибка записи mse_surveys_disabled_forever:', error);
         }
+    };
+
+    const CUSTOM_OPTION_VALUE = '__custom__';
+
+    /**
+     * Парсит существующий ответ вопроса для восстановления состояния интерфейса при возврате.
+     * @param {string|string[]|null} existingAnswer
+     * @returns {{ selectedOptions: Set<string>, customText: string }}
+     */
+    const parseInitialQuestionAnswer = (existingAnswer) => {
+        const selectedOptions = new Set();
+        let customText = '';
+
+        if (!existingAnswer) {
+            return { selectedOptions, customText };
+        }
+
+        if (Array.isArray(existingAnswer)) {
+            existingAnswer.forEach(ans => {
+                if (typeof ans === 'string' && ans.startsWith('Свой вариант:')) {
+                    selectedOptions.add(CUSTOM_OPTION_VALUE);
+                    customText = ans.replace(/^Свой вариант:\s*/, '');
+                } else if (ans) {
+                    selectedOptions.add(ans);
+                }
+            });
+        } else if (typeof existingAnswer === 'string') {
+            if (existingAnswer.startsWith('Свой вариант:')) {
+                selectedOptions.add(CUSTOM_OPTION_VALUE);
+                customText = existingAnswer.replace(/^Свой вариант:\s*/, '');
+            } else {
+                selectedOptions.add(existingAnswer);
+            }
+        }
+
+        return { selectedOptions, customText };
+    };
+
+    /**
+     * Генерирует HTML разметку вариантов ответа с поддержкой multiple и кастомного поля.
+     * @param {Object} question
+     * @param {Set<string>} selectedOptions
+     * @param {string} customText
+     * @returns {string}
+     */
+    const buildQuestionOptionsHtml = (question, selectedOptions, customText) => {
+        const isMultiple = question.type === 'multiple';
+        const inputType = isMultiple ? 'checkbox' : 'radio';
+        const options = question.options || [];
+
+        const optionsHtml = options.map((optionText) => {
+            const isChecked = selectedOptions.has(optionText);
+            const safeText = escapeHtml(optionText);
+            const selectedClass = isChecked ? ' selected' : '';
+            return `
+                <label class="mse-survey-option${selectedClass}">
+                    <input type="${inputType}" name="mse_survey_choice" value="${safeText}" ${isChecked ? 'checked' : ''} />
+                    <span>${safeText}</span>
+                </label>
+            `;
+        }).join('');
+
+        if (!question.allowCustom) {
+            return optionsHtml;
+        }
+
+        const isCustomChecked = selectedOptions.has(CUSTOM_OPTION_VALUE);
+        const customSelectedClass = isCustomChecked ? ' selected' : '';
+        const safeCustomText = escapeHtml(customText);
+        const customDisplay = isCustomChecked ? 'block' : 'none';
+
+        const customOptionHtml = `
+            <label class="mse-survey-option${customSelectedClass}">
+                <input type="${inputType}" name="mse_survey_choice" value="${CUSTOM_OPTION_VALUE}" ${isCustomChecked ? 'checked' : ''} />
+                <span>Свой вариант</span>
+            </label>
+            <div class="mse-survey-custom-wrap" id="mse-survey-custom-container" style="display: ${customDisplay};">
+                <input type="text" class="mse-survey-custom-input" id="mse-survey-custom-input" placeholder="Напишите свой вариант..." value="${safeCustomText}" />
+            </div>
+        `;
+
+        return optionsHtml + customOptionHtml;
+    };
+
+    /**
+     * Формирует итоговый санитизированный ответ для сохранения и отправки.
+     * @param {boolean} isMultiple
+     * @param {Set<string>} selectedOptions
+     * @param {string} customText
+     * @returns {string|string[]|null}
+     */
+    const buildFinalQuestionAnswer = (isMultiple, selectedOptions, customText) => {
+        const trimmedCustom = customText.trim();
+        const safeCustomText = escapeHtml(trimmedCustom);
+        const customAnswerString = safeCustomText ? `Свой вариант: ${safeCustomText}` : null;
+
+        if (isMultiple) {
+            const result = [];
+            selectedOptions.forEach((opt) => {
+                if (opt !== CUSTOM_OPTION_VALUE) {
+                    result.push(opt);
+                }
+            });
+            if (selectedOptions.has(CUSTOM_OPTION_VALUE) && customAnswerString) {
+                result.push(customAnswerString);
+            }
+            return result.length > 0 ? result : null;
+        }
+
+        if (selectedOptions.has(CUSTOM_OPTION_VALUE)) {
+            return customAnswerString;
+        }
+
+        const firstSelected = selectedOptions.values().next().value;
+        return firstSelected || null;
     };
 
     /**
