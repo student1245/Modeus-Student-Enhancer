@@ -237,13 +237,26 @@ modeus-beta/
   * **Продакшен (студенты):** Опрос работает **строго онлайн** через GitHub Raw (`raw.githubusercontent.com/.../data/survey.json`) с кэшированием в `localStorage.mse_survey_cache` (TTL 12 часов). В релизный ZIP-архив расширения файл `data/survey.json` намеренно не включается, исключая появление устаревших оффлайн-опросов («зомби-анкет»). При отсутствии сети или сбое запроса к GitHub опрос тихо пропускается без вывода ошибок 404 в консоль.
   * **Режим разработки (автор):** Локальный файл `data/survey.json` (`web_accessible_resources`) используется исключительно автором расширения для быстрой отладки черновиков анкет без необходимости коммитов и пушей на GitHub. Он считывается при активном флаге отладки (`mse_debug: "1"`), а также тестируется через метод симуляции `window.MSE_simulateSurvey()`.
   * **Мост данных:** Полученные данные конфигурации сериализуются в Base64 через `TextEncoder` и монтируются скриптом `content.js` в синхронный DOM-метатег `<meta name="modeus-survey-config">` (ADR-002), откуда считываются функцией `loadSurveyConfig()` в контексте Main World.
+* **Трекер продуктовой активности (Engagement-Based Retention):**
+  * Учет чистого времени взаимодействия (heartbeat) ведется каждую секунду с защитой от сна ПК (`deltaMs <= 3000`) и только при активной вкладке (`document.visibilityState === 'visible'`).
+  * **Суточный ролловер:** при смене календарной даты проверяется преодоление суточного порога (`minDailySecondsToQualify`). Если студент провел на сайте достаточно времени, дата сохраняется в массив `mse_qualified_days`, а суточный счетчик сбрасывается.
 * **Предикат guard-условий показа (`shouldShowSurvey`):**
-  * Показ опроса инициируется только при одновременном выполнении 5 условий:
+  * Показ опроса инициируется только при одновременном выполнении условий:
     1. Опрос включен автором (`config.enabled === true`).
     2. Опросы не отключены пользователем навсегда (`mse_surveys_disabled_forever !== '1'`).
     3. Опрос с данным ID еще не отклонялся и не завершался (`mse_survey_dismissed_{id} !== '1'`).
     4. Не активен таймер отсрочки (`Date.now() > mse_survey_snooze_until`).
-    5. Счётчик успешных открытий расписания достиг минимального порога (`mse_usage_count >= config.minUsageCount`).
+    5. Выполнены критерии продуктового таргетинга (`config.targeting`):
+       * `daysSinceInstall >= targeting.minDaysSinceInstall` (стаж с момента установки расширения).
+       * `qualifiedDaysCount >= targeting.minQualifiedDays` (число квалифицированных дней с активностью >= `minDailySecondsToQualify`).
+       * `totalActiveSeconds >= targeting.minTotalActiveSeconds` (суммарный чистый стаж активного взаимодействия).
+* **Спецификация параметров продуктового таргетинга (`targeting` в `data/survey.json`):**
+  | Параметр | Тип | Единицы | Описание и продуктовый смысл |
+  |---|---|---|---|
+  | `minDaysSinceInstall` | `number` | календарные дни | **Стаж использования:** минимальное количество суток с даты первого запуска расширения (`mse_install_date`). Защищает нового пользователя от показа анкет в период первичного онбординга. |
+  | `minQualifiedDays` | `number` | дни | **Регулярность визитов:** минимальное количество разных календарных дней, в каждый из которых студент набрал активность >= `minDailySecondsToQualify` (`mse_qualified_days`). Отсекает разовые и случайные открытия. |
+  | `minDailySecondsToQualify` | `number` | секунды | **Суточный порог квалификации:** чистое время активного взаимодействия за один день (например, 60 с или 120 с), необходимое для зачета суток как «квалифицированного дня». Начисляется только при открытой вкладке. |
+  | `minTotalActiveSeconds` | `number` | секунды | **Суммарный хронометраж:** совокупное чистое время активной работы с расширением за всё время (`mse_total_active_seconds`, например 300 с = 5 минут чистого использования). |
 * **Машина состояний интерфейса (`#mse-survey-popup`):**
   * Попап монтируется в `document.body` и управляется конечным автоматом экранов (`invite` → `question` → `completed` / `decline`).
   * Поддерживаются форматы вопросов `type: "single"` (радиокнопки) и `type: "multiple"` (чекбоксы).
@@ -256,7 +269,8 @@ modeus-beta/
 * **Управление и отладка в консоли:**
   * `window.MSE_checkSurvey()` — проверяет guard-условия и запускает опрос при их выполнении.
   * `window.MSE_simulateSurvey(customConfig)` — симулирует показ опроса из `data/survey.json` (или кастомного конфига) в тестовом режиме.
-  * `window.MSE_getUsageCount()` — возвращает текущее значение счетчика `mse_usage_count`.
+  * `window.MSE_getEngagementStats()` — возвращает структурированные метрики стажа, секунд активности и квалифицированных дней.
+  * `window.MSE_getUsageCount()` — возвращает текущее значение счетчика `mse_usage_count` (обратная совместимость).
   * `window.MSE_getSurveyConfig()` / `window.MSE_setSurveyConfig(config)` — инспекция и оперативная подмена активного конфига.
   * `window.MSE_clearSurveyCache()` — очистка кэша опроса и флагов скрытия в `localStorage`.
 
@@ -380,7 +394,12 @@ modeus-beta/
 | `localStorage` | `mse_last_update_check` | `string` (timestamp) | Метка времени последней проверки релиза на GitHub API (кэш на 2 часа). |
 | `localStorage` | `mse_latest_release` | `string` (JSON) | Кэш ответа GitHub Releases API (`/releases/latest`). |
 | `localStorage` | `mse_dismissed_v{version}` | `string` (`"1"`) | Флаг скрытия уведомления об обновлении для конкретной версии расширения. |
-| `localStorage` | `mse_usage_count` | `string` (number) | Счетчик успешных открытий расписания для проверки порога активности `minUsageCount`. |
+| `localStorage` | `mse_install_date` | `string` (`YYYY-MM-DD`) | Дата первого запуска расширения пользователем. |
+| `localStorage` | `mse_today_active_seconds` | `string` (number) | Накопленные секунды чистого взаимодействия за текущий календарный день. |
+| `localStorage` | `mse_total_active_seconds` | `string` (number) | Суммарное накопленное чистое время активности за все время использования. |
+| `localStorage` | `mse_qualified_days` | `string` (JSON array) | Массив дат (`YYYY-MM-DD`), в которые пользователь преодолел суточный порог активности. |
+| `localStorage` | `mse_last_active_date` | `string` (`YYYY-MM-DD`) | Дата последней зафиксированной активности для вычисления суточного ролловера. |
+| `localStorage` | `mse_usage_count` | `string` (number) | Счетчик успешных открытий расписания (сохранен для обратной совместимости). |
 | `localStorage` | `mse_survey_cache` | `string` (JSON) | Кэш структуры `data/survey.json` в Isolated World с меткой времени (TTL 12 часов). |
 | `localStorage` | `mse_survey_snooze_until` | `string` (timestamp) | Метка времени, до которой отложен показ опроса (при выборе действия «Позже», 3 дня). |
 | `localStorage` | `mse_survey_dismissed_{id}` | `string` (`"1"`) | Флаг отклонения или завершения конкретного опроса с идентификатором `{id}`. |
