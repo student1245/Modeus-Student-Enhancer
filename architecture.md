@@ -383,7 +383,6 @@ modeus-beta/
 | `sessionStorage` | `id_token_stored_at` | `string` (timestamp) | Время сохранения ID-токена в миллисекундах. |
 | `sessionStorage` | `nonce` | `string` | Случайное проверочное значение OpenID Connect. |
 | `sessionStorage` | `session_state` | `string` | Идентификатор сессии SSO сервера авторизации. |
-| `sessionStorage` | `mse_dismiss_update` | `string` (`"1"`) | Флаг скрытия всплывающего окна обновления на время сессии вкладки. |
 | `localStorage` | `mse_auth_backup` | `string` (JSON) | Резервная копия 9 ключей авторизации для восстановления сессии скриптом `keeper-early.js` при холодном старте. Удаляется при логауте. |
 | `localStorage` | `mse_debug` | `string` (`"1"`) | Флаг включения подробного режима логирования в консоль браузера (Debug Mode). |
 | `localStorage` | `mse_friends_list` | `string` (JSON) | Список сохраненных друзей `[{"id": "...", "fullName": "..."}]`. |
