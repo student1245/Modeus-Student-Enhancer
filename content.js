@@ -61,6 +61,43 @@
     }
   }
 
+  const META_BUILDINGS = 'modeus-buildings-map';
+  const META_REVIEWS = 'modeus-teacher-reviews';
+  const META_SURVEY = 'modeus-survey-config';
+
+  const RESOURCE_BUILDINGS = 'buildings.json';
+  const RESOURCE_TEACHER_REVIEWS = 'teacher_reviews.json';
+  const RESOURCE_SURVEY = 'data/survey.json';
+
+  const SURVEY_CACHE_KEY = 'mse_survey_cache';
+  const SURVEY_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 часов
+
+  function getSurveyFromCache() {
+    try {
+      const raw = localStorage.getItem(SURVEY_CACHE_KEY);
+      if (!raw) return null;
+      const cached = JSON.parse(raw);
+      const isFresh = cached?.timestamp && (Date.now() - cached.timestamp < SURVEY_CACHE_TTL_MS);
+      if (isFresh && cached.text) {
+        return cached;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  function saveSurveyToCache(text) {
+    try {
+      localStorage.setItem(SURVEY_CACHE_KEY, JSON.stringify({
+        timestamp: Date.now(),
+        text
+      }));
+    } catch {
+      // Игнорируем ошибки квоты localStorage
+    }
+  }
+
   function mountDataToMeta(metaName, text, source) {
     const meta = document.createElement('meta');
     meta.name = metaName;
@@ -71,10 +108,28 @@
     document.head.appendChild(meta);
   }
 
+  async function fetchResource(filename) {
+    if (filename === RESOURCE_SURVEY && !isDebug()) {
+      const cached = getSurveyFromCache();
+      if (cached) {
+        return { text: cached.text, source: 'кэш localStorage (TTL 12 ч)' };
+      }
+    }
+
+    const remoteResult = await fetchFromGitHub(filename);
+    if (remoteResult) {
+      if (filename === RESOURCE_SURVEY) {
+        saveSurveyToCache(remoteResult.text);
+      }
+      return remoteResult;
+    }
+
+    return fetchFromLocalBundle(filename);
+  }
+
   async function loadJsonData(filename, metaName) {
     logDb(`Начало загрузки ${filename}: запрос к GitHub...`);
-    const remoteResult = await fetchFromGitHub(filename);
-    const result = remoteResult || (await fetchFromLocalBundle(filename));
+    const result = await fetchResource(filename);
 
     if (result?.text) {
       const sizeKb = Math.round(result.text.length / 1024);
@@ -83,10 +138,11 @@
     }
   }
 
-  // Загружаем корпуса и отзывы параллельно
+  // Загружаем корпуса, отзывы и конфигурацию опроса параллельно
   await Promise.all([
-    loadJsonData('buildings.json', 'modeus-buildings-map'),
-    loadJsonData('teacher_reviews.json', 'modeus-teacher-reviews')
+    loadJsonData(RESOURCE_BUILDINGS, META_BUILDINGS),
+    loadJsonData(RESOURCE_TEACHER_REVIEWS, META_REVIEWS),
+    loadJsonData(RESOURCE_SURVEY, META_SURVEY)
   ]);
 
   const versionMeta = document.createElement('meta');

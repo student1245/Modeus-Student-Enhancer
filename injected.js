@@ -334,6 +334,7 @@
     // DOM-метатеги (мост данных Base64 из content.js, ADR-002)
     const META_BUILDINGS = 'modeus-buildings-map';
     const META_REVIEWS = 'modeus-teacher-reviews';
+    const META_SURVEY = 'modeus-survey-config';
 
     // Внешние сервисы и репозиторий
     const GITHUB_USER = 'student1245';
@@ -349,6 +350,10 @@
     const STORAGE_KEY_LAST_UPDATE_CHECK = 'mse_last_update_check';
     const STORAGE_KEY_LATEST_RELEASE = 'mse_latest_release';
     const STORAGE_KEY_DISMISSED_UPDATE_PREFIX = 'mse_dismissed_v';
+    const STORAGE_KEY_USAGE_COUNT = 'mse_usage_count';
+    const STORAGE_KEY_SURVEY_SNOOZE_UNTIL = 'mse_survey_snooze_until';
+    const STORAGE_KEY_SURVEY_DISMISSED_PREFIX = 'mse_survey_dismissed_';
+    const STORAGE_KEY_SURVEYS_DISABLED_FOREVER = 'mse_surveys_disabled_forever';
 
     // Авторизация OAuth 2.0 и Session Keeper (ADR-001)
     const OAUTH_CLIENT_ID = 'sKir7YQnOUu4G0eCfn3tTxnBfzca';
@@ -406,9 +411,10 @@
     // Регулярные выражения
     const REGEX_BUILDING_CODE = /Корпус-(\d{2})/i;
 
-    // Справочники корпусов и отзывы
+    // Справочники корпусов, отзывы и конфигурация опроса
     let buildingMap = {};
     let teacherReviews = new Map();
+    let surveyConfig = null;
 
     // Профиль пользователя
     let mySpecialty = localStorage.getItem(STORAGE_KEY_MY_SPECIALTY) || null;
@@ -948,57 +954,87 @@
 
     const databaseState = {
         buildings: { loaded: false, count: 0, source: 'не загружено' },
-        reviews: { loaded: false, count: 0, source: 'не загружено' }
+        reviews: { loaded: false, count: 0, source: 'не загружено' },
+        survey: { loaded: false, id: null, source: 'не загружено' }
+    };
+
+    /**
+     * Безопасно загружает и декодирует JSON-данные из DOM-метатега (Base64 UTF-8).
+     * @param {string} metaName - Имя DOM-метатега
+     * @returns {{ data: any, source: string } | null}
+     */
+    const loadDataFromMeta = (metaName) => {
+        try {
+            const metaElement = qs(`meta[name="${metaName}"]`);
+            if (!metaElement?.content) {
+                return null;
+            }
+            const source = metaElement.getAttribute('data-source') || 'DOM-метатег';
+            const decodedJson = decodeBase64Utf8(metaElement.content);
+            const data = JSON.parse(decodedJson);
+            return { data, source };
+        } catch (error) {
+            logger.warn(`Ошибка чтения метатега "${metaName}":`, error);
+            return null;
+        }
     };
 
     const loadBuildingsDatabase = () => {
-        try {
-            const buildingsMeta = qs(`meta[name="${META_BUILDINGS}"]`);
-            if (buildingsMeta?.content) {
-                const source = buildingsMeta.getAttribute('data-source') || 'DOM-метатег';
-                const json = decodeBase64Utf8(buildingsMeta.content);
-                buildingMap = JSON.parse(json) || {};
-                const count = Object.keys(buildingMap).length;
-                databaseState.buildings = { loaded: true, count, source };
-                logger.db(`База корпусов: успешно инициализирована (${count} корпусов, источник: ${source})`);
-            } else {
-                logger.db('База корпусов: метатег не найден (мост данных ожидает инициализации)');
-            }
-        } catch (e) {
-            logger.warn('Ошибка загрузки базы корпусов (buildings.json):', e);
+        const result = loadDataFromMeta(META_BUILDINGS);
+        if (result?.data) {
+            buildingMap = result.data || {};
+            const count = Object.keys(buildingMap).length;
+            databaseState.buildings = { loaded: true, count, source: result.source };
+            logger.db(`База корпусов: успешно инициализирована (${count} корпусов, источник: ${result.source})`);
+        } else {
+            logger.db('База корпусов: метатег не найден (мост данных ожидает инициализации)');
         }
     };
 
     const loadTeacherReviewsDatabase = () => {
-        try {
-            const reviewsMeta = qs(`meta[name="${META_REVIEWS}"]`);
-            if (reviewsMeta?.content) {
-                const source = reviewsMeta.getAttribute('data-source') || 'DOM-метатег';
-                const json = decodeBase64Utf8(reviewsMeta.content);
-                teacherReviews = new Map(Object.entries(JSON.parse(json) || {}));
-                const count = teacherReviews.size;
-                databaseState.reviews = { loaded: true, count, source };
-                logger.db(`База отзывов: успешно инициализирована (${count} отзывов, источник: ${source})`);
-            } else {
-                logger.db('База отзывов: метатег не найден (мост данных ожидает инициализации)');
-            }
-        } catch (e) {
-            logger.warn('Ошибка загрузки базы отзывов (teacher_reviews.json):', e);
+        const result = loadDataFromMeta(META_REVIEWS);
+        if (result?.data) {
+            teacherReviews = new Map(Object.entries(result.data || {}));
+            const count = teacherReviews.size;
+            databaseState.reviews = { loaded: true, count, source: result.source };
+            logger.db(`База отзывов: успешно инициализирована (${count} отзывов, источник: ${result.source})`);
+        } else {
+            logger.db('База отзывов: метатег не найден (мост данных ожидает инициализации)');
         }
     };
+
+    const loadSurveyConfig = () => {
+        const result = loadDataFromMeta(META_SURVEY);
+        if (result?.data) {
+            surveyConfig = result.data;
+            const status = surveyConfig?.enabled ? 'включен' : 'отключен';
+            databaseState.survey = { loaded: true, id: surveyConfig?.id || 'не указан', source: result.source };
+            logger.db(`Конфиг опроса: успешно инициализирован (id: ${surveyConfig?.id || 'не указан'}, статус: ${status}, источник: ${result.source})`);
+        } else {
+            databaseState.survey = { loaded: false, id: null, source: 'не найден' };
+            logger.db('Конфиг опроса: метатег не найден (мост данных ожидает инициализации)');
+        }
+    };
+
+    const getSurveyConfig = () => surveyConfig;
 
     const initDatabases = () => {
         loadBuildingsDatabase();
         loadTeacherReviewsDatabase();
+        loadSurveyConfig();
     };
 
     const printDatabaseStatus = () => {
         if (!databaseState.buildings.loaded && !databaseState.reviews.loaded) {
             initDatabases();
         }
+        const surveyStatus = databaseState.survey.loaded
+            ? (surveyConfig?.enabled ? 'включен' : 'отключен')
+            : 'не загружен';
         logger.db(
             `Корпуса: ${databaseState.buildings.count} шт. [${databaseState.buildings.source}] | ` +
-            `Отзывы: ${databaseState.reviews.count} шт. [${databaseState.reviews.source}]`
+            `Отзывы: ${databaseState.reviews.count} шт. [${databaseState.reviews.source}] | ` +
+            `Опрос: ${surveyStatus} [${databaseState.survey.source}]`
         );
     };
 
