@@ -265,15 +265,18 @@ window.MSE_PE = (function () {
             const label = document.createElement('label');
             label.className = 'ms-item';
             label.innerHTML = `<input type="checkbox" value="${escapeHtml(item)}" ${selectedSet.has(item) ? 'checked' : ''}> <span>${escapeHtml(item)}</span>`;
-            label.querySelector('input').onchange = (e) => {
-                if (e.target.checked) {
-                    selectedSet.add(item);
-                } else {
-                    selectedSet.delete(item);
-                }
-                updateButtonLabel(type);
-                renderGrid();
-            };
+            const inputEl = label.querySelector('input');
+            if (inputEl) {
+                inputEl.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        selectedSet.add(item);
+                    } else {
+                        selectedSet.delete(item);
+                    }
+                    updateButtonLabel(type);
+                    renderGrid();
+                });
+            }
             container.appendChild(label);
         });
     }
@@ -441,7 +444,6 @@ window.MSE_PE = (function () {
             btn.style.setProperty('border-left-color', '#fca5a5', 'important');
             btn.innerText = "Сброс";
             btn.disabled = false;
-            btn.onclick = window.MSE_PE_clearFriend;
 
             renderGrid();
         } catch (e) {
@@ -471,7 +473,6 @@ window.MSE_PE = (function () {
             btn.style.setProperty('color', '#475569', 'important');
             btn.style.setProperty('border-left-color', '#cbd5e1', 'important');
             btn.innerText = 'Поиск';
-            btn.onclick = window.MSE_PE_loadFriend;
         }
 
         friendSchedule = null;
@@ -497,7 +498,14 @@ window.MSE_PE = (function () {
             if (isCollapsed) tr.className = 'row-collapsed';
             const timeTd = document.createElement('td'); timeTd.className = 'time-cell';
             timeTd.innerHTML = `${time} <span class="time-sub">${tIdx + 1} пара ${isCollapsed ? '▼' : '▲'}</span>`;
-            timeTd.onclick = () => { isCollapsed ? collapsedRows.delete(tIdx) : collapsedRows.add(tIdx); renderGrid(); };
+            timeTd.addEventListener('click', () => {
+                if (isCollapsed) {
+                    collapsedRows.delete(tIdx);
+                } else {
+                    collapsedRows.add(tIdx);
+                }
+                renderGrid();
+            });
             tr.appendChild(timeTd);
 
             days.forEach(day => {
@@ -557,7 +565,7 @@ window.MSE_PE = (function () {
                             <span class="sport-title">${group.some(i => i.enrolled) ? '⭐ ' : ''}${safeSportName} <span style="font-weight:normal; font-size:10px;">(${group.length})</span></span>
                             <span class="seats-badge ${totalAvail > 0 ? 'has-seats' : ''}">${totalAvail}/${totalSeats}</span>
                         </div><div class="card-row-2">📍 ${locs}</div>`;
-                    card.onclick = () => openPeModal(sportName, day, time, group, tIdx);
+                    card.addEventListener('click', () => openPeModal(sportName, day, time, group, tIdx));
                     cellWrapper.appendChild(card);
                 });
                 td.appendChild(cellWrapper);
@@ -1021,7 +1029,13 @@ window.MSE_PE = (function () {
                 }
                 const friendBtn = document.getElementById('pe-friendBtn');
                 if (friendBtn) {
-                    friendBtn.addEventListener('click', () => { window.MSE_PE_loadFriend(); });
+                    friendBtn.addEventListener('click', () => {
+                        if (friendSchedule) {
+                            window.MSE_PE_clearFriend();
+                        } else {
+                            window.MSE_PE_loadFriend();
+                        }
+                    });
                 }
 
                 overlay.addEventListener('click', (e) => {

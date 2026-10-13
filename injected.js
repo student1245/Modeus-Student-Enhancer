@@ -3231,8 +3231,8 @@
                     peBtn.innerHTML = '⚡ Умный подбор секций';
                     peBtn.style.cssText = 'margin-left: 15px; background: #2563eb; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2); transition: background 0.15s; white-space: nowrap;';
 
-                    peBtn.onmouseover = () => peBtn.style.background = '#1d4ed8';
-                    peBtn.onmouseout = () => peBtn.style.background = '#2563eb';
+                    peBtn.addEventListener('mouseenter', () => { peBtn.style.background = '#1d4ed8'; });
+                    peBtn.addEventListener('mouseleave', () => { peBtn.style.background = '#2563eb'; });
 
                     peBtn.addEventListener('click', async () => {
                         const urlMatch = window.location.href.match(/menus\/([^\/]+)\/student\/([^\/]+)/);
