@@ -1,4 +1,5 @@
 window.MSE_PE = (function () {
+    const STORAGE_KEY_FRIENDS = 'mse_friends_list';
     let courses = [];
     let sportsSet = new Set();
     let campusesSet = new Set();
@@ -326,7 +327,7 @@ window.MSE_PE = (function () {
 
     async function getPersonIdByName(name) {
         // 1. Сначала ищем в локальных друзьях (мгновенно)
-        const friends = JSON.parse(localStorage.getItem('mse_friends_list') || '[]');
+        const friends = JSON.parse(localStorage.getItem(STORAGE_KEY_FRIENDS) || '[]');
         const friend = friends.find(f => f.fullName.toLowerCase().includes(name.toLowerCase()));
         if (friend) return { id: friend.id, name: friend.fullName };
 
@@ -987,24 +988,66 @@ window.MSE_PE = (function () {
                 overlay.innerHTML = `<button id="mse-pe-close" title="Закрыть">✕</button>
                     <div class="container">
                         <div class="header-panel"><h2>⚡ Умный подбор физкультуры</h2>
-                            <div class="filters-group"><button class="reset-filters-btn" onclick="MSE_PE.resetFilters()">↺ Сбросить фильтры</button>
-                                <div class="custom-multiselect" id="pe-sportMultiSelect"><button class="ms-btn" onclick="togglePeMultiSelect('pe-sportMultiSelect')"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span> ▼</button><div class="ms-dropdown"><div class="ms-actions"><span onclick="MSE_PE.selectAll('sport', true)">Выбрать все</span> <span onclick="MSE_PE.selectAll('sport', false)">Сбросить</span></div><div class="ms-list" id="pe-sportOptionsList"></div></div></div>
-                                <div class="custom-multiselect" id="pe-campusMultiSelect"><button class="ms-btn" onclick="togglePeMultiSelect('pe-campusMultiSelect')"><span class="ms-label" id="pe-campusLabel">Все корпуса</span> ▼</button><div class="ms-dropdown"><div class="ms-actions"><span onclick="MSE_PE.selectAll('campus', true)">Выбрать все</span> <span onclick="MSE_PE.selectAll('campus', false)">Сбросить</span></div><div class="ms-list" id="pe-campusOptionsList"></div></div></div>
+                            <div class="filters-group"><button class="reset-filters-btn" id="pe-reset-filters-btn">↺ Сбросить фильтры</button>
+                                <div class="custom-multiselect" id="pe-sportMultiSelect"><button class="ms-btn" data-action="toggle-multiselect" data-target="pe-sportMultiSelect"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span> ▼</button><div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="sport" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="sport" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-sportOptionsList"></div></div></div>
+                                <div class="custom-multiselect" id="pe-campusMultiSelect"><button class="ms-btn" data-action="toggle-multiselect" data-target="pe-campusMultiSelect"><span class="ms-label" id="pe-campusLabel">Все корпуса</span> ▼</button><div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="campus" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="campus" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-campusOptionsList"></div></div></div>
                                 <label class="filter-checkbox" style="color: #2563eb; background: #eff6ff; padding: 4px 8px; border-radius: 6px;"><input type="checkbox" id="pe-considerSchedule" checked> 🕒 Скрыть пары</label>
                                 <label class="filter-checkbox"><input type="checkbox" id="pe-onlyAvailable"> Только где есть места</label>
                                 <label class="filter-checkbox"><input type="checkbox" id="pe-onlyMySections"> ⭐ Мои записи</label>
                                 
                                 <div id="pe-friendWrapper" style="display: flex !important; align-items: center !important; background: #ffffff !important; border: 1px solid #cbd5e1 !important; border-radius: 6px !important; height: 32px !important; overflow: hidden !important; margin-left: auto !important; width: 260px !important; flex-shrink: 0 !important; box-sizing: border-box !important;">
-                                    <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)..." onkeydown="if(event.key==='Enter') window.MSE_PE_loadFriend()" style="border: none !important; outline: none !important; font-size: 12px !important; padding: 0 10px !important; background: transparent !important; color: #0f172a !important; height: 100% !important; margin: 0 !important; font-family: inherit !important; flex-grow: 1 !important; min-width: 0 !important; box-sizing: border-box !important;">
-                                    <button id="pe-friendBtn" onclick="window.MSE_PE_loadFriend()" style="background: #f8fafc !important; color: #475569 !important; border: none !important; border-left: 1px solid #cbd5e1 !important; padding: 0 !important; cursor: pointer !important; font-size: 12px !important; font-weight: 600 !important; height: 100% !important; margin: 0 !important; width: 70px !important; flex-shrink: 0 !important; box-sizing: border-box !important; appearance: none !important; -webkit-appearance: none !important; border-radius: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important;">Поиск</button>
+                                    <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)..." style="border: none !important; outline: none !important; font-size: 12px !important; padding: 0 10px !important; background: transparent !important; color: #0f172a !important; height: 100% !important; margin: 0 !important; font-family: inherit !important; flex-grow: 1 !important; min-width: 0 !important; box-sizing: border-box !important;">
+                                    <button id="pe-friendBtn" style="background: #f8fafc !important; color: #475569 !important; border: none !important; border-left: 1px solid #cbd5e1 !important; padding: 0 !important; cursor: pointer !important; font-size: 12px !important; font-weight: 600 !important; height: 100% !important; margin: 0 !important; width: 70px !important; flex-shrink: 0 !important; box-sizing: border-box !important; appearance: none !important; -webkit-appearance: none !important; border-radius: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important;">Поиск</button>
                                 </div>
                             </div></div>
                         <table><thead><tr><th>Пара</th><th>ПН</th><th>ВТ</th><th>СР</th><th>ЧТ</th><th>ПТ</th><th>СБ</th></tr></thead><tbody id="pe-tableBody"></tbody></table>
                     </div>
-                    <div id="mse-pe-modal-overlay" onclick="closePeModal(event)"><div id="mse-pe-modal" onclick="event.stopPropagation()"><div id="mse-pe-modal-header"><div><div id="mse-pe-mTitle" style="font-weight:700; font-size:16px;">Спорт</div><div id="mse-pe-mSubtitle" style="font-size:11px; color:#64748b;"></div></div><button onclick="closePeModal()" style="border:none; background:none; font-size:22px; cursor:pointer; color:#64748b;">✕</button></div><div id="mse-pe-modal-body"></div></div></div>`;
+                    <div id="mse-pe-modal-overlay"><div id="mse-pe-modal"><div id="mse-pe-modal-header"><div><div id="mse-pe-mTitle" style="font-weight:700; font-size:16px;">Спорт</div><div id="mse-pe-mSubtitle" style="font-size:11px; color:#64748b;"></div></div><button id="mse-pe-modal-close-btn" style="border:none; background:none; font-size:22px; cursor:pointer; color:#64748b;">✕</button></div><div id="mse-pe-modal-body"></div></div></div>`;
                 document.body.appendChild(overlay);
-                document.getElementById('mse-pe-close').onclick = () => { overlay.style.display = 'none'; };
-                document.getElementById('pe-considerSchedule').onchange = renderGrid; document.getElementById('pe-onlyAvailable').onchange = renderGrid; document.getElementById('pe-onlyMySections').onchange = renderGrid;
+
+                document.getElementById('mse-pe-close').addEventListener('click', () => { overlay.style.display = 'none'; });
+                document.getElementById('pe-reset-filters-btn').addEventListener('click', function () {
+                    MSE_PE.resetFilters();
+                });
+                document.getElementById('pe-considerSchedule').addEventListener('change', renderGrid);
+                document.getElementById('pe-onlyAvailable').addEventListener('change', renderGrid);
+                document.getElementById('pe-onlyMySections').addEventListener('change', renderGrid);
+
+                const friendInput = document.getElementById('pe-friendInput');
+                if (friendInput) {
+                    friendInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') window.MSE_PE_loadFriend();
+                    });
+                }
+                const friendBtn = document.getElementById('pe-friendBtn');
+                if (friendBtn) {
+                    friendBtn.addEventListener('click', () => { window.MSE_PE_loadFriend(); });
+                }
+
+                overlay.addEventListener('click', (e) => {
+                    const toggleBtn = e.target.closest('[data-action="toggle-multiselect"]');
+                    if (toggleBtn) {
+                        togglePeMultiSelect(toggleBtn.dataset.target);
+                        return;
+                    }
+                    const selectAllBtn = e.target.closest('[data-action="select-all"]');
+                    if (selectAllBtn) {
+                        const { type, val } = selectAllBtn.dataset;
+                        selectAllOptions(type, val === 'true');
+                        return;
+                    }
+                });
+
+                const modalOverlay = document.getElementById('mse-pe-modal-overlay');
+                if (modalOverlay) {
+                    modalOverlay.addEventListener('click', (e) => {
+                        if (e.target === modalOverlay) window.closePeModal(e);
+                    });
+                }
+                const modalCloseBtn = document.getElementById('mse-pe-modal-close-btn');
+                if (modalCloseBtn) {
+                    modalCloseBtn.addEventListener('click', () => { window.closePeModal(); });
+                }
 
                 const modalBody = document.getElementById('mse-pe-modal-body');
                 if (modalBody) {
@@ -1030,8 +1073,10 @@ window.MSE_PE = (function () {
         resetFilters: function () {
             selectAllOptions('sport', true);
             selectAllOptions('campus', true);
-            document.getElementById('pe-onlyAvailable').checked = false;
-            document.getElementById('pe-onlyMySections').checked = false;
+            const onlyAvail = document.getElementById('pe-onlyAvailable');
+            if (onlyAvail) onlyAvail.checked = false;
+            const onlyMine = document.getElementById('pe-onlyMySections');
+            if (onlyMine) onlyMine.checked = false;
             collapsedRows.clear();
             renderGrid();
         }
