@@ -23,6 +23,7 @@
    * [3.1. Эндпоинты платформы Modeus](#31-эндпоинты-платформы-modeus)
    * [3.2. Формат OAuth-хэша переадресации](#32-формат-oauth-хэша-переадресации)
    * [3.3. Таблица локальных хранилищ](#33-таблица-локальных-хранилищ)
+   * [3.4. Внешний вебхук опросов и аналитики (Google Apps Script)](#34-внешний-вебхук-опросов-и-аналитики-google-apps-script)
 
 ---
 
@@ -133,6 +134,7 @@ modeus-beta/
 | [ADR-001](docs/adr/ADR-001-silent-session-refresh.md) | Бесшовное фоновое продление сессии (Session Keeper) | Accepted | Скрытый iframe + rules.json (DNR) вместо fetch и редиректа |
 | [ADR-002](docs/adr/ADR-002-dom-data-bridge-meta-tags.md) | Передача данных через &lt;meta&gt;-теги (DOM Data Bridge) | Accepted | Синхронный мост Base64 вместо асинхронного postMessage |
 | [ADR-003](docs/adr/ADR-003-rejection-of-credential-storage.md) | Отказ от хранения учетных данных Active Directory | Accepted | Zero Password Knowledge: сессия ограничена 24 ч, делегирование браузеру и DPAPI |
+| [ADR-004](docs/adr/ADR-004-remote-survey-and-telemetry.md) | Удаленное управление опросами и бессерверная телеметрия | Accepted | GitHub Raw (Remote Config) + Google Apps Script Webhook (no-cors) |
 
 ---
 
@@ -249,7 +251,7 @@ modeus-beta/
   * **Реактивная валидация:** Кнопка «Далее / Отправить» блокируется до выбора хотя бы одного варианта или ввода непустого текста в кастомном поле.
   * **Санитизация:** Все тексты вопросов, вариантов ответов и пользовательский ввод экранируются через `escapeHtml()` перед рендерингом и отправкой.
 * **Анонимная телеметрия (`sendSurveyMetric`):**
-  * Результаты и события взаимодействия (`completed`, `declined`, `disabled_forever`) передаются методом POST на внешний вебхук (Google Apps Script).
+  * Результаты и события взаимодействия (`completed`, `declined`, `disabled_forever`) передаются методом POST на внешний вебхук Google Apps Script ([ADR-004](docs/adr/ADR-004-remote-survey-and-telemetry.md)).
   * Запрос отправляется в режиме `mode: 'no-cors'` с телом `text/plain`, что исключает блокировку браузером при HTTP 302 переадресации Google.
 * **Управление и отладка в консоли:**
   * `window.MSE_checkSurvey()` — проверяет guard-условия и запускает опрос при их выполнении.
@@ -383,3 +385,31 @@ modeus-beta/
 | `localStorage` | `mse_survey_snooze_until` | `string` (timestamp) | Метка времени, до которой отложен показ опроса (при выборе действия «Позже», 3 дня). |
 | `localStorage` | `mse_survey_dismissed_{id}` | `string` (`"1"`) | Флаг отклонения или завершения конкретного опроса с идентификатором `{id}`. |
 | `localStorage` | `mse_surveys_disabled_forever` | `string` (`"1"`) | Флаг перманентного отключения подсистемы опросов пользователем («Больше никогда не показывать»). |
+
+### 3.4. Внешний вебхук опросов и аналитики (Google Apps Script)
+
+* **URL вебхука:** `https://script.google.com/macros/s/AKfycbwUgqAKHztog8GakSgnepiYVcLGc5MkmX1OuHxlC4YtI79iMZiNvwRH9MKaRRvRNntBMg/exec` (по умолчанию; переопределяется через поле `webhookUrl` в `data/survey.json`).
+* **Метод:** `POST`
+* **Сетевой режим (Main World):** `mode: 'no-cors'`, `headers: { 'Content-Type': 'text/plain' }`
+  > [!NOTE]
+  > Использование `mode: 'no-cors'` и `text/plain` гарантирует отправку запроса без предварительного CORS preflight (OPTIONS) и исключает ошибку сетевой блокировки браузером при HTTP 302 переадресации Google Apps Script ([ADR-004](docs/adr/ADR-004-remote-survey-and-telemetry.md)).
+* **Пример JSON полезной нагрузки (Payload):**
+  ```json
+  {
+    "timestamp": "2026-10-13T19:30:00.000Z",
+    "surveyId": "survey_2026_q4_features",
+    "version": "2.2.3",
+    "action": "completed",
+    "answers": {
+      "favorite_feature": "Анти-вылет сессии 24ч",
+      "desired_feature": [
+        "Тёмная тема (Dark Mode)",
+        "Свой вариант: Автоматический экспорт расписания в iCal"
+      ]
+    }
+  }
+  ```
+* **Допустимые значения `action`:**
+  * `"completed"` — опрос успешно пройден (передается объект `answers`).
+  * `"declined"` — пользователь отказался от прохождения текущего опроса («Не этот опрос»).
+  * `"disabled_forever"` — пользователь перманентно отключил опросы («Никогда не спрашивать»).
