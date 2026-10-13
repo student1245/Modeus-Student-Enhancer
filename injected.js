@@ -343,6 +343,11 @@
             localStorage.removeItem('mse_survey_cache');
             localStorage.removeItem('mse_survey_snooze_until');
             localStorage.removeItem('mse_surveys_disabled_forever');
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('mse_survey_dismissed_')) {
+                    localStorage.removeItem(key);
+                }
+            });
             logger.survey('Кэш опроса и флаги скрытия очищены.');
             return true;
         } catch {
@@ -2481,16 +2486,19 @@
     /**
      * Симуляция опроса для тестирования интерфейса.
      * @param {Object} [customConfig]
+     * @returns {boolean}
      */
     const simulateSurvey = (customConfig) => {
-        loadSurveyConfig();
+        if (!customConfig && databaseState.survey.source !== 'ручная установка') {
+            loadSurveyConfig();
+        }
 
         const configToRun = (customConfig && typeof customConfig === 'object')
             ? customConfig
             : surveyConfig;
 
         if (!configToRun || !Array.isArray(configToRun.questions) || configToRun.questions.length === 0) {
-            logger.warn('Опрос не может быть запущен: конфигурация не найдена в data/survey.json.');
+            logger.warn('Опрос не может быть запущен: конфигурация не найдена (проверьте data/survey.json или передайте конфиг в MSE_simulateSurvey).');
             return false;
         }
 

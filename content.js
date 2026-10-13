@@ -52,10 +52,22 @@
     try {
       const url = chrome.runtime.getURL(filename);
       const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) {
+        if (filename === RESOURCE_SURVEY) {
+          logDb(`Локальный файл ${filename} отсутствует в бандле (штатно для prod-релиза)`);
+          return null;
+        }
+        console.warn(`[MSE] Не удалось загрузить ${filename} из локального пакета: HTTP ${res.status}`);
+        return null;
+      }
       const text = await res.text();
       const durationMs = Math.round(performance.now() - startTime);
       return { text, source: `локальный пакет (${durationMs} мс)` };
     } catch (e) {
+      if (filename === RESOURCE_SURVEY) {
+        logDb(`Локальный файл ${filename} отсутствует в бандле: ${e.message}`);
+        return null;
+      }
       console.warn(`[MSE] Не удалось загрузить ${filename} из локального пакета:`, e);
       return null;
     }
@@ -109,10 +121,18 @@
   }
 
   async function fetchResource(filename) {
-    if (filename === RESOURCE_SURVEY && !isDebug()) {
-      const cached = getSurveyFromCache();
-      if (cached) {
-        return { text: cached.text, source: 'кэш localStorage (TTL 12 ч)' };
+    if (filename === RESOURCE_SURVEY) {
+      if (isDebug()) {
+        // В dev-режиме приоритетно загружаем локальный черновик data/survey.json для быстрой отладки автором
+        const localDraft = await fetchFromLocalBundle(filename);
+        if (localDraft) {
+          return localDraft;
+        }
+      } else {
+        const cached = getSurveyFromCache();
+        if (cached) {
+          return { text: cached.text, source: 'кэш localStorage (TTL 12 ч)' };
+        }
       }
     }
 
@@ -124,11 +144,16 @@
       return remoteResult;
     }
 
+    // В продакшене опрос строго онлайн: при сбое сети или GitHub опрос тихо пропускается
+    if (filename === RESOURCE_SURVEY && !isDebug()) {
+      return null;
+    }
+
     return fetchFromLocalBundle(filename);
   }
 
   async function loadJsonData(filename, metaName) {
-    logDb(`Начало загрузки ${filename}: запрос к GitHub...`);
+    logDb(`Начало загрузки ${filename}...`);
     const result = await fetchResource(filename);
 
     if (result?.text) {
