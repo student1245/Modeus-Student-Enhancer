@@ -51,7 +51,7 @@
     const startTime = performance.now();
     try {
       const url = chrome.runtime.getURL(filename);
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: 'no-store' });
       const text = await res.text();
       const durationMs = Math.round(performance.now() - startTime);
       return { text, source: `локальный пакет (${durationMs} мс)` };
