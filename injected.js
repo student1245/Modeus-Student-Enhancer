@@ -72,6 +72,11 @@
                 console.log(`%c[${formatLogTimestamp()}] [MSE Update]`, 'color: #ec4899; font-weight: bold;', ...args);
             }
         },
+        survey(...args) {
+            if (isDebug()) {
+                console.log(`%c[${formatLogTimestamp()}] [MSE Survey]`, 'color: #06b6d4; font-weight: bold;', ...args);
+            }
+        },
         warn(...args) {
             console.warn(`[${formatLogTimestamp()}] [MSE]`, ...args);
         },
@@ -325,6 +330,8 @@
     window.MSE_simulateUpdate = (mockVersion = '9.9.9') => {
         if (typeof simulateUpdate === 'function') return simulateUpdate(mockVersion);
     };
+    window.MSE_getUsageCount = () => (typeof getUsageCount === 'function' ? getUsageCount() : 0);
+    window.MSE_checkSurvey = () => (typeof checkSurvey === 'function' ? checkSurvey() : false);
 
     if (window.studentEnhancer) {
         logger.warn('Скрипт уже запущен.');
@@ -340,6 +347,8 @@
     const GITHUB_USER = 'student1245';
     const GITHUB_REPO = 'Modeus-Student-Enhancer';
     const FEEDBACK_BOT_URL = 'https://t.me/Theguestroom_bot';
+    const DEFAULT_SURVEY_WEBHOOK_URL = '';
+    const SURVEY_SNOOZE_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // 3 дня отсрочки («Позже»)
 
     // Ключи локальных хранилищ (localStorage / sessionStorage)
     const STORAGE_KEY_FRIENDS = 'mse_friends_list';
@@ -1707,6 +1716,9 @@
             if (statusEl) statusEl.style.display = 'none';
             if (controlsEl) controlsEl.style.display = 'flex';
             if (selectedStudents.size > 0) highlightEventsForStudents();
+
+            incrementUsageCount();
+            checkSurvey();
         } catch (err) {
             if (statusEl) { statusEl.textContent = `Ошибка: ${err.message}`; statusEl.style.color = 'red'; }
             if (controlsEl) controlsEl.style.display = 'flex';
@@ -1876,6 +1888,171 @@
         const minutesAgo = lastCheck ? Math.round((Date.now() - lastCheck) / 60000) : null;
         const timeText = minutesAgo !== null ? `${minutesAgo} мин. назад` : 'никогда';
         logger.update(`Текущая: v${CURRENT_VERSION} | На GitHub: ${cachedVersion} | Посл. проверка: ${timeText}`);
+    };
+
+    // ----------------------------------------------------
+    // УПРАВЛЕНИЕ ОПРОСАМИ И ТЕЛЕМЕТРИЕЙ (REMOTE SURVEY ENGINE)
+    // ----------------------------------------------------
+
+    /**
+     * Инкрементирует счётчик успешных открытий расписания (mse_usage_count).
+     * @returns {number} Новое значение счётчика
+     */
+    const incrementUsageCount = () => {
+        try {
+            const currentCount = Number(localStorage.getItem(STORAGE_KEY_USAGE_COUNT) || 0);
+            const nextCount = currentCount + 1;
+            localStorage.setItem(STORAGE_KEY_USAGE_COUNT, String(nextCount));
+            logger.survey(`Счётчик использований инкрементирован: ${nextCount}`);
+            return nextCount;
+        } catch (error) {
+            logger.warn('Не удалось обновить счётчик mse_usage_count:', error);
+            return 0;
+        }
+    };
+
+    /**
+     * Возвращает текущее количество открытий расписания.
+     * @returns {number}
+     */
+    const getUsageCount = () => {
+        try {
+            return Number(localStorage.getItem(STORAGE_KEY_USAGE_COUNT) || 0);
+        } catch {
+            return 0;
+        }
+    };
+
+    /**
+     * Проверяет выполнение всех 5 guard-условий показа опроса:
+     * 1. Опрос включён автором на GitHub (config.enabled === true)
+     * 2. Пользователь не отключил все опросы навсегда
+     * 3. Пользователь ещё не отклонял данный ID опроса
+     * 4. Не активен таймер отсрочки «Позже»
+     * 5. Счётчик использования достиг минимального порога minUsageCount
+     *
+     * @param {Object|null} config - Объект конфигурации опроса
+     * @returns {boolean}
+     */
+    const shouldShowSurvey = (config) => {
+        if (!config || typeof config !== 'object') return false;
+        if (config.enabled !== true || !config.id) return false;
+
+        try {
+            const isPermanentlyDisabled = localStorage.getItem(STORAGE_KEY_SURVEYS_DISABLED_FOREVER) === '1';
+            if (isPermanentlyDisabled) return false;
+
+            const isDismissed = localStorage.getItem(`${STORAGE_KEY_SURVEY_DISMISSED_PREFIX}${config.id}`) === '1';
+            if (isDismissed) return false;
+
+            const snoozeUntil = Number(localStorage.getItem(STORAGE_KEY_SURVEY_SNOOZE_UNTIL) || 0);
+            if (Date.now() <= snoozeUntil) return false;
+
+            const minUsageCount = Number(config.minUsageCount || 0);
+            if (getUsageCount() < minUsageCount) return false;
+
+            return true;
+        } catch (error) {
+            logger.warn('Ошибка проверки условий показа опроса:', error);
+            return false;
+        }
+    };
+
+    /**
+     * Отправляет анонимную метрику взаимодействия с опросом в Google Apps Script.
+     * Флаг mode: 'no-cors' предотвращает блокировку браузером при HTTP 302 переадресации Google.
+     *
+     * @param {'completed' | 'declined' | 'disabled_forever'} action - Действие пользователя
+     * @param {Object} [answers={}] - Варианты ответов (только при action === 'completed')
+     * @returns {Promise<boolean>}
+     */
+    const sendSurveyMetric = async (action, answers = {}) => {
+        const webhookUrl = surveyConfig?.webhookUrl || DEFAULT_SURVEY_WEBHOOK_URL;
+        if (!webhookUrl) {
+            logger.survey('URL вебхука не настроен, отправка метрики пропущена.');
+            return false;
+        }
+
+        const safeAnswers = action === 'completed' && answers && typeof answers === 'object' ? answers : {};
+        const payload = {
+            timestamp: new Date().toISOString(),
+            surveyId: surveyConfig?.id || 'unknown',
+            version: CURRENT_VERSION,
+            action,
+            answers: safeAnswers
+        };
+
+        try {
+            await fetch(webhookUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'text/plain'
+                },
+                body: JSON.stringify(payload)
+            });
+            logger.survey(`Метрика опроса отправлена: action="${action}"`);
+            return true;
+        } catch (error) {
+            logger.warn('Ошибка при фоновой отправке метрики опроса:', error);
+            return false;
+        }
+    };
+
+    /**
+     * Откладывает показ опросов на заданный интервал (по умолчанию 3 дня).
+     * @param {number} [durationMs=SURVEY_SNOOZE_DURATION_MS]
+     */
+    const snoozeSurvey = (durationMs = SURVEY_SNOOZE_DURATION_MS) => {
+        try {
+            const snoozeUntil = Date.now() + durationMs;
+            localStorage.setItem(STORAGE_KEY_SURVEY_SNOOZE_UNTIL, String(snoozeUntil));
+            logger.survey(`Опрос отложен до ${new Date(snoozeUntil).toLocaleString()}`);
+        } catch (error) {
+            logger.warn('Ошибка записи mse_survey_snooze_until:', error);
+        }
+    };
+
+    /**
+     * Отклоняет опрос с указанным ID для текущего пользователя.
+     * @param {string} surveyId
+     */
+    const dismissSurvey = (surveyId) => {
+        if (!surveyId) return;
+        try {
+            localStorage.setItem(`${STORAGE_KEY_SURVEY_DISMISSED_PREFIX}${surveyId}`, '1');
+            logger.survey(`Опрос "${surveyId}" скрыт.`);
+        } catch (error) {
+            logger.warn(`Ошибка записи mse_survey_dismissed_${surveyId}:`, error);
+        }
+    };
+
+    /**
+     * Отключает систему опросов навсегда.
+     */
+    const disableSurveysForever = () => {
+        try {
+            localStorage.setItem(STORAGE_KEY_SURVEYS_DISABLED_FOREVER, '1');
+            logger.survey('Опросы навсегда отключены пользователем.');
+        } catch (error) {
+            logger.warn('Ошибка записи mse_surveys_disabled_forever:', error);
+        }
+    };
+
+    /**
+     * Проверяет доступность опроса и инициирует его отображение.
+     * @returns {boolean}
+     */
+    const checkSurvey = () => {
+        if (!shouldShowSurvey(surveyConfig)) {
+            logger.survey('Опрос не будет показан (условия guard не удовлетворены).');
+            return false;
+        }
+        logger.survey(`Условия guard выполнены для опроса "${surveyConfig?.id}".`);
+        if (typeof renderSurveyPopup === 'function') {
+            renderSurveyPopup(surveyConfig);
+        }
+        return true;
     };
 
     let lastCalendarParam = null;
