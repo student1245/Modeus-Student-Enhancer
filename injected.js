@@ -329,7 +329,7 @@
         console.log('[MSE] Режим отладки ВЫКЛЮЧЕН');
     };
     window.MSE_checkUpdates = (force = true) => {
-        if (typeof checkExtensionUpdate === 'function') return checkExtensionUpdate({ force });
+        if (typeof checkExtensionUpdate === 'function') return checkExtensionUpdate({ force, manual: true });
     };
     window.MSE_testUpdate = (mockVersion = '9.9.9') => {
         if (typeof simulateUpdate === 'function') return simulateUpdate(mockVersion);
@@ -493,6 +493,7 @@
     let debounceTimer = null;
     let checkReadyTimer = null;
     let sessionHealthInterval = null;
+    let updateCheckInterval = null;
     let engagementIntervalId = null;
     let handleEngagementVisibilityChange = null;
 
@@ -1383,6 +1384,10 @@
             clearInterval(engagementIntervalId);
             engagementIntervalId = null;
         }
+        if (updateCheckInterval) {
+            clearInterval(updateCheckInterval);
+            updateCheckInterval = null;
+        }
         cleanupSilentRefresh();
 
         // 2. Полное восстановление нативных прототипов и методов браузера
@@ -1777,7 +1782,6 @@
             if (controlsEl) controlsEl.style.display = 'flex';
             logger.error('Критическая ошибка загрузки данных расписания:', err);
         }
-        checkExtensionUpdate();
     };
 
     // ----------------------------------------------------
@@ -1833,20 +1837,23 @@
         }
     };
 
-    const resolveLatestRelease = async (forceNetwork = false) => {
+    const resolveLatestRelease = async (forceNetwork = false, { isManual = false } = {}) => {
         if (!forceNetwork) {
             const cached = getCachedReleaseInfo();
             if (cached.isFresh && cached.release) {
-                const minutesAgo = Math.round(cached.ageMs / 60000);
-                const minutesLeft = Math.round((UPDATE_CHECK_INTERVAL_MS - cached.ageMs) / 60000);
-                const version = cached.release.tag_name || 'неизвестно';
-                logger.update(
-                    `Использован кэш недавней проверки (проверено ${minutesAgo} мин. назад, след. запрос через ${minutesLeft} мин.). Релиз на GitHub: ${version}`
-                );
-                return cached.release;
+                if (isManual) {
+                    const minutesAgo = Math.round(cached.ageMs / 60000);
+                    const minutesLeft = Math.round((UPDATE_CHECK_INTERVAL_MS - cached.ageMs) / 60000);
+                    const version = cached.release.tag_name || 'неизвестно';
+                    logger.update(
+                        `Использован кэш недавней проверки (проверено ${minutesAgo} мин. назад, след. запрос через ${minutesLeft} мин.). Релиз на GitHub: ${version}`
+                    );
+                }
+                return { release: cached.release, fromCache: true };
             }
         }
-        return await fetchLatestReleaseFromGitHub();
+        const release = await fetchLatestReleaseFromGitHub();
+        return { release, fromCache: false };
     };
 
     const renderUpdateBadge = (latestVersion, releaseUrl) => {
@@ -1887,17 +1894,25 @@
         });
     };
 
-    const checkExtensionUpdate = async ({ force = false } = {}) => {
-        logger.update(`Запуск проверки обновлений (текущая версия: v${CURRENT_VERSION}, force=${force})...`);
-        const releaseData = await resolveLatestRelease(force);
+    const checkExtensionUpdate = async ({ force = false, manual = false } = {}) => {
+        const isManual = Boolean(force || manual);
+        if (isManual) {
+            logger.update(`Запуск проверки обновлений (текущая версия: v${CURRENT_VERSION}, force=${force})...`);
+        }
+
+        const { release: releaseData, fromCache } = await resolveLatestRelease(force, { isManual });
         if (!releaseData) {
-            logger.update('Проверка обновлений не выполнена (данные о релизе недоступны).');
+            if (isManual) {
+                logger.update('Проверка обновлений не выполнена (данные о релизе недоступны).');
+            }
             return;
         }
 
         const latestVersion = releaseData.tag_name?.replace(/[^0-9.]/g, '');
         if (!latestVersion) {
-            logger.update(`Не удалось определить номер версии из тега: "${releaseData.tag_name}"`);
+            if (isManual) {
+                logger.update(`Не удалось определить номер версии из тега: "${releaseData.tag_name}"`);
+            }
             return;
         }
 
@@ -1909,7 +1924,7 @@
             logger.update(`🔥 Найдено обновление! Текущая: v${CURRENT_VERSION} -> Доступна: v${latestVersion}. Отображаем баннер.`);
             renderUpdateBadge(latestVersion, safeReleaseUrl);
             renderUpdatePopup(latestVersion, safeReleaseUrl);
-        } else {
+        } else if (isManual || !fromCache) {
             logger.update(`✅ У вас установлена актуальная версия v${CURRENT_VERSION} (на GitHub: v${latestVersion}). Обновлений нет.`);
         }
     };
@@ -3404,10 +3419,15 @@
         }
     }, DOM_CHECK_READY_INTERVAL_MS);
 
-    // Фоновая проверка обновлений при старте приложения
+    // Фоновая проверка обновлений при старте приложения (тихая при попадании в кэш)
     setTimeout(() => {
-        checkExtensionUpdate({ force: false });
+        checkExtensionUpdate({ force: false, manual: false });
     }, 1500);
+
+    // Периодическая проверка обновлений по истечении интервала кэша (каждые 2 часа)
+    updateCheckInterval = setInterval(() => {
+        checkExtensionUpdate({ force: false, manual: false });
+    }, UPDATE_CHECK_INTERVAL_MS);
 
     // Запуск фонового учета продуктовой активности (Engagement-Based Retention)
     startEngagementTracker();
