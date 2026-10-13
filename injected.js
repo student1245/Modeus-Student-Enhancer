@@ -92,7 +92,14 @@
             const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
             return new TextDecoder('utf-8').decode(bytes);
         } catch {
-            return decodeURIComponent(escape(atob(base64)));
+            try {
+                const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, '=');
+                const binary = atob(padded);
+                const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+                return new TextDecoder('utf-8').decode(bytes);
+            } catch {
+                return '';
+            }
         }
     };
 
@@ -383,7 +390,6 @@
 
     // Ключи локальных хранилищ (localStorage / sessionStorage)
     const STORAGE_KEY_FRIENDS = 'mse_friends_list';
-    const FRIENDS_STORAGE_KEY = STORAGE_KEY_FRIENDS; // обратная совместимость
     const STORAGE_KEY_MY_SPECIALTY = 'mse_my_specialty';
     const STORAGE_KEY_MY_PROFILE = 'mse_my_profile';
     const STORAGE_KEY_MY_PERSON_ID = 'mse_my_person_id';
@@ -471,7 +477,6 @@
     let myPersonId = localStorage.getItem(STORAGE_KEY_MY_PERSON_ID) || null;
 
     // Календарь и поиск общих пар
-    let currentWeekStart = null;
     let currentEventId = null;
     let eventCache = new Map();
     let uniqueStudents = new Map();
@@ -490,7 +495,6 @@
     let sessionHealthInterval = null;
     let engagementIntervalId = null;
     let handleEngagementVisibilityChange = null;
-    let lastPeData = null;
 
     // Сохранение оригинальных нативных методов сети и истории браузера
     const nativeFetch = window.fetch;
@@ -608,7 +612,6 @@
                 try {
                     const data = await response.clone().json();
                     if (data.cycles && data.cycles.length > 0 && data.cycles[0].teams) {
-                        lastPeData = data;
                         const teamsCount = data.cycles[0].teams.length;
                         logger.network(`Физкультура (/module-elements/): перехвачены секции (цикл: "${data.cycles[0].name || '1'}", команд: ${teamsCount})`);
                     }
@@ -1099,16 +1102,16 @@
 
     const getFriends = () => {
         try {
-            return JSON.parse(localStorage.getItem(FRIENDS_STORAGE_KEY) || '[]');
+            return JSON.parse(localStorage.getItem(STORAGE_KEY_FRIENDS) || '[]');
         } catch (e) {
             logger.warn('Ошибка чтения списка друзей из localStorage', e);
-            localStorage.removeItem(FRIENDS_STORAGE_KEY);
+            localStorage.removeItem(STORAGE_KEY_FRIENDS);
             return [];
         }
     };
 
     const saveFriends = (friends) => {
-        localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends));
+        localStorage.setItem(STORAGE_KEY_FRIENDS, JSON.stringify(friends));
         renderFriendsMenu();
     };
 
@@ -1673,10 +1676,6 @@
             const activePersonId = getActiveCalendarPersonId(myJwtPersonId);
 
             const dateHeaders = qsa('.fc-day-header[data-date]');
-            if (dateHeaders.length > 0) {
-                currentWeekStart = dateHeaders[0].getAttribute('data-date');
-            }
-
             if (dateHeaders.length < 1) {
                 if (statusEl) statusEl.textContent = 'Календарь не загружен.';
                 if (controlsEl) controlsEl.style.display = 'flex';
