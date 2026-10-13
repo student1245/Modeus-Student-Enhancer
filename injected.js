@@ -20,8 +20,8 @@
     const isDebug = () => {
         try {
             return localStorage.getItem(STORAGE_KEY_DEBUG) === 'true' ||
-                   localStorage.getItem(STORAGE_KEY_DEBUG) === '1' ||
-                   window.__MSE_DEBUG__ === true;
+                localStorage.getItem(STORAGE_KEY_DEBUG) === '1' ||
+                window.__MSE_DEBUG__ === true;
         } catch {
             return window.__MSE_DEBUG__ === true;
         }
@@ -201,7 +201,7 @@
                 const expiresAt = claims.exp * 1000;
                 try {
                     sessionStorage.setItem('id_token_expires_at', String(expiresAt));
-                } catch {}
+                } catch { }
                 return expiresAt;
             }
         }
@@ -217,7 +217,7 @@
                     return expiresAt;
                 }
             }
-        } catch {}
+        } catch { }
 
         // 3. Fallback: сохраненное значение id_token_expires_at в sessionStorage
         const storedExpiresAt = Number(sessionStorage.getItem('id_token_expires_at') || 0);
@@ -237,7 +237,7 @@
                 const backupExpiresAt = Number(backup['id_token_expires_at'] || 0);
                 if (backupExpiresAt > 0 && !isNaN(backupExpiresAt)) return backupExpiresAt;
             }
-        } catch {}
+        } catch { }
 
         return 0;
     };
@@ -265,7 +265,7 @@
                     const backup = JSON.parse(backupRaw);
                     if (backup['id_token']) idToken = backup['id_token'];
                 }
-            } catch {}
+            } catch { }
         }
         const expiresAt = getMainTokenExpiresAt(idToken);
         return evaluateTokenLifetime(idToken, expiresAt, 'Основной токен');
@@ -332,6 +332,23 @@
     };
     window.MSE_getUsageCount = () => (typeof getUsageCount === 'function' ? getUsageCount() : 0);
     window.MSE_checkSurvey = () => (typeof checkSurvey === 'function' ? checkSurvey() : false);
+    window.MSE_simulateSurvey = (customConfig) => (typeof simulateSurvey === 'function' ? simulateSurvey(customConfig) : false);
+    window.MSE_getSurveyConfig = () => (typeof getSurveyConfig === 'function' ? getSurveyConfig() : null);
+    window.MSE_setSurveyConfig = (config) => {
+        if (typeof setSurveyConfig === 'function') return setSurveyConfig(config);
+        return false;
+    };
+    window.MSE_clearSurveyCache = () => {
+        try {
+            localStorage.removeItem('mse_survey_cache');
+            localStorage.removeItem('mse_survey_snooze_until');
+            localStorage.removeItem('mse_surveys_disabled_forever');
+            logger.survey('Кэш опроса и флаги скрытия очищены.');
+            return true;
+        } catch {
+            return false;
+        }
+    };
 
     if (window.studentEnhancer) {
         logger.warn('Скрипт уже запущен.');
@@ -414,6 +431,7 @@
     const ID_RETURN_TO_ME_MENU = 'mse-return-to-me-menu';
     const ID_UPDATE_BADGE = 'mse-update-badge';
     const ID_UPDATE_POPUP = 'mse-update-popup';
+    const ID_SURVEY_POPUP = 'mse-survey-popup';
     const ID_FEEDBACK_FOOTER = 'mse-feedback-footer';
     const ID_OPEN_PE_BTN = 'mse-open-pe-btn';
 
@@ -664,8 +682,7 @@
 
         // 2. Логируем срабатывание предохранителя
         logger.error(
-            `[MSE Session] Предохранитель (Circuit Breaker) сработал: ${
-                isMainTokenDead ? 'основной токен истек' : `исчерпан лимит попыток (${SESSION_MAX_REFRESH_ATTEMPTS}) и токен просрочен`
+            `[MSE Session] Предохранитель (Circuit Breaker) сработал: ${isMainTokenDead ? 'основной токен истек' : `исчерпан лимит попыток (${SESSION_MAX_REFRESH_ATTEMPTS}) и токен просрочен`
             }. Серверная сессия завершена. Фоновые запросы остановлены во избежание бесконечного спама.`
         );
     }
@@ -703,7 +720,7 @@
                 if (expMs <= Date.now()) {
                     try {
                         localStorage.removeItem(STORAGE_KEY_AUTH_BACKUP);
-                    } catch {}
+                    } catch { }
                     return;
                 }
             }
@@ -1026,6 +1043,13 @@
     };
 
     const getSurveyConfig = () => surveyConfig;
+    const setSurveyConfig = (config) => {
+        if (!config || typeof config !== 'object') return false;
+        surveyConfig = config;
+        databaseState.survey = { loaded: true, id: surveyConfig?.id || 'пользовательский', source: 'ручная установка' };
+        logger.db(`Конфиг опроса обновлен вручную (id: ${surveyConfig?.id || 'пользовательский'})`);
+        return true;
+    };
 
     const initDatabases = () => {
         loadBuildingsDatabase();
@@ -1353,6 +1377,7 @@
         qs(`#${ID_SILENT_REFRESHER}`)?.remove();
         qs(`#${ID_UPDATE_BADGE}`)?.remove();
         qs(`#${ID_UPDATE_POPUP}`)?.remove();
+        qs(`#${ID_SURVEY_POPUP}`)?.remove();
         qs(`#${ID_FEEDBACK_FOOTER}`)?.remove();
         qs(`#${ID_OPEN_PE_BTN}`)?.remove();
 
@@ -1890,10 +1915,6 @@
         logger.update(`Текущая: v${CURRENT_VERSION} | На GitHub: ${cachedVersion} | Посл. проверка: ${timeText}`);
     };
 
-    // ----------------------------------------------------
-    // УПРАВЛЕНИЕ ОПРОСАМИ И ТЕЛЕМЕТРИЕЙ (REMOTE SURVEY ENGINE)
-    // ----------------------------------------------------
-
     /**
      * Инкрементирует счётчик успешных открытий расписания (mse_usage_count).
      * @returns {number} Новое значение счётчика
@@ -2039,10 +2060,108 @@
         }
     };
 
+    /**
+     * Закрывает попап опроса с плавной анимацией исчезновения.
+     * @param {HTMLElement} container
+     * @param {Function} [onClosed]
+     */
+    const closeSurveyPopup = (container, onClosed) => {
+        if (!container) return;
+        container.classList.add('mse-closing');
+        setTimeout(() => {
+            container.remove();
+            if (typeof onClosed === 'function') onClosed();
+        }, 300);
+    };
+
+    /**
+     * Экран 1: Приглашение к опросу.
+     */
+    const renderSurveyInviteScreen = (container, config, state, onTransition, onClose) => {
+        const titleText = escapeHtml(config.title || 'Помогите улучшить Modeus Enhancer');
+        const descText = escapeHtml(config.description || 'Ответьте на пару коротких вопросов, чтобы следующие обновления были полезны именно вам.');
+
+        container.innerHTML = `
+            <div class="mse-survey-header">
+                <div class="mse-survey-title">💬 ${titleText}</div>
+                <button type="button" class="mse-survey-close-btn" title="Отложить опрос">×</button>
+            </div>
+            <div class="mse-survey-text">${descText}</div>
+            <div class="mse-survey-actions">
+                <button type="button" class="mse-survey-btn mse-survey-btn-primary" id="mse-survey-btn-start">Ответить</button>
+                <button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-snooze">Позже</button>
+                <button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-decline-menu">Нет ▾</button>
+            </div>
+        `;
+
+        qs('.mse-survey-close-btn', container)?.addEventListener('click', () => {
+            snoozeSurvey();
+            onClose();
+        });
+        qs('#mse-survey-btn-snooze', container)?.addEventListener('click', () => {
+            snoozeSurvey();
+            onClose();
+        });
+        qs('#mse-survey-btn-start', container)?.addEventListener('click', () => {
+            state.screen = 'question';
+            state.questionIndex = 0;
+            onTransition();
+        });
+        qs('#mse-survey-btn-decline-menu', container)?.addEventListener('click', () => {
+            state.screen = 'decline';
+            onTransition();
+        });
+    };
+
+    /**
+     * Экран 1.1: Подменю отказа.
+     */
+    const renderSurveyDeclineScreen = (container, config, state, onTransition, onClose) => {
+        const titleText = escapeHtml(config.title || 'Помогите улучшить Modeus Enhancer');
+
+        container.innerHTML = `
+            <div class="mse-survey-header">
+                <div class="mse-survey-title">💬 ${titleText}</div>
+                <button type="button" class="mse-survey-close-btn" title="Отложить опрос">×</button>
+            </div>
+            <div class="mse-survey-text">Выберите вариант:</div>
+            <div class="mse-survey-options">
+                <button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-dismiss-one" style="text-align: left; padding: 8px 10px;">
+                    • <b>Не этот опрос</b> — пропустить текущий опрос
+                </button>
+                <button type="button" class="mse-survey-btn mse-survey-btn-danger" id="mse-survey-btn-disable-all" style="text-align: left; padding: 8px 10px;">
+                    • <b>Никогда не спрашивать</b> — отключить навсегда опросы
+                </button>
+            </div>
+            <div class="mse-survey-actions">
+                <button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-back">◂ Назад</button>
+            </div>
+        `;
+
+        qs('.mse-survey-close-btn', container)?.addEventListener('click', () => {
+            snoozeSurvey();
+            onClose();
+        });
+        qs('#mse-survey-btn-back', container)?.addEventListener('click', () => {
+            state.screen = 'invite';
+            onTransition();
+        });
+        qs('#mse-survey-btn-dismiss-one', container)?.addEventListener('click', () => {
+            dismissSurvey(config.id);
+            sendSurveyMetric('declined');
+            onClose();
+        });
+        qs('#mse-survey-btn-disable-all', container)?.addEventListener('click', () => {
+            disableSurveysForever();
+            sendSurveyMetric('disabled_forever');
+            onClose();
+        });
+    };
+
     const CUSTOM_OPTION_VALUE = '__custom__';
 
     /**
-     * Парсит существующий ответ вопроса для восстановления состояния интерфейса при возврате.
+     * Восстанавливает ранее выбранные опции и текст кастомного ответа.
      * @param {string|string[]|null} existingAnswer
      * @returns {{ selectedOptions: Set<string>, customText: string }}
      */
@@ -2050,33 +2169,27 @@
         const selectedOptions = new Set();
         let customText = '';
 
-        if (!existingAnswer) {
-            return { selectedOptions, customText };
-        }
+        const parseSingleItem = (item) => {
+            if (typeof item !== 'string') return;
+            if (item.startsWith('Свой вариант:')) {
+                selectedOptions.add(CUSTOM_OPTION_VALUE);
+                customText = item.replace(/^Свой вариант:\s*/, '');
+            } else {
+                selectedOptions.add(item);
+            }
+        };
 
         if (Array.isArray(existingAnswer)) {
-            existingAnswer.forEach(ans => {
-                if (typeof ans === 'string' && ans.startsWith('Свой вариант:')) {
-                    selectedOptions.add(CUSTOM_OPTION_VALUE);
-                    customText = ans.replace(/^Свой вариант:\s*/, '');
-                } else if (ans) {
-                    selectedOptions.add(ans);
-                }
-            });
+            existingAnswer.forEach(parseSingleItem);
         } else if (typeof existingAnswer === 'string') {
-            if (existingAnswer.startsWith('Свой вариант:')) {
-                selectedOptions.add(CUSTOM_OPTION_VALUE);
-                customText = existingAnswer.replace(/^Свой вариант:\s*/, '');
-            } else {
-                selectedOptions.add(existingAnswer);
-            }
+            parseSingleItem(existingAnswer);
         }
 
         return { selectedOptions, customText };
     };
 
     /**
-     * Генерирует HTML разметку вариантов ответа с поддержкой multiple и кастомного поля.
+     * Формирует HTML-разметку вариантов ответов (радиокнопки/чекбоксы и поле «Свой вариант»).
      * @param {Object} question
      * @param {Set<string>} selectedOptions
      * @param {string} customText
@@ -2150,8 +2263,241 @@
             return customAnswerString;
         }
 
-        const firstSelected = selectedOptions.values().next().value;
-        return firstSelected || null;
+        const [first] = selectedOptions;
+        return first || null;
+    };
+
+    /**
+     * Экран 2: Интерактивный опрос с радиокнопками, чекбоксами и кастомным ответом.
+     */
+    const renderSurveyQuestionScreen = (container, config, state, onTransition, onClose) => {
+        const questions = config.questions || [];
+        const question = questions[state.questionIndex];
+        if (!question) {
+            onClose();
+            return;
+        }
+
+        const isMultiple = question.type === 'multiple';
+        const totalQuestions = questions.length;
+        const currentNumber = state.questionIndex + 1;
+        const isLastQuestion = currentNumber === totalQuestions;
+
+        const { selectedOptions, customText: initialCustomText } = parseInitialQuestionAnswer(state.answers[question.id]);
+        let customText = initialCustomText;
+
+        const optionsHtml = buildQuestionOptionsHtml(question, selectedOptions, customText);
+        const backButtonHtml = state.questionIndex > 0
+            ? '<button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-prev">◂ Назад</button>'
+            : '';
+        const nextButtonText = isLastQuestion ? 'Отправить ✓' : 'Далее ➔';
+
+        container.innerHTML = `
+            <div class="mse-survey-header">
+                <div class="mse-survey-title">
+                    <span>💬 Вопрос ${currentNumber} из ${totalQuestions}</span>
+                    <span class="mse-survey-badge">${Math.round((currentNumber / totalQuestions) * 100)}%</span>
+                </div>
+                <button type="button" class="mse-survey-close-btn" title="Отложить опрос">×</button>
+            </div>
+            <div class="mse-survey-text"><b>${escapeHtml(question.text)}</b></div>
+            <div class="mse-survey-options">${optionsHtml}</div>
+            <div class="mse-survey-actions mse-survey-actions-between">
+                <div>${backButtonHtml}</div>
+                <button type="button" class="mse-survey-btn mse-survey-btn-primary" id="mse-survey-btn-next" disabled>
+                    ${nextButtonText}
+                </button>
+            </div>
+        `;
+
+        const nextBtn = qs('#mse-survey-btn-next', container);
+        const customContainer = qs('#mse-survey-custom-container', container);
+        const customInput = qs('#mse-survey-custom-input', container);
+        const optionsContainer = qs('.mse-survey-options', container);
+
+        const updateValidation = () => {
+            const hasStandard = Array.from(selectedOptions).some(opt => opt !== CUSTOM_OPTION_VALUE);
+            const isCustomSelected = selectedOptions.has(CUSTOM_OPTION_VALUE);
+            const hasCustomText = isCustomSelected && customText.trim().length > 0;
+            const isValid = isMultiple
+                ? (hasStandard || hasCustomText)
+                : (isCustomSelected ? hasCustomText : hasStandard);
+
+            if (nextBtn) {
+                nextBtn.disabled = !isValid;
+            }
+        };
+
+        updateValidation();
+
+        qs('.mse-survey-close-btn', container)?.addEventListener('click', () => {
+            snoozeSurvey();
+            onClose();
+        });
+
+        qs('#mse-survey-btn-prev', container)?.addEventListener('click', () => {
+            if (state.questionIndex > 0) {
+                state.questionIndex--;
+                onTransition();
+            }
+        });
+
+        optionsContainer?.addEventListener('change', (e) => {
+            const target = e.target;
+            if (target.name !== 'mse_survey_choice') return;
+
+            const val = target.value;
+            if (isMultiple) {
+                if (target.checked) {
+                    selectedOptions.add(val);
+                } else {
+                    selectedOptions.delete(val);
+                }
+            } else {
+                selectedOptions.clear();
+                if (target.checked) {
+                    selectedOptions.add(val);
+                }
+            }
+
+            qsa('.mse-survey-option', container).forEach(lbl => {
+                const inp = qs('input', lbl);
+                lbl.classList.toggle('selected', inp?.checked || false);
+            });
+
+            if (customContainer) {
+                const showCustom = selectedOptions.has(CUSTOM_OPTION_VALUE);
+                customContainer.style.display = showCustom ? 'block' : 'none';
+                if (showCustom && customInput) {
+                    customInput.focus();
+                }
+            }
+
+            updateValidation();
+        });
+
+        customInput?.addEventListener('input', (e) => {
+            customText = e.target.value;
+            updateValidation();
+        });
+
+        customInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && nextBtn && !nextBtn.disabled) {
+                e.preventDefault();
+                nextBtn.click();
+            }
+        });
+
+        nextBtn?.addEventListener('click', () => {
+            const finalAnswer = buildFinalQuestionAnswer(isMultiple, selectedOptions, customText);
+            if (!finalAnswer) return;
+
+            state.answers[question.id] = finalAnswer;
+
+            if (isLastQuestion) {
+                dismissSurvey(config.id);
+                sendSurveyMetric('completed', state.answers);
+                state.screen = 'completed';
+                onTransition();
+            } else {
+                state.questionIndex++;
+                onTransition();
+            }
+        });
+    };
+
+    /**
+     * Экран 3: Финал и благодарность с автозакрытием.
+     */
+    const renderSurveyCompletedScreen = (container, config, state, onClose) => {
+        container.innerHTML = `
+            <div class="mse-survey-header">
+                <div class="mse-survey-title" style="color: #16a34a;">✓ Спасибо за участие!</div>
+                <button type="button" class="mse-survey-close-btn" title="Закрыть">×</button>
+            </div>
+            <div class="mse-survey-text">
+                Ваши ответы сохранены и помогут сделать расширение лучше.
+            </div>
+        `;
+
+        qs('.mse-survey-close-btn', container)?.addEventListener('click', () => {
+            onClose();
+        });
+
+        state.autoCloseTimer = setTimeout(() => {
+            onClose();
+        }, 3000);
+    };
+
+    /**
+     * Рендерит интерактивный попап опроса (#mse-survey-popup).
+     * @param {Object} config - Конфигурация опроса
+     */
+    const renderSurveyPopup = (config) => {
+        if (!config || !config.questions || !Array.isArray(config.questions) || config.questions.length === 0) {
+            return;
+        }
+
+        let container = qs(`#${ID_SURVEY_POPUP}`);
+        if (!container) {
+            container = document.createElement('div');
+            container.id = ID_SURVEY_POPUP;
+            document.body.appendChild(container);
+        }
+
+        const state = {
+            screen: 'invite', // 'invite' | 'decline' | 'question' | 'completed'
+            questionIndex: 0,
+            answers: {},
+            autoCloseTimer: null
+        };
+
+        const onClose = () => {
+            if (state.autoCloseTimer) clearTimeout(state.autoCloseTimer);
+            closeSurveyPopup(container);
+        };
+
+        const onTransition = () => {
+            if (state.autoCloseTimer) clearTimeout(state.autoCloseTimer);
+            switch (state.screen) {
+                case 'invite':
+                    renderSurveyInviteScreen(container, config, state, onTransition, onClose);
+                    break;
+                case 'decline':
+                    renderSurveyDeclineScreen(container, config, state, onTransition, onClose);
+                    break;
+                case 'question':
+                    renderSurveyQuestionScreen(container, config, state, onTransition, onClose);
+                    break;
+                case 'completed':
+                    renderSurveyCompletedScreen(container, config, state, onClose);
+                    break;
+            }
+        };
+
+        onTransition();
+    };
+
+    /**
+     * Симуляция опроса для тестирования интерфейса.
+     * @param {Object} [customConfig]
+     */
+    const simulateSurvey = (customConfig) => {
+        loadSurveyConfig();
+
+        const configToRun = (customConfig && typeof customConfig === 'object')
+            ? customConfig
+            : surveyConfig;
+
+        if (!configToRun || !Array.isArray(configToRun.questions) || configToRun.questions.length === 0) {
+            logger.warn('Опрос не может быть запущен: конфигурация не найдена в data/survey.json.');
+            return false;
+        }
+
+        qs(`#${ID_SURVEY_POPUP}`)?.remove();
+        renderSurveyPopup(configToRun);
+        logger.survey(`Симуляция опроса: попап успешно отрисован (id: "${configToRun.id || 'survey'}").`);
+        return true;
     };
 
     /**

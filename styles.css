@@ -445,6 +445,206 @@ body.mse-active {
         background: #dee2e6;
     }
 
+    /* 7.1. Всплывающий опрос (Remote Survey Popup) */
+    #mse-survey-popup {
+        position: fixed;
+        bottom: 25px;
+        right: 25px;
+        z-index: 10000;
+        background: #ffffff;
+        border: 1px solid #ced4da;
+        border-radius: 10px;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+        padding: 16px 18px;
+        width: 330px;
+        box-sizing: border-box;
+        font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        animation: mseSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    #mse-survey-popup.mse-closing {
+        opacity: 0;
+        transform: translateY(15px);
+        pointer-events: none;
+    }
+
+    .mse-survey-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .mse-survey-title {
+        font-weight: 600;
+        font-size: 14px;
+        color: #1e293b;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .mse-survey-badge {
+        background: #e0f2fe;
+        color: #0369a1;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 7px;
+        border-radius: 10px;
+    }
+
+    .mse-survey-close-btn {
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 4px;
+        border-radius: 4px;
+        transition: color 0.15s;
+    }
+
+    .mse-survey-close-btn:hover {
+        color: #475569;
+    }
+
+    .mse-survey-text {
+        font-size: 13px;
+        color: #334155;
+        line-height: 1.45;
+        margin-bottom: 12px;
+    }
+
+    .mse-survey-options {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 14px;
+    }
+
+    .mse-survey-option {
+        display: flex;
+        align-items: center;
+        font-size: 13px;
+        color: #334155;
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+        user-select: none;
+    }
+
+    .mse-survey-option:hover {
+        background: #f1f5f9;
+        border-color: #cbd5e1;
+    }
+
+    .mse-survey-option.selected {
+        background: #eff6ff;
+        border-color: #3b82f6;
+        color: #1d4ed8;
+        font-weight: 500;
+    }
+
+    .mse-survey-option input[type="radio"],
+    .mse-survey-option input[type="checkbox"] {
+        margin: 0 8px 0 0;
+        accent-color: #2563eb;
+        cursor: pointer;
+    }
+
+    .mse-survey-custom-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: -2px;
+        margin-bottom: 4px;
+        animation: mseSlideUp 0.2s ease-out;
+    }
+
+    .mse-survey-custom-input {
+        width: 100%;
+        box-sizing: border-box;
+        font-size: 12px;
+        padding: 7px 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        outline: none;
+        background: #ffffff;
+        color: #1e293b;
+        font-family: inherit;
+        transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .mse-survey-custom-input:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+
+    .mse-survey-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .mse-survey-actions-between {
+        justify-content: space-between;
+    }
+
+    .mse-survey-btn {
+        font-size: 12px;
+        padding: 6px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+        border: 1px solid transparent;
+        font-family: inherit;
+    }
+
+    .mse-survey-btn-primary {
+        background: #2563eb;
+        color: #ffffff;
+    }
+
+    .mse-survey-btn-primary:hover:not(:disabled) {
+        background: #1d4ed8;
+    }
+
+    .mse-survey-btn-primary:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .mse-survey-btn-secondary {
+        background: #f1f5f9;
+        color: #475569;
+        border-color: #cbd5e1;
+    }
+
+    .mse-survey-btn-secondary:hover {
+        background: #e2e8f0;
+        color: #1e293b;
+    }
+
+    .mse-survey-btn-danger {
+        background: #fef2f2;
+        color: #dc2626;
+        border-color: #fecaca;
+    }
+
+    .mse-survey-btn-danger:hover {
+        background: #fee2e2;
+        color: #b91c1c;
+    }
+
+
     /* 8. Таблица успеваемости (Results Table) */
     th.text-center:not(.p-frozen-column) {
         width: 105px !important;
