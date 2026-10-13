@@ -330,7 +330,16 @@
     window.MSE_simulateUpdate = (mockVersion = '9.9.9') => {
         if (typeof simulateUpdate === 'function') return simulateUpdate(mockVersion);
     };
-    window.MSE_getUsageCount = () => (typeof getUsageCount === 'function' ? getUsageCount() : 0);
+    window.MSE_getEngagementStats = () => {
+        if (typeof getEngagementStats === 'function') {
+            const stats = getEngagementStats();
+            if (typeof logger !== 'undefined' && logger.survey) {
+                logger.survey('Статистика вовлеченности (Engagement Stats):', stats);
+            }
+            return stats;
+        }
+        return null;
+    };
     window.MSE_checkSurvey = () => (typeof checkSurvey === 'function' ? checkSurvey() : false);
     window.MSE_simulateSurvey = (customConfig) => (typeof simulateSurvey === 'function' ? simulateSurvey(customConfig) : false);
     window.MSE_getSurveyConfig = () => (typeof getSurveyConfig === 'function' ? getSurveyConfig() : null);
@@ -381,10 +390,18 @@
     const STORAGE_KEY_LAST_UPDATE_CHECK = 'mse_last_update_check';
     const STORAGE_KEY_LATEST_RELEASE = 'mse_latest_release';
     const STORAGE_KEY_DISMISSED_UPDATE_PREFIX = 'mse_dismissed_v';
-    const STORAGE_KEY_USAGE_COUNT = 'mse_usage_count';
+    const STORAGE_KEY_INSTALL_DATE = 'mse_install_date';
+    const STORAGE_KEY_TODAY_ACTIVE_SECONDS = 'mse_today_active_seconds';
+    const STORAGE_KEY_TOTAL_ACTIVE_SECONDS = 'mse_total_active_seconds';
+    const STORAGE_KEY_QUALIFIED_DAYS = 'mse_qualified_days';
+    const STORAGE_KEY_LAST_ACTIVE_DATE = 'mse_last_active_date';
     const STORAGE_KEY_SURVEY_SNOOZE_UNTIL = 'mse_survey_snooze_until';
     const STORAGE_KEY_SURVEY_DISMISSED_PREFIX = 'mse_survey_dismissed_';
     const STORAGE_KEY_SURVEYS_DISABLED_FOREVER = 'mse_surveys_disabled_forever';
+
+    const ENGAGEMENT_HEARTBEAT_INTERVAL_MS = 1000;
+    const MAX_ALLOWED_HEARTBEAT_GAP_MS = 3000;
+    const DEFAULT_MIN_DAILY_SECONDS_TO_QUALIFY = 120;
 
     // Авторизация OAuth 2.0 и Session Keeper (ADR-001)
     const OAUTH_CLIENT_ID = 'sKir7YQnOUu4G0eCfn3tTxnBfzca';
@@ -471,6 +488,8 @@
     let debounceTimer = null;
     let checkReadyTimer = null;
     let sessionHealthInterval = null;
+    let engagementIntervalId = null;
+    let handleEngagementVisibilityChange = null;
     let lastPeData = null;
 
     // Сохранение оригинальных нативных методов сети и истории браузера
@@ -1357,6 +1376,10 @@
         if (checkReadyTimer) clearInterval(checkReadyTimer);
         if (smartWaitTimer) clearTimeout(smartWaitTimer);
         if (debounceTimer) clearTimeout(debounceTimer);
+        if (engagementIntervalId) {
+            clearInterval(engagementIntervalId);
+            engagementIntervalId = null;
+        }
         cleanupSilentRefresh();
 
         // 2. Полное восстановление нативных прототипов и методов браузера
@@ -1369,6 +1392,9 @@
         window.removeEventListener('popstate', processUrlChange);
         window.removeEventListener('click', handleLogoutClick);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
+        if (handleEngagementVisibilityChange) {
+            document.removeEventListener('visibilitychange', handleEngagementVisibilityChange);
+        }
         document.removeEventListener('click', handleOutsideSearchClick);
 
         // 4. Очистка внедрённых DOM-элементов и деактивация стилей
@@ -1746,8 +1772,6 @@
             if (statusEl) statusEl.style.display = 'none';
             if (controlsEl) controlsEl.style.display = 'flex';
             if (selectedStudents.size > 0) highlightEventsForStudents();
-
-            incrementUsageCount();
             checkSurvey();
         } catch (err) {
             if (statusEl) { statusEl.textContent = `Ошибка: ${err.message}`; statusEl.style.color = 'red'; }
@@ -1920,42 +1944,223 @@
         logger.update(`Текущая: v${CURRENT_VERSION} | На GitHub: ${cachedVersion} | Посл. проверка: ${timeText}`);
     };
 
+    let lastHeartbeatTimestamp = Date.now();
+
     /**
-     * Инкрементирует счётчик успешных открытий расписания (mse_usage_count).
-     * @returns {number} Новое значение счётчика
+     * Возвращает локальную дату в формате YYYY-MM-DD.
+     * @param {Date} [date=new Date()]
+     * @returns {string}
      */
-    const incrementUsageCount = () => {
-        try {
-            const currentCount = Number(localStorage.getItem(STORAGE_KEY_USAGE_COUNT) || 0);
-            const nextCount = currentCount + 1;
-            localStorage.setItem(STORAGE_KEY_USAGE_COUNT, String(nextCount));
-            logger.survey(`Счётчик использований инкрементирован: ${nextCount}`);
-            return nextCount;
-        } catch (error) {
-            logger.warn('Не удалось обновить счётчик mse_usage_count:', error);
-            return 0;
-        }
+    const getLocalDateString = (date = new Date()) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
     };
 
     /**
-     * Возвращает текущее количество открытий расписания.
-     * @returns {number}
+     * Инициализирует дату установки расширения (mse_install_date).
+     * @returns {string}
      */
-    const getUsageCount = () => {
+    const initInstallDate = () => {
         try {
-            return Number(localStorage.getItem(STORAGE_KEY_USAGE_COUNT) || 0);
+            const existing = localStorage.getItem(STORAGE_KEY_INSTALL_DATE);
+            if (!existing) {
+                const todayStr = getLocalDateString();
+                localStorage.setItem(STORAGE_KEY_INSTALL_DATE, todayStr);
+                return todayStr;
+            }
+            return existing;
         } catch {
-            return 0;
+            return getLocalDateString();
         }
     };
 
     /**
-     * Проверяет выполнение всех 5 guard-условий показа опроса:
+     * Возвращает сохранённый массив квалифицированных дней из localStorage.
+     * @returns {string[]}
+     */
+    const getStoredQualifiedDays = () => {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY_QUALIFIED_DAYS);
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    };
+
+    /**
+     * Сохраняет массив квалифицированных дней в localStorage.
+     * @param {string[]} daysArray
+     */
+    const saveStoredQualifiedDays = (daysArray) => {
+        try {
+            const unique = Array.from(new Set(daysArray)).sort();
+            localStorage.setItem(STORAGE_KEY_QUALIFIED_DAYS, JSON.stringify(unique));
+        } catch (e) {
+            logger.warn('Не удалось сохранить mse_qualified_days:', e);
+        }
+    };
+
+    /**
+     * Проверяет суточный ролловер активности при смене календарной даты.
+     * Если за прошедший день студент преодолел порог minDailySecondsToQualify,
+     * прошедшая дата фиксируется в mse_qualified_days.
+     * @param {number} [minDailySecondsToQualify=DEFAULT_MIN_DAILY_SECONDS_TO_QUALIFY]
+     */
+    const checkDayRollover = (minDailySecondsToQualify = DEFAULT_MIN_DAILY_SECONDS_TO_QUALIFY) => {
+        try {
+            const todayStr = getLocalDateString();
+            const lastActiveDate = localStorage.getItem(STORAGE_KEY_LAST_ACTIVE_DATE);
+
+            if (!lastActiveDate) {
+                localStorage.setItem(STORAGE_KEY_LAST_ACTIVE_DATE, todayStr);
+                return;
+            }
+
+            if (lastActiveDate !== todayStr) {
+                const pastDaySeconds = Number(localStorage.getItem(STORAGE_KEY_TODAY_ACTIVE_SECONDS) || 0);
+                if (pastDaySeconds >= minDailySecondsToQualify) {
+                    const days = getStoredQualifiedDays();
+                    if (!days.includes(lastActiveDate)) {
+                        days.push(lastActiveDate);
+                        saveStoredQualifiedDays(days);
+                        logger.survey(`День ${lastActiveDate} квалифицирован (${pastDaySeconds} с активности).`);
+                    }
+                }
+                localStorage.setItem(STORAGE_KEY_TODAY_ACTIVE_SECONDS, '0');
+                localStorage.setItem(STORAGE_KEY_LAST_ACTIVE_DATE, todayStr);
+            }
+        } catch (e) {
+            logger.warn('Ошибка проверки ролловера активности:', e);
+        }
+    };
+
+    /**
+     * Выполняет учет чистого времени взаимодействия (heartbeat).
+     * Секунды начисляются только при видимой вкладке и фильтрации сна ПК.
+     */
+    const recordActiveHeartbeat = () => {
+        const now = Date.now();
+        const deltaMs = now - lastHeartbeatTimestamp;
+        lastHeartbeatTimestamp = now;
+
+        // 1. Учет только при видимой вкладке
+        if (document.visibilityState !== 'visible') {
+            return;
+        }
+
+        // 2. Защита от сна ПК / зависания: если дельта больше 3 секунд, начисление игнорируется
+        if (deltaMs <= 0 || deltaMs > MAX_ALLOWED_HEARTBEAT_GAP_MS) {
+            return;
+        }
+
+        // 3. Суточный ролловер
+        checkDayRollover();
+
+        // 4. Начисление времени
+        try {
+            const secondsToAdd = Math.max(1, Math.round(deltaMs / 1000));
+            const currentToday = Number(localStorage.getItem(STORAGE_KEY_TODAY_ACTIVE_SECONDS) || 0);
+            const currentTotal = Number(localStorage.getItem(STORAGE_KEY_TOTAL_ACTIVE_SECONDS) || 0);
+
+            localStorage.setItem(STORAGE_KEY_TODAY_ACTIVE_SECONDS, String(currentToday + secondsToAdd));
+            localStorage.setItem(STORAGE_KEY_TOTAL_ACTIVE_SECONDS, String(currentTotal + secondsToAdd));
+        } catch {
+            // Игнорируем ошибки квоты localStorage
+        }
+    };
+
+    /**
+     * Обработчик возврата фокуса на вкладку (для трекера продуктовой активности).
+     */
+    handleEngagementVisibilityChange = () => {
+        lastHeartbeatTimestamp = Date.now();
+    };
+
+    /**
+     * Запускает таймер трекинга продуктовой активности.
+     */
+    const startEngagementTracker = () => {
+        if (engagementIntervalId) return;
+        initInstallDate();
+        checkDayRollover();
+        lastHeartbeatTimestamp = Date.now();
+        document.addEventListener('visibilitychange', handleEngagementVisibilityChange);
+        engagementIntervalId = setInterval(recordActiveHeartbeat, ENGAGEMENT_HEARTBEAT_INTERVAL_MS);
+    };
+
+    /**
+     * Возвращает структурированную статистику продуктового удержания и активности.
+     * @param {number} [minDailySecondsToQualify=DEFAULT_MIN_DAILY_SECONDS_TO_QUALIFY]
+     * @returns {{
+     *   installDate: string,
+     *   daysSinceInstall: number,
+     *   todayActiveSeconds: number,
+     *   totalActiveSeconds: number,
+     *   qualifiedDays: string[],
+     *   qualifiedDaysCount: number,
+     *   isTodayQualified: boolean
+     * }}
+     */
+    const getEngagementStats = (minDailySecondsToQualify = DEFAULT_MIN_DAILY_SECONDS_TO_QUALIFY) => {
+        try {
+            checkDayRollover(minDailySecondsToQualify);
+            const installDateStr = initInstallDate();
+            const todayStr = getLocalDateString();
+            const todaySeconds = Number(localStorage.getItem(STORAGE_KEY_TODAY_ACTIVE_SECONDS) || 0);
+            const totalSeconds = Number(localStorage.getItem(STORAGE_KEY_TOTAL_ACTIVE_SECONDS) || 0);
+            const storedQualifiedDays = getStoredQualifiedDays();
+
+            const isTodayQualified = todaySeconds >= minDailySecondsToQualify;
+            const allQualifiedDaysSet = new Set(storedQualifiedDays);
+            if (isTodayQualified) {
+                allQualifiedDaysSet.add(todayStr);
+            }
+            const qualifiedDays = Array.from(allQualifiedDaysSet).sort();
+
+            let daysSinceInstall = 0;
+            try {
+                const installDateObj = new Date(installDateStr + 'T00:00:00');
+                const todayDateObj = new Date(todayStr + 'T00:00:00');
+                const diffMs = todayDateObj.getTime() - installDateObj.getTime();
+                daysSinceInstall = Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+            } catch {
+                daysSinceInstall = 0;
+            }
+
+            return {
+                installDate: installDateStr,
+                daysSinceInstall,
+                todayActiveSeconds: todaySeconds,
+                totalActiveSeconds: totalSeconds,
+                qualifiedDays,
+                qualifiedDaysCount: qualifiedDays.length,
+                isTodayQualified
+            };
+        } catch (e) {
+            logger.warn('Ошибка вычисления engagement stats:', e);
+            return {
+                installDate: getLocalDateString(),
+                daysSinceInstall: 0,
+                todayActiveSeconds: 0,
+                totalActiveSeconds: 0,
+                qualifiedDays: [],
+                qualifiedDaysCount: 0,
+                isTodayQualified: false
+            };
+        }
+    };
+
+    /**
+     * Проверяет выполнение guard-условий показа опроса:
      * 1. Опрос включён автором на GitHub (config.enabled === true)
      * 2. Пользователь не отключил все опросы навсегда
      * 3. Пользователь ещё не отклонял данный ID опроса
      * 4. Не активен таймер отсрочки «Позже»
-     * 5. Счётчик использования достиг минимального порога minUsageCount
+     * 5. Удовлетворены условия продуктового таргетинга (Qualified Active Days / Retention)
      *
      * @param {Object|null} config - Объект конфигурации опроса
      * @returns {boolean}
@@ -1974,8 +2179,21 @@
             const snoozeUntil = Number(localStorage.getItem(STORAGE_KEY_SURVEY_SNOOZE_UNTIL) || 0);
             if (Date.now() <= snoozeUntil) return false;
 
-            const minUsageCount = Number(config.minUsageCount || 0);
-            if (getUsageCount() < minUsageCount) return false;
+            // Таргетинг на основе продуктового удержания (Qualified Active Days)
+            if (config.targeting && typeof config.targeting === 'object') {
+                const {
+                    minDaysSinceInstall = 0,
+                    minQualifiedDays = 0,
+                    minDailySecondsToQualify = DEFAULT_MIN_DAILY_SECONDS_TO_QUALIFY,
+                    minTotalActiveSeconds = 0
+                } = config.targeting;
+
+                const stats = getEngagementStats(minDailySecondsToQualify);
+
+                if (stats.daysSinceInstall < minDaysSinceInstall) return false;
+                if (stats.qualifiedDaysCount < minQualifiedDays) return false;
+                if (stats.totalActiveSeconds < minTotalActiveSeconds) return false;
+            }
 
             return true;
         } catch (error) {
@@ -2007,6 +2225,9 @@
             action,
             answers: safeAnswers
         };
+        if (surveyConfig?.secret) {
+            payload.secret = surveyConfig.secret;
+        }
 
         try {
             await fetch(webhookUrl, {
@@ -3188,6 +3409,9 @@
     setTimeout(() => {
         checkExtensionUpdate({ force: false });
     }, 1500);
+
+    // Запуск фонового учета продуктовой активности (Engagement-Based Retention)
+    startEngagementTracker();
 
     logger.debug('Скрипт запущен!');
     if (isDebug()) {

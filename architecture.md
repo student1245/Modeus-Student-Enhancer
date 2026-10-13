@@ -270,7 +270,6 @@ modeus-beta/
   * `window.MSE_checkSurvey()` — проверяет guard-условия и запускает опрос при их выполнении.
   * `window.MSE_simulateSurvey(customConfig)` — симулирует показ опроса из `data/survey.json` (или кастомного конфига) в тестовом режиме.
   * `window.MSE_getEngagementStats()` — возвращает структурированные метрики стажа, секунд активности и квалифицированных дней.
-  * `window.MSE_getUsageCount()` — возвращает текущее значение счетчика `mse_usage_count` (обратная совместимость).
   * `window.MSE_getSurveyConfig()` / `window.MSE_setSurveyConfig(config)` — инспекция и оперативная подмена активного конфига.
   * `window.MSE_clearSurveyCache()` — очистка кэша опроса и флагов скрытия в `localStorage`.
 
@@ -399,7 +398,6 @@ modeus-beta/
 | `localStorage` | `mse_total_active_seconds` | `string` (number) | Суммарное накопленное чистое время активности за все время использования. |
 | `localStorage` | `mse_qualified_days` | `string` (JSON array) | Массив дат (`YYYY-MM-DD`), в которые пользователь преодолел суточный порог активности. |
 | `localStorage` | `mse_last_active_date` | `string` (`YYYY-MM-DD`) | Дата последней зафиксированной активности для вычисления суточного ролловера. |
-| `localStorage` | `mse_usage_count` | `string` (number) | Счетчик успешных открытий расписания (сохранен для обратной совместимости). |
 | `localStorage` | `mse_survey_cache` | `string` (JSON) | Кэш структуры `data/survey.json` в Isolated World с меткой времени (TTL 12 часов). |
 | `localStorage` | `mse_survey_snooze_until` | `string` (timestamp) | Метка времени, до которой отложен показ опроса (при выборе действия «Позже», 3 дня). |
 | `localStorage` | `mse_survey_dismissed_{id}` | `string` (`"1"`) | Флаг отклонения или завершения конкретного опроса с идентификатором `{id}`. |

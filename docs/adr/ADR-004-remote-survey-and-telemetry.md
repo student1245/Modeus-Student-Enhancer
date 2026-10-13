@@ -101,7 +101,7 @@ Accepted | Implemented (v2.2.2)
 2. `localStorage.getItem('mse_surveys_disabled_forever') !== '1'` — пользователь не нажал «Никогда не спрашивать».
 3. `localStorage.getItem('mse_survey_dismissed_' + config.id) !== '1'` — данный опрос еще не завершался и не отклонялся текущим пользователем.
 4. `Date.now() > Number(localStorage.getItem('mse_survey_snooze_until') || 0)` — не активен таймер отсрочки «Позже» (3 дня).
-5. Выполнены условия продуктового таргетинга `config.targeting` (Engagement-Based Retention: `minDaysSinceInstall`, `minQualifiedDays`, `minDailySecondsToQualify`, `minTotalActiveSeconds` с fallback на `minUsageCount`).
+5. Выполнены условия продуктового таргетинга `config.targeting` (Engagement-Based Retention: `minDaysSinceInstall`, `minQualifiedDays`, `minDailySecondsToQualify`, `minTotalActiveSeconds`).
 
 ### 3. Сетевой контракт телеметрии (`sendSurveyMetric`)
 - **Метод:** `fetch(webhookUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload) })`
