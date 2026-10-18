@@ -6,15 +6,14 @@
 
     // Стартовая визитка расширения (выводится всегда при запуске)
     console.log(
-        `%c Modeus Enhancer %c v${CURRENT_VERSION} `,
-        'background: #2196F3; color: #fff; padding: 3px 5px; border-radius: 3px 0 0 3px; font-weight: bold;',
-        'background: #333; color: #fff; padding: 3px 5px; border-radius: 0 3px 3px 0;'
+        '%c Modeus Enhancer %c v2.2.2 %c by @JasonVurhyz & student1245\n' +
+        '%cБаги и отзывы: %c@Theguestroom_bot%c  •  Отладка: %cMSE_enableDebug()',
+        'background: #007bff; color: #fff; font-weight: bold; padding: 3px 7px; border-radius: 4px 0 0 4px;',
+        'background: #1e293b; color: #e2e8f0; font-weight: bold; padding: 3px 7px; border-radius: 0 4px 4px 0;',
+        'color: #94a3b8; font-size: 11px;',
+        'color: #64748b; font-size: 11px; line-height: 2;', 'color: #38bdf8; font-size: 11px;',
+        'color: #64748b; font-size: 11px;', 'color: #a78bfa; font-family: monospace; font-size: 11px;'
     );
-    console.log('%cby @JasonVurhyz', 'font-style: italic; color: #555; margin-bottom: 5px;');
-    console.log('%cMade with ❤️ for UTMN students', 'font-style: italic; color: #555; margin-bottom: 5px;');
-    console.log('%cБаги и отзывы: @Theguestroom_bot', 'color: #2196F3; margin-bottom: 5px;');
-    console.log('Расширение для улучшения интерфейса Modeus. Добавляет отзывы о преподавателях, список друзей, поиск общих пар и улучшает отображение названий корпусов.');
-    console.log('----------------------------------------');
 
     // Динамическая проверка флага отладки (runtime без перезагрузки)
     const isDebug = () => {
