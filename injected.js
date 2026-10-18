@@ -448,6 +448,7 @@
     const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000;  // Кэш проверки релизов GitHub (2 часа)
     const SEARCH_SUGGESTIONS_LIMIT = 7;                   // Максимум подсказок студентов в поиске
     const PE_SCHEDULE_DAYS = 21;                          // Горизонт дней для расписания физкультуры
+    const CALENDAR_ATTENDEES_CONCURRENCY = 5;             // Максимум параллельных запросов участников занятий
 
     // Классы и идентификаторы элементов DOM
     const CLASS_MSE_ACTIVE = 'mse-active';
@@ -483,6 +484,8 @@
     let uniqueStudents = new Map();
     let lastSearchResults = new Map();
     let selectedStudents = new Set();
+    const attendeesMemoryCache = new Map();
+    let lastActiveCalendarPersonId = null;
 
     // Успеваемость и технологические карты
     let mseCourseRealizationsMap = new Map();
@@ -1497,6 +1500,8 @@
         qs(`#${ID_FEEDBACK_FOOTER}`)?.remove();
         qs(`#${ID_OPEN_PE_BTN}`)?.remove();
 
+        attendeesMemoryCache.clear();
+        lastActiveCalendarPersonId = null;
         clearSearch();
         delete window.studentEnhancer;
         logger.debug('Скрипт полностью остановлен, нативные прототипы и таймеры очищены.');
@@ -1741,6 +1746,36 @@
         return myJwtPersonId;
     };
 
+    async function runWithConcurrency(taskFns, limit = 5) {
+        if (!taskFns || taskFns.length === 0) return [];
+        const results = new Array(taskFns.length);
+        let nextIndex = 0;
+        const worker = async () => {
+            while (nextIndex < taskFns.length) {
+                const currentIndex = nextIndex++;
+                results[currentIndex] = await taskFns[currentIndex]();
+            }
+        };
+        const workerCount = Math.min(limit, taskFns.length);
+        await Promise.all(Array.from({ length: workerCount }, worker));
+        return results;
+    }
+
+    async function fetchEventAttendees(eventId, token) {
+        try {
+            const res = await fetch(`${API_CALENDAR_EVENTS}/${eventId}/attendees`, {
+                headers: { authorization: `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                return Array.isArray(data) ? data : [];
+            }
+        } catch (e) {
+            logger.warn(`Ошибка загрузки участников события ${eventId}:`, e);
+        }
+        return null;
+    }
+
     const loadAllData = async () => {
         const statusEl = qs('#search-status');
         const controlsEl = qs('#search-controls');
@@ -1756,6 +1791,10 @@
             localStorage.setItem(STORAGE_KEY_MY_PERSON_ID, myPersonId);
 
             const activePersonId = getActiveCalendarPersonId(myJwtPersonId);
+            if (activePersonId !== lastActiveCalendarPersonId) {
+                attendeesMemoryCache.clear();
+                lastActiveCalendarPersonId = activePersonId;
+            }
 
             const dateHeaders = qsa('.fc-day-header[data-date]');
             if (dateHeaders.length < 1) {
@@ -1792,23 +1831,37 @@
             const courseUnits = eventsData._embedded?.['course-unit-realizations'] || [];
             const courseUnitMap = new Map(courseUnits.map(courseUnit => [courseUnit.id, courseUnit.nameShort]));
             if (statusEl) statusEl.textContent = `2/2: Загрузка студентов (0/${events.length})`;
-            let loadedCount = 0;
 
             eventCache.clear();
             uniqueStudents.clear();
 
-            const attendeePromises = events.map(event =>
-                fetch(`${API_CALENDAR_EVENTS}/${event.id}/attendees`, { headers: { "authorization": `Bearer ${token}` } })
-                    .then(res => res.ok ? res.json() : [])
-                    .then(attendees => {
+            const cachedResults = [];
+            const fetchTasks = [];
+            let loadedCount = 0;
+
+            events.forEach(event => {
+                if (attendeesMemoryCache.has(event.id)) {
+                    cachedResults.push({ event, attendees: attendeesMemoryCache.get(event.id) });
+                    loadedCount++;
+                } else {
+                    fetchTasks.push(async () => {
+                        const attendees = await fetchEventAttendees(event.id, token);
+                        if (attendees !== null) {
+                            attendeesMemoryCache.set(event.id, attendees);
+                        }
                         loadedCount++;
                         if (statusEl) statusEl.textContent = `2/2: Загрузка студентов (${loadedCount}/${events.length})`;
                         return { event, attendees: attendees || [] };
-                    })
-            );
+                    });
+                }
+            });
 
-            const results = await Promise.all(attendeePromises);
-            results.forEach(({ event, attendees }) => {
+            if (statusEl && loadedCount > 0) statusEl.textContent = `2/2: Загрузка студентов (${loadedCount}/${events.length})`;
+
+            const fetchedResults = await runWithConcurrency(fetchTasks, CALENDAR_ATTENDEES_CONCURRENCY);
+            const allResults = [...cachedResults, ...fetchedResults];
+
+            allResults.forEach(({ event, attendees }) => {
                 const studentList = new Set();
                 attendees.forEach(attendee => {
                     if (attendee.roleId === 'STUDENT') {
@@ -1845,7 +1898,7 @@
                 eventCache.set(event.id, { name: event.name, fullDisplayName: `${moduleShortName} / ${event.name}`, startsAtLocal: event.startsAtLocal, attendees: studentList });
             });
 
-            logger.calendar(`Этап 2: загружены участники для ${events.length} событий (уникальных студентов: ${uniqueStudents.size})`);
+            logger.calendar(`Этап 2: участники загружены (из памяти: ${cachedResults.length}, по сети: ${fetchedResults.length}, уникальных студентов: ${uniqueStudents.size})`);
 
             const linkedCount = linkDomEventsToCache();
             logger.calendar(`Этап 3: завершена привязка к DOM (привязано ${linkedCount} карточек событий)`);
@@ -2871,8 +2924,7 @@
                 // Если просто переключили неделю
                 lastCalendarParam = calendarParam;
                 setTimeout(() => {
-                    const refreshBtn = qs('#refresh-data-btn');
-                    if (refreshBtn) refreshBtn.click();
+                    loadAllData();
                 }, 400);
             } else if (!lastCalendarParam) {
                 lastCalendarParam = calendarParam;
@@ -2919,7 +2971,10 @@
             cont.style.display = cont.style.display === 'flex' ? 'none' : 'flex';
         });
 
-        qs('#refresh-data-btn').addEventListener('click', loadAllData);
+        qs('#refresh-data-btn').addEventListener('click', () => {
+            attendeesMemoryCache.clear();
+            loadAllData();
+        });
         qs('#student-search-input').addEventListener('input', updateSuggestions);
         qs('#search-clear-btn').addEventListener('click', clearSearch);
         qs('#search-suggestions').addEventListener('click', (e) => {
