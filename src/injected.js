@@ -393,6 +393,7 @@
     const STORAGE_KEY_MY_SPECIALTY = 'mse_my_specialty';
     const STORAGE_KEY_MY_PROFILE = 'mse_my_profile';
     const STORAGE_KEY_MY_PERSON_ID = 'mse_my_person_id';
+    const STORAGE_KEY_GRADES_PRIMARY = 'mse_grades_primary_cache';
     const STORAGE_KEY_LAST_UPDATE_CHECK = 'mse_last_update_check';
     const STORAGE_KEY_LATEST_RELEASE = 'mse_latest_release';
     const STORAGE_KEY_DISMISSED_UPDATE_PREFIX = 'mse_dismissed_v';
@@ -606,14 +607,24 @@
     function interceptNetworkRequests() {
         window.fetch = async (...args) => {
             const url = args[0] instanceof Request ? args[0].url : args[0];
+            const urlStr = typeof url === 'string' ? url : (url?.url || url?.toString?.() || '');
             const response = await nativeFetch(...args);
 
-            if (url.includes('/api/people/persons/search')) {
+            if (urlStr.includes('/api/people/persons/search')) {
                 const responseText = await response.clone().text();
                 processPersonSearchResponse(responseText);
             }
 
-            if (url.includes('/module-elements/')) {
+            if (urlStr.includes('/academic-period-results-table/primary')) {
+                try {
+                    const data = await response.clone().json();
+                    processPrimaryGradesData(data);
+                } catch (e) {
+                    logger.warn('Ошибка чтения primary из fetch:', e);
+                }
+            }
+
+            if (urlStr.includes('/module-elements/')) {
                 try {
                     const data = await response.clone().json();
                     if (data.cycles && data.cycles.length > 0 && data.cycles[0].teams) {
@@ -1164,6 +1175,12 @@
         loadSurveyConfig();
     };
 
+    const handleDatabasesUpdated = () => {
+        initDatabases();
+        logger.db('Базы данных переинициализированы после фонового обновления');
+    };
+    document.addEventListener('mse:databases-updated', handleDatabasesUpdated);
+
     const printDatabaseStatus = () => {
         if (!databaseState.buildings.loaded && !databaseState.reviews.loaded) {
             initDatabases();
@@ -1484,6 +1501,7 @@
             document.removeEventListener('visibilitychange', handleEngagementVisibilityChange);
         }
         document.removeEventListener('click', handleOutsideSearchClick);
+        document.removeEventListener('mse:databases-updated', handleDatabasesUpdated);
 
         // 4. Очистка внедрённых DOM-элементов и деактивация стилей
         document.body.classList.remove(CLASS_MSE_ACTIVE);
@@ -2930,6 +2948,16 @@
                 lastCalendarParam = calendarParam;
             }
         }
+
+        // 3. Отслеживание перехода на страницу успеваемости / карточки студента
+        if (currentUrl.includes('/my-results') || currentUrl.includes('/student-card')) {
+            if (mseCourseRealizationsMap.size === 0) {
+                restorePrimaryGradesFromCache();
+            }
+            enhanceGradesTable();
+            setTimeout(enhanceGradesTable, 300);
+            setTimeout(enhanceGradesTable, 800);
+        }
     };
 
     const setupUI = () => {
@@ -2995,11 +3023,20 @@
     };
 
     // 1. Сбор структуры предметов и скачивание массивов макс. баллов
-    function processPrimaryGradesData(data) {
+    function processPrimaryGradesData(data, fromCache = false) {
         if (!data || !data.courseUnitRealizations) return;
 
         const count = data.courseUnitRealizations.length;
-        logger.network(`Успеваемость (/primary): перехвачена таблица результатов, предметов: ${count}`);
+        if (!fromCache) {
+            logger.network(`Успеваемость (/primary): перехвачена таблица результатов, предметов: ${count}`);
+            try {
+                sessionStorage.setItem(STORAGE_KEY_GRADES_PRIMARY, JSON.stringify(data));
+            } catch (e) {
+                // Игнорируем переполнение sessionStorage
+            }
+        } else {
+            logger.network(`Успеваемость: восстановлены данные из sessionStorage, предметов: ${count}`);
+        }
 
         const token = sessionStorage.getItem('id_token');
         const uniqueCourseUnits = new Set();
@@ -3045,6 +3082,21 @@
                 })
                 .catch(e => logger.warn('Ошибка загрузки техкарты:', e));
         });
+
+        enhanceGradesTable();
+    }
+
+    function restorePrimaryGradesFromCache() {
+        try {
+            const raw = sessionStorage.getItem(STORAGE_KEY_GRADES_PRIMARY);
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            if (data && data.courseUnitRealizations) {
+                processPrimaryGradesData(data, true);
+            }
+        } catch (e) {
+            logger.warn('Ошибка восстановления успеваемости из кэша:', e);
+        }
     }
 
     function createGradeBadge(maxGrade) {
@@ -3191,7 +3243,9 @@
 
     // 3. Обновление таблицы оценок
     function enhanceGradesTable() {
-        if (!window.location.href.includes('/my-results')) return;
+        const isGradesUrl = window.location.href.includes('/my-results') || window.location.href.includes('/student-card');
+        const hasGradesTable = Boolean(qs('table thead th, .p-datatable-thead th, .ui-table-thead th'));
+        if (!isGradesUrl && !hasGradesTable) return;
         if (mseCourseRealizationsMap.size === 0 || mseLessonMaxGrades.size === 0) return;
 
         const meetingColumns = [];
@@ -3212,11 +3266,11 @@
 
         const rows = qsa('table tbody tr, .p-datatable-tbody > tr, .ui-table-tbody > tr');
         rows.forEach(row => {
-            const rowText = normalizeName(row.textContent);
+            const rowText = normalizeName(row.textContent).toLowerCase();
             let matchedLessons = null;
 
             for (const [courseName, lessons] of mseCourseRealizationsMap.entries()) {
-                if (rowText.includes(courseName)) {
+                if (rowText.includes(courseName.toLowerCase())) {
                     matchedLessons = lessons;
                     break;
                 }
@@ -3246,7 +3300,10 @@
                                 const meetingCell = tds[colIndex];
                                 if (!matchedLesson || !meetingCell) return;
 
-                                const maxGradeList = mseLessonMaxGrades.get(matchedLesson.id);
+                                let maxGradeList = mseLessonMaxGrades.get(matchedLesson.id);
+                                if (!maxGradeList && matchedLesson.name) {
+                                    maxGradeList = mseLessonNameToMaxGrade.get(normalizeName(matchedLesson.name));
+                                }
                                 if (!maxGradeList) return;
                                 const maxGradeArray = Array.isArray(maxGradeList) ? maxGradeList : [maxGradeList];
 
@@ -3298,7 +3355,10 @@
                 const lesson = matchedLessons[meetingNumber - 1];
                 if (!lesson) return;
 
-                const maxGrades = mseLessonMaxGrades.get(lesson.id);
+                let maxGrades = mseLessonMaxGrades.get(lesson.id);
+                if (!maxGrades && lesson.name) {
+                    maxGrades = mseLessonNameToMaxGrade.get(normalizeName(lesson.name));
+                }
                 if (maxGrades) {
                     injectMaxGradeBadge(meetingCell, maxGrades);
                 }
@@ -3529,6 +3589,7 @@
         setTimeout(processUrlChange, 100);
     };
     window.addEventListener('popstate', processUrlChange);
+    processUrlChange();
 
     window.studentEnhancer = {
         observer,

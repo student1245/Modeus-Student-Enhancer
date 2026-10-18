@@ -26,7 +26,7 @@
    * [3.2. Формат OAuth-хэша переадресации](#32-формат-oauth-хэша-переадресации)
    * [3.3. Таблица локальных хранилищ](#33-таблица-локальных-хранилищ)
      * [3.3.1. Нативные ключи сессии Modeus (sessionStorage)](#331-нативные-ключи-сессии-modeus-sessionstorage)
-     * [3.3.2. Собственные ключи расширения (localStorage / chrome.storage)](#332-собственные-ключи-расширения-localstorage--chromestorage)
+     * [3.3.2. Собственные ключи расширения (localStorage / sessionStorage / chrome.storage)](#332-собственные-ключи-расширения-localstorage--sessionstorage--chromestorage)
    * [3.4. Внешний вебхук опросов и аналитики (Google Apps Script)](#34-внешний-вебхук-опросов-и-аналитики-google-apps-script)
 4. [Быстрый старт для разработчика (How to Contribute & Debug)](#4-быстрый-старт-для-разработчика-how-to-contribute--debug)
 
@@ -99,7 +99,7 @@ modeus-beta/
    * Выполняет `src/injected.js` и `src/pe-module.js`, внедряемые в DOM через теги `<script>`.
    * Имеет прямой доступ к глобальному объекту `window`, прототипам `fetch` и `XMLHttpRequest`, а также к контексту рендеринга Angular.
    * Патчит `window.fetch` и `XMLHttpRequest.prototype.send` через функцию `interceptNetworkRequests()`:
-     * **`window.fetch`** перехватывает нативные запросы поиска персон (`/api/people/persons/search` для сбора людей и автодополнения) и модулей физкультуры (`/module-elements/` в Booking API для логирования в `[MSE Network]`).
+     * **`window.fetch`** перехватывает нативные запросы поиска персон (`/api/people/persons/search` для сбора людей и автодополнения), модулей физкультуры (`/module-elements/` в Booking API) и таблицу успеваемости (`/academic-period-results-table/primary`).
      * **`XMLHttpRequest.prototype.send`** (транспорт `HttpClient` в Angular) перехватывает загрузку таблицы успеваемости (`/academic-period-results-table/primary` для расчета максимумов и дефицита баллов) и дублирует обработку `/api/people/persons/search`.
 
 ### 1.3. Жизненный цикл инициализации и мост данных через `<meta>`
@@ -120,17 +120,18 @@ modeus-beta/
                            ▼
               [ document_end: src/content.js ]
              ├── Проверка флага chrome.storage.sync('enabled')
-             ├── Параллельный Fetch (GitHub Raw, таймаут 2.5с)
-             │   ├── buildings.json (Fallback: локальный файл)
-             │   ├── teacher_reviews.json (Fallback: локальный файл)
-             │   └── survey.json (Prod: кэш mse_survey_cache 12ч / GitHub; Dev: локальный черновик)
+             ├── Мгновенная инициализация справочников из кэша localStorage / пакета (< 5 мс)
+             │   ├── buildings.json (кэш mse_buildings_cache 24ч / локальный пакет)
+             │   ├── teacher_reviews.json (кэш mse_reviews_cache 24ч / локальный пакет)
+             │   └── survey.json (Prod: кэш mse_survey_cache 12ч; Dev: локальный черновик)
              ├── Кодирование данных в Base64
              ├── Вставка <meta name="modeus-buildings-map" content="...">
              ├── Вставка <meta name="modeus-teacher-reviews" content="...">
              ├── Вставка <meta name="modeus-survey-config" content="...">
              ├── Вставка <meta name="modeus-enhancer-version" content="...">
-             ├── Инъекция <script src="src/pe-module.js" async="false">
-             └── Инъекция <script src="src/injected.js" async="false">
+             ├── Мгновенная инъекция <script src="src/pe-module.js" async="false">
+             ├── Мгновенная инъекция <script src="src/injected.js" async="false">
+             └── Неблокирующая фоновая ревалидация с GitHub Raw (SWR) -> mse:databases-updated
                            │
                            ▼
               [ Main World: src/injected.js ]
@@ -145,7 +146,7 @@ modeus-beta/
                  checkReady (таймер готовности DOM) -> setupUI() -> loadAllData() -> запуск MutationObserver
 ```
 
-Передача справочников корпусов, отзывов и конфигурации опросов из изолированного мира `src/content.js` в мир страницы `src/injected.js` выполняется через синхронный DOM-мост: данные сериализуются в Base64 и сохраняются в тегах `<meta>`. Скрипт `src/injected.js` считывает их из DOM при старте, декодирует через `TextDecoder` в `initDatabases()` / `loadSurveyConfig()` и восстанавливает в структуры памяти. Архитектурное обоснование выбора синхронного DOM-моста вместо асинхронных `postMessage` и `CustomEvent` зафиксировано в [ADR-002](adr/ADR-002-dom-data-bridge-meta-tags.md).
+Передача справочников корпусов, отзывов и конфигурации опросов из изолированного мира `src/content.js` в мир страницы `src/injected.js` выполняется через синхронный DOM-мост: данные сериализуются в Base64 и сохраняются в тегах `<meta>` (с мгновенным чтением из кэша `localStorage` и локального бандла, что гарантирует старт скриптов < 5 мс без сетевой блокировки). При получении обновлений с GitHub Raw фоновый процесс обновляет `<meta>` и рассылает событие `mse:databases-updated`. Архитектурное обоснование выбора синхронного DOM-моста вместо асинхронных `postMessage` и `CustomEvent` зафиксировано в [ADR-002](adr/ADR-002-dom-data-bridge-meta-tags.md).
 
 ### 1.4. Реестр архитектурных решений (ADR)
 
@@ -170,7 +171,7 @@ modeus-beta/
 |---|---|---|
 | **Логирование и отладка** | `logger`, `isDebug()`, `window.MSE_enableDebug()`, `window.MSE_status()` | `localStorage` (`mse_debug`), `window.__MSE_DEBUG__`, `console.log/warn/error` |
 | **Session Keeper** | `monitorSessionHealth()`, `triggerSilentRefresh()`, `handleAuthStorageSync()`, `saveAuthTokensBackup()` | `iframe#mse-silent-refresher`, `sessionStorage` (9 ключей авторизации), `localStorage` (`mse_auth_backup`), Web Locks API (`navigator.locks`, `mse_silent_refresh_lock`), события `storage`, `visibilitychange`, `click`, `#mse-toast-container` |
-| **Сетевой перехват** | `interceptNetworkRequests()`, `processPersonSearchResponse()` | Перехват `window.fetch` (`/api/people/persons/search`, `/module-elements/`), перехват `XMLHttpRequest.prototype.open`/`send` (`/api/people/persons/search`, `/academic-period-results-table/primary`) |
+| **Сетевой перехват** | `interceptNetworkRequests()`, `processPersonSearchResponse()` | Перехват `window.fetch` (`/api/people/persons/search`, `/module-elements/`, `/academic-period-results-table/primary`), перехват `XMLHttpRequest.prototype.open`/`send` (`/api/people/persons/search`, `/academic-period-results-table/primary`) |
 | **Базы данных и DOM-мост** | `initDatabases()`, `loadBuildingsDatabase()`, `loadTeacherReviewsDatabase()`, `loadSurveyConfig()` | `meta[name="modeus-buildings-map"]`, `meta[name="modeus-teacher-reviews"]`, `meta[name="modeus-survey-config"]`, `meta[name="modeus-enhancer-version"]`, `databaseState` |
 | **Меню друзей** | `renderFriendsMenu()`, `addFriend()`, `removeFriend()`, `getFriends()` | `localStorage` (`mse_friends_list`, `mse_my_person_id`), `modeus-main-menu p-panelmenu > .p-panelmenu.p-component`, `#mse-friends-menu`, `#mse-return-to-me-menu`, `.mse-remove-friend-btn`, `.p-multiselect-items li.p-multiselect-item` |
 | **Корпуса и отзывы** | `enhanceBuildingNames()`, `enhanceLists()`, `enhancePopovers()`, `renderFooterFeedback()` | `.fc-time small.text-muted`, `ngb-popover-window`, `.location-info__header-text`, `.teachers-list li > div:not(.title) div`, `#teacher-tooltip`, `modeus-aside-panel`, `#mse-feedback-footer` |
@@ -187,29 +188,23 @@ modeus-beta/
 > 1. `access_token` (UUID, живет **60 минут**) — используется самим Angular-клиентом Modeus; его истечение приводит к ошибкам запросов хост-приложения и выбросу пользователя из интерфейса.
 > 2. `id_token` (JWT, живет **24 часа**) — содержит клеймы студента (`person_id`, `exp`) и используется как `Bearer`-токен для прямых API-запросов расширения (календарь, физкультура, успеваемость) и как индикатор жизни суточной SSO-сессии.
 
-* **Назначение:** Фоновое продление авторизационного токена Modeus (срок жизни токена — 60 минут) и устранение внезапных выбросов на страницу входа с потерей несохраненных данных.
-* **Архитектурный контракт:** Реализован через скрытый `iframe` в связке с модификацией заголовков `sub_frame` через DeclarativeNetRequest (`data/rules.json`). Обычный `fetch` к SSO блокируется политикой CORS и SameSite-куками ADFS, поэтому используется скрытый iframe (подробнее в [ADR-001](adr/ADR-001-silent-session-refresh.md)). Отказ от хранения паролей Active Directory и сохранение принципа Zero Password Knowledge зафиксированы в [ADR-003](adr/ADR-003-rejection-of-credential-storage.md).
-* **Изоляция сетевых правил (`data/rules.json`):** Снятие заголовков `Content-Security-Policy` и `X-Frame-Options` через DeclarativeNetRequest ограничено строго типом ресурса `sub_frame` (`"resourceTypes": ["sub_frame"]`) на доменах авторизации (`fs.utmn.ru`, `auth.modeus.org`) и никогда не затрагивает основной фрейм страницы (`main_frame`), обеспечивая строгую изоляцию контекста приложения. Ограничение по `initiatorDomains` намеренно не используется, так как в цепочке SSO (utmn.modeus.org ↔ auth.modeus.org ↔ fs.utmn.ru) при промежуточных редиректах инициатором запросов выступают разные домены авторизации.
-* **Монитор сессии и тихий рефреш:**
-  * Фоновый таймер `monitorSessionHealth()` запускается каждые 20 секунд.
-  * Если до истечения срока действия токена остается менее 60 секунд, вызывается процедура тихого обновления `triggerSilentRefresh()`.
-  * Создается скрытый элемент `iframe#mse-silent-refresher`, направленный на авторизационный URL Modeus.
-  * После прохождения цепочки редиректов SSO фрейм возвращается на URL `https://utmn.modeus.org/#access_token=...`. Родительское окно опрашивает хэш фрейма с интервалом 50 мс по правилу Same-Origin, парсит свежие параметры (`access_token`, `id_token`, `expires_in`, `session_state`) и обновляет `sessionStorage`.
-  * При получении токена с малым остатком жизни запускается таймер точного ожидания до его фактического истечения.
-* **Межвкладочная координация и защита от гонок (Multi-tab Race Condition Resilience):**
-  * **Координация лидерства через Web Locks API:** Запуск тихого рефреша в `triggerSilentRefresh()` обернут в нативный механизм неблокирующего захвата блокировки `navigator.locks.request('mse_silent_refresh_lock', { ifAvailable: true }, async (lock) => ...)`. Только одна вкладка-лидер получает блокировку и запускает `executeSilentRefresh()`, создавая скрытый iframe. Если блокировка уже занята другой вкладкой (`lock === null`), фоновая вкладка логирует пропуск в канал `[MSE Session]` и мгновенно выходит без выполнения сетевых запросов и создания iframe. При отсутствии поддержки Web Locks в браузере работает прозрачный fallback.
-  * **Реактивная синхронизация токенов через событие `storage`:** После успешного обновления токенов вкладка-лидер сохраняет бэкап в `localStorage` (`mse_auth_backup`). Во всех остальных открытых вкладках срабатывает слушатель `handleAuthStorageSync(e)` на объекте `window`. Обработчик синхронно копирует все 9 ключей сессии в локальный `sessionStorage` вкладки, сбрасывает счетчик неудачных попыток (`refreshFailureCount = 0`), деактивирует состояние Circuit Breaker, сбрасывает таймер ожидания `smartWaitTimer` и останавливает локальный рефреш при его наличии.
-  * **Гарантия очистки:** Слушатель события `storage` зарегистрирован в процедуре аварийной остановки (`stopAndCleanUp()`) через `window.removeEventListener('storage', handleAuthStorageSync)`.
-* **Устойчивость к спящему режиму (Sleep Resilience):**
-  * При пробуждении ПК после сна или разморозке вкладки (`timeSinceLastCheck > 45` с, слушатель `visibilitychange`) выполняется автоматический сброс зависших состояний и принудительное удаление элементов `#mse-silent-refresher`.
-  * Тайм-аут зависания процесса рефреша (`SESSION_STUCK_TIMEOUT_MS = 25000` мс): если процесс рефреша не завершился в срок, состояние и DOM-элементы гарантированно сбрасываются через `cleanupSilentRefresh()`, предотвращая блокировку последующих проверок («Запрос отклонен: iframe уже запущен»).
-* **Предохранитель от бесконечного цикла (Circuit Breaker):**
-  * При 5 последовательных неудачных попытках тихого рефреша (`SESSION_MAX_REFRESH_ATTEMPTS = 5`) активируется предохранитель: фоновые сетевые запросы к серверу авторизации полностью прекращаются, исключая лавинообразный спам 302-редиректами в Network DevTools.
-  * Автоматически удаляется невалидный бэкап сессии из `localStorage.mse_auth_backup`.
-  * Пользователю отображается понятное уведомление (toast) о завершении сессии и необходимости повторного входа.
-* **Определение срока жизни сессии по JWT (`claims.exp`):**
-  * Время истечения основного токена (`getMainTokenExpiresAt()`) вычисляется на основе клейма `claims.exp` из JWT (`claims.exp * 1000`), являющегося первичным источником истины.
-* **Реанимация при холодном старте:** Основной скрипт сохраняет копию авторизационных ключей через `saveAuthTokensBackup()` в `localStorage.mse_auth_backup`. При открытии новой вкладки ранний обработчик `src/keeper-early.js` на стадии `document_start` проверяет отсутствие `sessionStorage.getItem('access_token')`. Если токен отсутствует, скрипт валидирует суточный ID-токен из резервной копии по метаданным JWT (`claims.exp * 1000`). Если токен еще действует, все 9 ключей копируются в `sessionStorage`, восстанавливая сессию до инициализации Angular. При обнаружении просроченного токена невалидный бэкап немедленно удаляется.
+Фоновое продление авторизационного токена Modeus (срок жизни — 60 минут) предотвращает внезапные выбросы на страницу входа с потерей несохраненных данных студента.
+
+#### Базовый механизм жизненного цикла
+
+1. **Холодный старт (`src/keeper-early.js`):** На этапе `document_start` скрипт проверяет наличие `sessionStorage.getItem('access_token')`. Если токен пуст, из резервной копии `localStorage.mse_auth_backup` считывается суточный ID-токен: если он еще валиден по метаданным JWT (`claims.exp * 1000`), все 9 ключей сессии восстанавливаются в `sessionStorage` строго до старта Angular-приложения. При обнаружении просроченного токена невалидный бэкап удаляется.
+2. **Мониторинг каждые 20 с (`monitorSessionHealth`):** Фоновый таймер в `src/injected.js` регулярно опрашивает остаток времени жизни токена. При получении токена с малым остатком жизни запускается таймер точного ожидания до фактического истечения.
+3. **Тихий рефреш за 60 с до истечения (`triggerSilentRefresh`):** Когда до истечения срока действия токена остается менее 60 секунд, создается скрытый элемент `iframe#mse-silent-refresher`, направленный на URL авторизации Modeus. После прохождения SSO-редиректов фрейм возвращается на `https://utmn.modeus.org/#access_token=...`. Родительское окно опрашивает хэш с интервалом 50 мс по правилу Same-Origin, парсит свежие токены (`access_token`, `id_token`, `expires_in`, `session_state`), обновляет `sessionStorage` и перезаписывает бэкап `saveAuthTokensBackup()` ([ADR-001](adr/ADR-001-silent-session-refresh.md)).
+4. **Изоляция сетевых правил (`data/rules.json`):** Прямой `fetch` к SSO блокируется CORS и SameSite-куками ADFS. Поэтому для тихого фрейма задействован DeclarativeNetRequest, снимающий заголовки `Content-Security-Policy` и `X-Frame-Options` строго для типа ресурса `sub_frame` на доменах авторизации (`fs.utmn.ru`, `auth.modeus.org`), что полностью исключает влияние на основной контекст страницы (`main_frame`) и соблюдает принцип Zero Password Knowledge ([ADR-003](adr/ADR-003-rejection-of-credential-storage.md)).
+
+#### Защита от сбоев и граничных сценариев
+
+| Сценарий | Механизм защиты в коде |
+|---|---|
+| **Гонка нескольких вкладок** *(Multi-tab Race Condition)* | **Координация лидерства через Web Locks API:** `triggerSilentRefresh()` запрашивает блокировку `navigator.locks.request('mse_silent_refresh_lock', { ifAvailable: true })`. Только одна вкладка-лидер запускает рефреш и создает iframe; фоновые вкладки пропускают шаг. После обновления токенов вкладка-лидер сохраняет бэкап в `localStorage`, что вызывает событие `window.onstorage` (`handleAuthStorageSync`): остальные открытые вкладки синхронно переносят 9 ключей в свой `sessionStorage`, сбрасывают `refreshFailureCount = 0` и останавливают локальный процесс рефреша. |
+| **Спящий режим ПК / заморозка вкладки** *(Sleep Resilience)* | При пробуждении ПК или разморозке вкладки (`timeSinceLastCheck > 45` с, слушатель `visibilitychange`) выполняется принудительный сброс зависших состояний и удаление элементов `#mse-silent-refresher`. Сторожевой таймаут зависания (`SESSION_STUCK_TIMEOUT_MS = 25000` мс) гарантированно вызывает `cleanupSilentRefresh()`, предотвращая блокировку последующих проверок («iframe уже запущен»). |
+| **Отказ сервера SSO** *(Circuit Breaker)* | При 5 последовательных неудачных попытках тихого рефреша (`SESSION_MAX_REFRESH_ATTEMPTS = 5`) фоновые сетевые запросы прекращаются, исключая лавинообразный спам 302-редиректами в Network DevTools. Невалидный бэкап удаляется из `localStorage`, а пользователю выводится toast-уведомление о необходимости повторного входа. |
+| **Истечение суточного JWT** | Срок действия сессии определяется по клейму `claims.exp * 1000` в `getMainTokenExpiresAt()`. По истечении 24 часов сессия завершается без ложных сетевых запросов, а недействительный бэкап удаляется. |
 
 ### 2.2. Расписание и поиск общих пар
 
@@ -229,10 +224,11 @@ modeus-beta/
 
 ### 2.3. Модуль успеваемости
 
-* **Сетевой перехват оценок:** Перехватчик на уровне `XMLHttpRequest.prototype.send` отслеживает завершение запроса `POST /students-app/api/pages/student-card/my/academic-period-results-table/primary` (транспорт `HttpClient` в Angular). Из ответа извлекаются дисциплины, семестры и порядок занятий (`orderIndex`).
+* **Сетевой перехват оценок:** Перехватчик на уровне `XMLHttpRequest.prototype.send` и `window.fetch` отслеживает завершение запроса `POST /students-app/api/pages/student-card/my/academic-period-results-table/primary` (транспорт `HttpClient` в Angular). Из ответа извлекаются дисциплины, семестры и порядок занятий (`orderIndex`).
+* **Сессионное кэширование успеваемости:** Распарсенная таблица дисциплин сохраняется в `sessionStorage` (`mse_grades_primary_cache`) и лениво восстанавливается при переходе на страницу успеваемости без повторных сетевых запросов.
 * **Загрузка технологических карт:** Для каждой дисциплины отправляется фоновый запрос `GET /courses/api/course-units/{id}/lessons-technology`, формирующий карту максимальных баллов по контрольным точкам занятий.
 * **Отображение баллов и агрегация:**
-  * Функция `enhanceGradesTable()` сопоставляет колонки «Встреча N» с уроками из техкарты.
+  * Функция `enhanceGradesTable()` сопоставляет названия дисциплин регистронезависимо (`toLowerCase()`) и находит колонки «Встреча N» с уроками из техкарты (с fallback на сопоставление по имени занятия).
   * При получении максимального балла оценка выделяется подчеркиванием без дополнительных дробей (`.mse-max-done`).
   * При частичном балле к значению добавляется знаменатель (`/${max}`).
   * При наличии 3 и более оценок за одно занятие баллы и максимумы суммируются в единую дробь через `injectIndividualGradeBadges()`, предотвращая деформацию ячеек таблицы.
@@ -271,23 +267,16 @@ modeus-beta/
   * Для обхода фильтра **Verbose** в Chrome DevTools информационные и отладочные сообщения направляются через `console.log` со стилизованными цветовыми префиксами.
   * **Таймштампы (ЧЧ:ММ:СС.ммм):** Сообщения снабжаются системной меткой времени с точностью до миллисекунд (например, `[14:05:23.456]`).
   * **Точность времени токенов:** Остаток жизни токенов выводится с 3 знаками после запятой (например, `3541.234 сек.`), а при истечении фиксируется интервал просрочки: `просрочен на X.XXX сек. (Y мс)`.
-  * Реализовано четыре общих уровня (`debug`, `info`, `warn`, `error`) и шесть контекстных каналов:
+  * Реализовано четыре общих уровня (`debug`, `info`, `warn`, `error`) и семь контекстных каналов:
     * `[MSE Session]`: время жизни access-токена и суточного токена, создание скрытого iframe, статус ответа и новый срок действия токена.
     * `[MSE Network]`: события перехвата сетевых данных (поиск персон: найдено N чел; таблица `/primary`: N предметов; секции физкультуры).
     * `[MSE Calendar]`: этапы загрузки `loadAllData` (загружено N событий на неделю; получены участники; привязано N карточек к DOM).
     * `[MSE DB]`: статус загрузки баз корпусов и отзывов о преподавателях (запрос к GitHub, замер времени ответа, fallback на локальный пакет).
     * `[MSE Update]`: статус проверки обновлений (версия на GitHub, возраст кэша, сравнение SemVer, симуляция обновлений).
+    * `[MSE Survey]`: метрики вовлеченности (`logger.survey`), суточный ролловер активности, проверка guard-условий показа и отправка телеметрии.
     * `[MSE PE]`: логирование запросов бронирования и отмены секций физкультуры, параметров модулей и ошибок бэкенда Booking API.
 * **Переключение режима отладки без перезагрузки:**
-  * Проверка активности режима выполняется динамически через `isDebug()`:
-  * `window.MSE_enableDebug()` — активирует подробный вывод в рантайме, сохраняет флаг `mse_debug: "1"` в `localStorage` и выводит текущую сводку: версию расширения, статус токенов, состояние баз данных и статус обновлений.
-  * `window.MSE_disableDebug()` — отключает подробный вывод в рантайме и удаляет ключ из `localStorage`.
-  * `window.MSE_status()` — выводит статус сессии, баз данных и обновлений по запросу.
-  * `window.MSE_checkUpdates(force = true)` — принудительно запрашивает свежий релиз с GitHub Releases API.
-  * `window.MSE_testUpdate(mockVersion = '9.9.9')` — симулирует появление новой версии, отрисовывая бейдж и модальное окно.
-  * `window.MSE_simulateSurvey(customConfig)` — симулирует показ опроса из `data/survey.json` (или кастомного конфига) в тестовом режиме в обход условий показа.
-  * `window.MSE_checkSurvey()` — проверяет выполнение условий показа опроса и запускает его при удовлетворении критериев.
-  * `window.MSE_clearSurveyCache()` — сбрасывает кэш опроса и флаги скрытия в `localStorage`.
+  * Проверка активности режима выполняется динамически функцией `isDebug()`, опрашивающей флаг `mse_debug: "1"` в `localStorage` и свойство `window.__MSE_DEBUG__`. Это позволяет переключать детализацию логов на лету без перезагрузки страницы (F5) через консольные команды (см. справочную таблицу в [разделе 4](#4-быстрый-старт-для-разработчика-how-to-contribute--debug)).
 * **Разделение DEV vs PROD:**
   * **PROD (по умолчанию):** При обычной загрузке страницы выводится только стартовый баннер расширения.
   * **WARN / ERROR:** Предупреждения и критические ошибки выводятся **всегда**, обеспечивая диагностику сбоев у пользователей.
@@ -295,23 +284,15 @@ modeus-beta/
 ### 2.7. Подсистема интерактивных опросов и аналитики
 
 * **Назначение:** Сбор пользовательских предпочтений и приоритизация продуктовых функций среди активных студентов без перехода на внешние сервисы.
-* **Архитектурный мост и кэширование (Dev vs Prod):**
-  * **Продакшен (студенты):** Опрос работает онлайн через GitHub Raw (`raw.githubusercontent.com/.../data/survey.json`) с кэшированием в `localStorage.mse_survey_cache` (TTL 12 часов). В релизный ZIP-пакет файл `data/survey.json` не включается, исключая устаревшие оффлайн-опросы. При отсутствии сети или сбое запроса к GitHub опрос тихо пропускается.
-  * **Режим разработки (автор):** Локальный файл `data/survey.json` (`web_accessible_resources`) используется для локальной отладки черновиков анкет без публикации на GitHub. Он считывается при активном флаге отладки (`mse_debug: "1"`), а также тестируется через `window.MSE_simulateSurvey()`.
-  * **Мост данных:** Конфигурация сериализуется в Base64 и монтируется скриптом `src/content.js` в синхронный метатег `<meta name="modeus-survey-config">` ([ADR-002](adr/ADR-002-dom-data-bridge-meta-tags.md)), откуда считывается функцией `loadSurveyConfig()` в контексте Main World.
-* **Трекер продуктовой активности (Engagement-Based Retention):**
-  * Учет чистого времени взаимодействия (heartbeat) ведется каждую секунду через `recordActiveHeartbeat()` с защитой от спящего режима (`deltaMs <= 3000`) и только при активной вкладке (`document.visibilityState === 'visible'`).
-  * **Суточный ролловер:** При смене календарной даты проверяется преодоление суточного порога (`minDailySecondsToQualify`). При достаточной активности дата сохраняется в массив `mse_qualified_days`, а суточный счетчик сбрасывается.
+* **Архитектурный мост и кэширование (Dev vs Prod):** В продакшене опрос загружается с GitHub Raw (`data/survey.json`) с кэшированием в `localStorage.mse_survey_cache` (TTL 12 ч), а в dev-режиме (`mse_debug: "1"`) читается локальный черновик. Конфигурация сериализуется в Base64 и монтируется скриптом `src/content.js` в синхронный метатег `<meta name="modeus-survey-config">` ([ADR-002](adr/ADR-002-dom-data-bridge-meta-tags.md)), откуда считывается функцией `loadSurveyConfig()`.
+* **Трекер продуктовой активности:** Ежесекундный heartbeat (`recordActiveHeartbeat()`) учитывает чистое время взаимодействия при активной вкладке. При наступлении новых суток преодоление суточного порога `minDailySecondsToQualify` фиксирует дату в массиве `mse_qualified_days`.
 * **Условия показа опроса (`shouldShowSurvey`):**
-  * Показ опроса инициируется только при одновременном выполнении условий:
-    1. Опрос включен автором (`config.enabled === true`).
-    2. Опросы не отключены пользователем (`mse_surveys_disabled_forever !== '1'`).
-    3. Опрос с данным ID еще не отклонялся и не завершался (`mse_survey_dismissed_{id} !== '1'`).
-    4. Не активен таймер отсрочки (`Date.now() > mse_survey_snooze_until`).
-    5. Выполнены критерии таргетинга (`config.targeting`):
-       * `daysSinceInstall >= targeting.minDaysSinceInstall` (стаж с момента установки расширения).
-       * `qualifiedDaysCount >= targeting.minQualifiedDays` (число квалифицированных дней с активностью >= `minDailySecondsToQualify`).
-       * `totalActiveSeconds >= targeting.minTotalActiveSeconds` (суммарное чистое время активного взаимодействия).
+  Показ опроса инициируется только при одновременном выполнении условий:
+  1. Опрос включен автором (`config.enabled === true`).
+  2. Опросы не отключены пользователем (`mse_surveys_disabled_forever !== '1'`).
+  3. Опрос с данным ID еще не отклонялся и не завершался (`mse_survey_dismissed_{id} !== '1'`).
+  4. Не активен таймер отсрочки (`Date.now() > mse_survey_snooze_until`).
+  5. Выполнены критерии таргетинга: `daysSinceInstall >= minDaysSinceInstall`, `qualifiedDaysCount >= minQualifiedDays` и `totalActiveSeconds >= minTotalActiveSeconds`.
 * **Спецификация параметров продуктового таргетинга (`targeting` в `data/survey.json`):**
   | Параметр | Тип | Единицы | Описание и продуктовый смысл |
   |---|---|---|---|
@@ -319,45 +300,16 @@ modeus-beta/
   | `minQualifiedDays` | `number` | дни | **Регулярность визитов:** минимальное количество разных календарных дней, в каждый из которых студент набрал активность >= `minDailySecondsToQualify` (`mse_qualified_days`). Отсекает разовые открытия. |
   | `minDailySecondsToQualify` | `number` | секунды | **Суточный порог квалификации:** чистое время активного взаимодействия за день (например, 60 с или 120 с), необходимое для зачета суток как квалифицированного дня. |
   | `minTotalActiveSeconds` | `number` | секунды | **Суммарный хронометраж:** совокупное чистое время активной работы с расширением за всё время (`mse_total_active_seconds`, например 300 с = 5 минут). |
-* **Пользовательский интерфейс опроса (`#mse-survey-popup`):**
-  * Интерфейс монтируется в `document.body` и последовательно отображает экраны приглашения, вопросов и завершения либо отказа (`invite`, `question`, `completed`, `decline`).
-  * Поддерживаются типы вопросов `single` (радиокнопки) и `multiple` (чекбоксы).
-  * Параметр `allowCustom: true` активирует поле «Свой вариант» с текстовым инпутом `<input class="mse-survey-custom-input">` и автофокусом.
-  * **Валидация:** Кнопка перехода к следующему шагу блокируется до выбора хотя бы одного варианта или ввода непустого текста в кастомном поле.
-  * **Санитизация:** Все тексты вопросов, вариантов ответов и пользовательский ввод экранируются перед рендерингом и отправкой.
-* **Анонимная телеметрия (`sendSurveyMetric`):**
-  * Результаты и события взаимодействия (`completed`, `declined`, `disabled_forever`) передаются методом POST на внешний вебхук Google Apps Script ([ADR-004](adr/ADR-004-remote-survey-and-telemetry.md)).
-  * Запрос отправляется в режиме `mode: 'no-cors'` с заголовком `'Content-Type': 'text/plain'`, что исключает блокировку браузером при HTTP 302 переадресации Google.
-* **Управление и отладка в консоли:**
-  * `window.MSE_checkSurvey()` — проверяет условия показа и запускает опрос при их выполнении.
-  * `window.MSE_simulateSurvey(customConfig)` — симулирует показ опроса из `data/survey.json` (или переданного объекта) в тестовом режиме.
-  * `window.MSE_getEngagementStats()` — возвращает метрики стажа, секунд активности и квалифицированных дней.
-  * `window.MSE_getSurveyConfig()` / `window.MSE_setSurveyConfig(config)` — чтение и подмена активной конфигурации.
-  * `window.MSE_clearSurveyCache()` — очистка кэша опроса и флагов скрытия в `localStorage`.
+* **Пользовательский интерфейс опроса (`#mse-survey-popup`):** Модальное окно монтируется в `document.body` и последовательно проводит пользователя через экраны приглашения (`invite`), вопросов (`single`/`multiple` с опциональным текстовым инпутом «Свой вариант») и завершения либо отказа. Все тексты и ответы экранируются перед рендерингом, а переход к следующему шагу валидируется обязательным выбором варианта.
+* **Анонимная телеметрия (`sendSurveyMetric`):** Результаты и события взаимодействия передаются методом POST на внешний вебхук Google Apps Script в режиме `mode: 'no-cors'` с типом `'Content-Type': 'text/plain'`, что исключает блокировку браузером при HTTP 302 переадресации ([ADR-004](adr/ADR-004-remote-survey-and-telemetry.md)). Управление опросами из консоли осуществляется командами `window.MSE_*` (см. [раздел 4](#4-быстрый-старт-для-разработчика-how-to-contribute--debug)).
 
 ### 2.8. Подсистема проверки обновлений ([MSE Update])
 
-* **Назначение:** Оповещение пользователей о выходе новых версий расширения со ссылкой на релиз GitHub без использования постоянного фонового service worker.
-* **Сетевой эндпоинт и протокол:**
-  * Запрос выполняется к GitHub Releases API: `GET https://api.github.com/repos/student1245/Modeus-Student-Enhancer/releases/latest` (константа `API_GITHUB_LATEST`).
-  * Результаты проверки кэшируются в `localStorage` на 2 часа (`UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000`).
-* **Модель локального кэширования:**
-  * `localStorage.mse_last_update_check` (timestamp) — время последнего обращения к сети.
-  * `localStorage.mse_latest_release` (JSON) — данные последнего релиза (`tag_name`, `html_url`, `name`).
-  * `localStorage.mse_dismissed_v{version}` (`"1"`) — флаг скрытия уведомления для конкретной версии (по клику на «Позже»).
-* **Жизненный цикл и проверка версий (`checkExtensionUpdate`):**
-  * Функция `resolveLatestRelease()` проверяет возраст кэша. Если кэш моложе 2 часов и не передан флаг принудительной проверки (`force: true`), используются сохраненные данные, иначе выполняется сетевой запрос к GitHub.
-  * Номер версии релиза сопоставляется с текущей версией манифеста (`CURRENT_VERSION`, читаемой из `<meta name="modeus-enhancer-version">`) по правилам SemVer (`compareSemVer`).
-  * Если версия релиза новее текущей:
-    * В панель фильтров `#search-controls` монтируется кликабельный бейдж обновления `renderUpdateBadge()`: `<a id="mse-update-badge" href="..." target="_blank"><span>⚡ v{version}</span></a>`.
-    * В `document.body` монтируется модальное уведомление `renderUpdatePopup()` с кнопками перехода к релизу (`#mse-update-btn`) и скрытия (`#mse-dismiss-btn`).
-* **Периодичность запуска:**
-  * Фоновая проверка запускается через **1.5 секунды** после загрузки страницы (`setTimeout`).
-  * Периодический опрос выполняется каждые **2 часа** через `setInterval(UPDATE_CHECK_INTERVAL_MS)`.
-* **Команды отладки и тестирования:**
-  * `window.MSE_checkUpdates(force = true)` — принудительный опрос GitHub API в обход 2-часового кэша.
-  * `window.MSE_testUpdate(mockVersion = '9.9.9')` (или `window.MSE_simulateUpdate`) — визуальная симуляция появления обновления с тестовым номером версии для проверки бейджа и модального окна.
-  * Логирование шагов проверки ведется в канал `[MSE Update]`.
+Оповещает пользователей о выходе новых версий расширения со ссылкой на релиз GitHub без постоянного фонового service worker:
+
+1. **Механика и 2-часовой кэш:** Функция `resolveLatestRelease()` запрашивает GitHub Releases API (`GET /repos/student1245/Modeus-Student-Enhancer/releases/latest`). Результаты кэшируются в `localStorage` на 2 часа (`mse_last_update_check`, `mse_latest_release`), предотвращая превышение лимитов GitHub API. При клике «Позже» выставляется флаг скрытия `mse_dismissed_v{version}`.
+2. **Отрисовка UI при новой версии SemVer:** Номер релиза сопоставляется с текущей версией (`CURRENT_VERSION` из `<meta name="modeus-enhancer-version">`) через `compareSemVer()`. Если релиз новее, монтируются кликабельный бейдж `renderUpdateBadge()` в панели `#search-controls` и модальное окно `renderUpdatePopup()` с описанием изменений и ссылкой на GitHub.
+3. **Точка входа `checkExtensionUpdate()`:** Первичная фоновая проверка запускается через 1.5 секунды после загрузки страницы, далее опрос повторяется каждые 2 часа через таймер `setInterval()`. Логирование ведется в канал `[MSE Update]`, а ручное тестирование выполняется командами `window.MSE_*` (см. [раздел 4](#4-быстрый-старт-для-разработчика-how-to-contribute--debug)).
 
 ---
 
@@ -473,7 +425,7 @@ modeus-beta/
 | `sessionStorage` | `nonce` | `string` | Случайное проверочное значение OpenID Connect. |
 | `sessionStorage` | `session_state` | `string` | Идентификатор сессии SSO сервера авторизации. |
 
-#### 3.3.2. Собственные ключи расширения (localStorage / chrome.storage)
+#### 3.3.2. Собственные ключи расширения (localStorage / sessionStorage / chrome.storage)
 
 Ключи создаются исключительно кодом расширения для сохранения настроек, резервного копирования авторизации, кэширования справочников и аналитики продуктовой активности.
 
@@ -494,6 +446,9 @@ modeus-beta/
 | `localStorage` | `mse_total_active_seconds` | `string` (number) | Суммарное накопленное чистое время активности за все время использования. |
 | `localStorage` | `mse_qualified_days` | `string` (JSON array) | Массив дат (`YYYY-MM-DD`), в которые пользователь преодолел суточный порог активности. |
 | `localStorage` | `mse_last_active_date` | `string` (`YYYY-MM-DD`) | Дата последней зафиксированной активности для вычисления суточного ролловера. |
+| `localStorage` | `mse_buildings_cache` | `string` (JSON) | Кэш справочника корпусов `buildings.json` с меткой времени (TTL 24 часа) для мгновенного монтажа без задержки инъекции скриптов. |
+| `localStorage` | `mse_reviews_cache` | `string` (JSON) | Кэш справочника отзывов `teacher_reviews.json` с меткой времени (TTL 24 часа) для мгновенного монтажа без задержки инъекции скриптов. |
+| `sessionStorage` | `mse_grades_primary_cache` | `string` (JSON) | Кэш структуры дисциплин и занятий (`/academic-period-results-table/primary`) для мгновенного восстановления максимальных баллов при переходах по SPA и обновлениях страницы. |
 | `localStorage` | `mse_survey_cache` | `string` (JSON) | Записывается и читается скриптом `src/content.js` (Isolated World) в общем `localStorage` с меткой времени (TTL 12 часов). |
 | `localStorage` | `mse_survey_snooze_until` | `string` (timestamp) | Метка времени, до которой отложен показ опроса (при выборе действия «Позже», 3 дня). |
 | `localStorage` | `mse_survey_dismissed_{id}` | `string` (`"1"`) | Флаг отклонения или завершения конкретного опроса с идентификатором `{id}`. |
@@ -537,31 +492,23 @@ modeus-beta/
    * Нажмите кнопку **«Загрузить распакованное»** (Load unpacked) и выберите папку проекта `modeus-beta`.
    * Перейдите на страницу расписания университета: `https://utmn.modeus.org/`.
 
-2. **Включение отладки на лету (Debug Mode):**
-   * Откройте консоль браузера (F12 → Console) и выполните:
-     ```javascript
-     window.MSE_enableDebug();
-     ```
-   * Это мгновенно активирует подробные цветные логи по 6 каналам (`[MSE Session]`, `[MSE Network]`, `[MSE Calendar]`, `[MSE DB]`, `[MSE Update]`, `[MSE PE]`) без перезагрузки страницы (сохраняет флаг `mse_debug: "1"` в `localStorage`).
-   * Для отключения подробных логов используйте `window.MSE_disableDebug()`, а для вывода текущей сводки по сессии и базам данных — `window.MSE_status()`.
+2. **Справочная таблица консольных команд (`window.MSE_*`):**
+   Все управляющие методы и команды тестирования доступны в глобальной области видимости DevTools (F12 → Console) без необходимости перезагрузки страницы:
 
-3. **Тестирование подсистемы опросов:**
-   * Для симуляции отображения интерфейса опроса в обход guard-условий продуктового таргетинга выполните:
-     ```javascript
-     window.MSE_simulateSurvey();
-     ```
-   * Для штатной проверки выполнения условий таргетинга вызовите `window.MSE_checkSurvey()`.
-   * Для сброса кэша опроса и флагов скрытия в `localStorage` вызовите `window.MSE_clearSurveyCache()`.
+   | Команда | Назначение |
+   |---|---|
+   | `window.MSE_enableDebug()` | Мгновенно включает подробный режим отладки по 7 каналам без перезагрузки (сохраняет `mse_debug: "1"` в `localStorage`) и выводит сводный статус |
+   | `window.MSE_disableDebug()` | Отключает подробный вывод в рантайме и удаляет флаг `mse_debug` из `localStorage` |
+   | `window.MSE_status()` | Выводит в консоль сводку по сессии и токенам, состоянию баз данных и проверке обновлений |
+   | `window.MSE_checkUpdates(force = true)` | Принудительно запрашивает свежий релиз с GitHub Releases API в обход 2-часового кэша |
+   | `window.MSE_testUpdate(mockVersion = '9.9.9')` | Симулирует появление новой версии, отрисовывая бейдж в `#search-controls` и модальное окно (алиас: `MSE_simulateUpdate`) |
+   | `window.MSE_checkSurvey()` | Проверяет выполнение guard-условий продуктового таргетинга и запускает опрос при их удовлетворении |
+   | `window.MSE_simulateSurvey(customConfig)` | Симулирует показ опроса из `data/survey.json` (или переданного объекта) в обход условий показа |
+   | `window.MSE_getEngagementStats()` | Возвращает объект метрик активности (стаж в днях, секунды за сегодня/всего, квалифицированные дни) |
+   | `window.MSE_getSurveyConfig()` | Возвращает активный объект конфигурации опроса |
+   | `window.MSE_setSurveyConfig(config)` | Динамически подменяет конфигурацию опроса в рантайме |
+   | `window.MSE_clearSurveyCache()` | Сбрасывает кэш опроса и флаги скрытия/отказа в `localStorage` |
+   | `window.MSE_showToast(text, type, duration)` | Отображает тестовое всплывающее уведомление (toast) |
 
-4. **Тестирование подсистемы проверки обновлений:**
-   * Для визуальной симуляции бейджа и модального окна новой версии выполните:
-     ```javascript
-     window.MSE_testUpdate('9.9.9');
-     ```
-   * Для принудительной сетевой проверки свежего релиза с GitHub Releases API в обход 2-часового кэша вызовите:
-     ```javascript
-     window.MSE_checkUpdates(true);
-     ```
-
-5. **Правило чистой деактивации (`stopAndCleanUp`):**
+3. **Правило чистой деактивации (`stopAndCleanUp`):**
    * При реализации любых новых функций, добавляющих DOM-элементы, таймеры, наблюдатели (`MutationObserver`) или патчирующих нативные прототипы браузера, разработчик **обязан** зарегистрировать их удаление и сброс в процедуре `stopAndCleanUp()`. Это гарантирует корректную работу кнопки экстренной остановки «Стоп-скрипт» (`#enhancer-stop-button` / `window.studentEnhancer.stop()`).
