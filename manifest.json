@@ -24,7 +24,7 @@
       {
         "id": "ruleset_1",
         "enabled": true,
-        "path": "rules.json"
+        "path": "data/rules.json"
       }
     ]
   },
@@ -34,7 +34,7 @@
         "https://utmn.modeus.org/*"
       ],
       "js": [
-        "keeper-early.js"
+        "src/keeper-early.js"
       ],
       "run_at": "document_start"
     },
@@ -43,26 +43,25 @@
         "https://utmn.modeus.org/*"
       ],
       "css": [
-        "styles.css",
-        "pe-styles.css"
+        "styles/styles.css",
+        "styles/pe-styles.css"
       ],
       "js": [
-        "pe-module.js",
-        "content.js"
+        "src/pe-module.js",
+        "src/content.js"
       ],
       "run_at": "document_end"
     }
   ],
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "popup/popup.html",
     "default_title": "Modeus Student Enhancer"
   },
   "web_accessible_resources": [
     {
       "resources": [
-        "styles.css",
-        "injected.js",
-        "pe-module.js",
+        "src/injected.js",
+        "src/pe-module.js",
         "buildings.json",
         "teacher_reviews.json",
         "data/survey.json"

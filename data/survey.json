@@ -4,7 +4,7 @@
   "targeting": {
     "minDaysSinceInstall": 10,
     "minQualifiedDays": 5,
-    "minDailySecondsToQualify": 60,
+    "minDailySecondsToQualify": 30,
     "minTotalActiveSeconds": 300
   },
   "webhookUrl": "https://script.google.com/macros/s/AKfycbwUgqAKHztog8GakSgnepiYVcLGc5MkmX1OuHxlC4YtI79iMZiNvwRH9MKaRRvRNntBMg/exec",
@@ -13,11 +13,11 @@
   "questions": [
     {
       "id": "favorite_feature",
-      "type": "single",
+      "type": "multiple",
       "text": "Какая функция для вас самая полезная?",
       "options": [
         "Анти-вылет сессии 24ч",
-        "Умная физкультура и перезапись",
+        "Выбор физкультуры, где секции в расписании с учетом пар",
         "Отзывы о преподавателях",
         "Максимум баллов в оценках"
       ]
@@ -29,8 +29,7 @@
       "text": "Чего сильнее всего не хватает в Модеусе?",
       "options": [
         "Тёмная тема (Dark Mode)",
-        "Копирование расписания текстом для Telegram",
-        "Симулятор добора баллов до автомата/зачёта"
+        "Ссылка, которую можно добавить в гугл-календрь и получать постоянное актуальное расписание из модеуса"
       ]
     }
   ]

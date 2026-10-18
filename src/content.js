@@ -176,12 +176,12 @@
   document.head.appendChild(versionMeta);
 
   const peScript = document.createElement('script');
-  peScript.src = chrome.runtime.getURL('pe-module.js');
+  peScript.src = chrome.runtime.getURL('src/pe-module.js');
   peScript.async = false; // Важно, чтобы сохранился порядок загрузки
   (document.head || document.documentElement).appendChild(peScript);
 
   const coreScriptElement = document.createElement('script');
-  coreScriptElement.src = chrome.runtime.getURL('injected.js');
+  coreScriptElement.src = chrome.runtime.getURL('src/injected.js');
   coreScriptElement.async = false;
   (document.head || document.documentElement).appendChild(coreScriptElement);
 })();
