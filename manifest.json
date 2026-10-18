@@ -17,7 +17,8 @@
   ],
   "host_permissions": [
     "https://utmn.modeus.org/*",
-    "https://fs.utmn.ru/*"
+    "https://fs.utmn.ru/*",
+    "https://auth.modeus.org/*"
   ],
   "declarative_net_request": {
     "rule_resources": [

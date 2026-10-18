@@ -440,7 +440,7 @@
     const SESSION_BURN_THRESHOLD_SEC = 90;                // Порог дожигания сервером старого токена
     const SESSION_SMART_WAIT_MARGIN_SEC = 3;              // Запас ожидания истечения токена в секундах
     const SESSION_POLL_INTERVAL_MS = 50;                  // Опрос хэша фрейма каждые 50 мс
-    const SESSION_IFRAME_TIMEOUT_MS = 20000;              // Таймаут ожидания фрейма обновления (20 сек для запаса сети и ADFS)
+    const SESSION_IFRAME_TIMEOUT_MS = 15000;              // Таймаут ожидания фрейма обновления (15 сек, гарантированно меньше интервала проверки 20 сек)
     const SESSION_MAX_REFRESH_ATTEMPTS = 5;               // Предохранитель (Circuit Breaker): макс. попыток тихого рефреша подряд
     const SESSION_STUCK_TIMEOUT_MS = 25000;               // Предохранитель от сна ПК: макс. время зависания одного рефреша (25 сек)
     const DOM_CHECK_READY_INTERVAL_MS = 200;              // Опрос готовности календаря при старте
@@ -878,26 +878,6 @@
 
     function executeSilentRefresh() {
         return new Promise((resolve) => {
-            if (isSilentRefreshing) {
-                const elapsed = Date.now() - refreshStartedAt;
-                if (elapsed > SESSION_STUCK_TIMEOUT_MS) {
-                    logger.warn(
-                        `[MSE Session] Обнаружен зависший фоновый процесс (прошло ${(elapsed / 1000).toFixed(1)} сек., возможен сон ПК). Принудительный сброс.`
-                    );
-                    cleanupSilentRefresh();
-                    refreshFailureCount++;
-                    if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
-                        triggerCircuitBreaker();
-                        resolve();
-                        return;
-                    }
-                } else {
-                    logger.session('Запрос на продление отклонен: фоновый iframe уже запущен');
-                    resolve();
-                    return;
-                }
-            }
-
             cleanupSilentRefresh();
             silentRefreshResolver = resolve;
             isSilentRefreshing = true;
@@ -948,6 +928,24 @@
         if (isCircuitBreakerOpen) {
             logger.session('Запрос на продление отклонен: сработал Circuit Breaker (серверная сессия завершена)');
             return;
+        }
+
+        if (isSilentRefreshing) {
+            const elapsed = Date.now() - refreshStartedAt;
+            if (elapsed > SESSION_STUCK_TIMEOUT_MS) {
+                logger.warn(
+                    `[MSE Session] Обнаружен зависший фоновый процесс (прошло ${(elapsed / 1000).toFixed(1)} сек., возможен сон ПК). Принудительный сброс.`
+                );
+                cleanupSilentRefresh();
+                refreshFailureCount++;
+                if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
+                    triggerCircuitBreaker();
+                    return;
+                }
+            } else {
+                logger.session('Запрос на продление отклонен: фоновый iframe уже запущен');
+                return;
+            }
         }
 
         if (navigator?.locks?.request) {

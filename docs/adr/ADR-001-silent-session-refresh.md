@@ -86,7 +86,7 @@ Accepted | Implemented (v2.2.3)
 Данная комбинация полностью решает проблему Zero-Logout Lifecycle, обходя платформенные ограничения безопасности без нарушения изоляции браузера и без деградации пользовательского опыта.
 
 ### Trade-offs
-- Мы принимаем необходимость декларации расширенных прав расширения (`declarativeNetRequest`, доступ к хосту `https://fs.utmn.ru/*`) в обмен на стабильную и бесперебойную сессию пользователя.
+- Мы принимаем необходимость декларации расширенных прав расширения (`declarativeNetRequest`, доступ к хостам `https://fs.utmn.ru/*` и `https://auth.modeus.org/*`) в обмен на стабильную и бесперебойную сессию пользователя.
 - Мы принимаем хранение сессионных токенов в `localStorage` (с защитой через валидацию суточного срока `id_token` и обязательным удалением бэкапа при явном логауте) в обмен на мгновенный холодный старт в новых вкладках.
 
 ## Non-Goals
@@ -151,7 +151,7 @@ Accepted | Implemented (v2.2.3)
 
 ### Affected Areas
 - `rules.json` — декларативные правила Chromium DNR.
-- `manifest.json` — разрешения `declarativeNetRequest`, `storage`, секция `declarative_net_request` и `host_permissions` для `fs.utmn.ru`.
+- `manifest.json` — разрешения `declarativeNetRequest`, `storage`, секция `declarative_net_request` и `host_permissions` для `fs.utmn.ru` и `auth.modeus.org`.
 - `keeper-early.js` — ранний content script (`run_at: document_start`).
 - `injected.js` — блок Session Keeper (функции `saveAuthTokensBackup`, `triggerSilentRefresh`, `monitorSessionHealth`, слушатель логаута).
 
