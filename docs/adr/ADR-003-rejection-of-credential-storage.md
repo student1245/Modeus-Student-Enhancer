@@ -271,13 +271,13 @@ Superseded by [ADR-005: Опциональный автоматический в
 ## Implementation Contract
 
 ### Scope
-Политика безопасности и правила обращения с учетными данными пользователей во всех модулях расширения (`keeper-early.js`, `content.js`, `injected.js`, `pe-module.js`, `popup.js`).
+Политика безопасности и правила обращения с учетными данными пользователей во всех модулях расширения (`src/keeper-early.js`, `src/content.js`, `src/injected.js`, `src/pe-module.js`, `popup/popup.js`).
 
 ### Affected Areas
 - `manifest.json` — запрет на добавление привилегий для скрытого перехвата форм ввода.
-- `injected.js` — блок Session Keeper (строгий лимит попыток Circuit Breaker, отсутствие парольной логики).
-- `popup.html` / `popup.js` — запрет на создание элементов UI для ввода учетных данных.
-- `README.md` / документация — фиксация политики безопасности для пользователей и контрибьюторов.
+- `src/injected.js` — блок Session Keeper (строгий лимит попыток Circuit Breaker, отсутствие парольной логики).
+- `popup/popup.html` / `popup/popup.js` — запрет на создание элементов UI для ввода учетных данных.
+- `readme.md` / документация — фиксация политики безопасности для пользователей и контрибьюторов.
 
 ### Required Changes & Behavior
 1. Session Keeper обязан прекращать попытки фонового рефреша при срабатывании Circuit Breaker (`SESSION_MAX_REFRESH_ATTEMPTS = 5`) и отображать toast-уведомление о необходимости повторного входа.

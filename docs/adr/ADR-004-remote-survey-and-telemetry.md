@@ -8,7 +8,7 @@ Accepted | Implemented (v2.2.2)
 
 - **Initiator / Decision Owner:** `student1245`
 - **Stakeholders:** Пользователи расширения (студенты ТюмГУ), разработчики расширения Modeus Student Enhancer.
-- **Current state:** Подсистема интерактивных опросов и анонимной телеметрии полностью реализована в кодовой базе (`content.js`, `injected.js`, `data/survey.json`, `styles.css`).
+- **Current state:** Подсистема интерактивных опросов и анонимной телеметрии полностью реализована в кодовой базе (`src/content.js`, `src/injected.js`, `data/survey.json`, `styles/styles.css`).
 - **Why now:** Фиксация архитектурных развилок и контрактов по сбору обратной связи и приоритизации продуктовых функций. Необходимо защитить проект от неоправданного усложнения инфраструктуры (поднятие собственного бэкенда), исключить утечки персональных данных и не допустить появления устаревших анкет («зомби-опросов») в оффлайн-сборках.
 - **Constraints:**
   1. *Zero Dedicated Backend:* Полное отсутствие собственного платного сервера, базы данных или выделенного API-шлюза для расширения.
@@ -90,7 +90,7 @@ Accepted | Implemented (v2.2.2)
 
 ### 1. Архитектура Remote Config и кэширования
 - Конфигурация хранится в `https://raw.githubusercontent.com/student1245/Modeus-Student-Enhancer/main/data/survey.json`.
-- Запрос выполняется из Isolated World (`content.js`) с таймаутом `FETCH_TIMEOUT_MS = 2500` мс.
+- Запрос выполняется из Isolated World (`src/content.js`) с таймаутом `FETCH_TIMEOUT_MS = 2500` мс.
 - Успешный ответ сохраняется в `localStorage.mse_survey_cache` с временем жизни 12 часов (`SURVEY_CACHE_TTL_MS = 12 * 60 * 60 * 1000`).
 - В продакшене опрос работает строго онлайн: если запрос к GitHub завершился сбоем и кэш отсутствует, загрузчик тихо возвращает `null` без обращения к локальному пакету и без спама ошибками 404 в консоль.
 - В релизном GitHub Actions workflow (`.github/workflows/release.yml`) файл `data/survey.json` и каталог `data/*` принудительно исключаются из финального архива через флаг `-x`.
@@ -116,7 +116,7 @@ Accepted | Implemented (v2.2.2)
   - `answers`: объект с ответами (только при `action === 'completed'`). Отсутствуют любые персональные данные пользователя (IP, ФИО, email, student ID).
 
 ### 4. Разделение Dev vs Prod
-- В dev-режиме (при флаге `mse_debug: "1"`) `content.js` приоритетно считывает локальный `data/survey.json`, позволяя автору мгновенно тестировать новые структуры опросов без пушей в GitHub.
+- В dev-режиме (при флаге `mse_debug: "1"`) `src/content.js` приоритетно считывает локальный `data/survey.json`, позволяя автору мгновенно тестировать новые структуры опросов без пушей в GitHub.
 - Метод `window.MSE_simulateSurvey(customConfig)` позволяет принудительно открыть попап с тестовым конфигом в любой момент в консоли.
 - Метод `window.MSE_clearSurveyCache()` полностью сбрасывает кэш и все флаги скрытия (`mse_survey_dismissed_*`) для повторного тестирования.
 
@@ -173,9 +173,9 @@ Accepted | Implemented (v2.2.2)
 Подсистема удаленной конфигурации опросов и сбора телеметрии.
 
 ### Affected Areas
-- `content.js` — загрузчик конфига с таймаутом 2500 мс и тихим пропуском, обработчик `mse_debug`.
-- `injected.js` — модуль `checkSurvey()`, предикат `shouldShowSurvey()`, отправка метрик `sendSurveyMetric()`, методы отладки `window.MSE_*`.
-- `styles.css` — стили 4-экранного модального окна опроса.
+- `src/content.js` — загрузчик конфига с таймаутом 2500 мс и тихим пропуском, обработчик `mse_debug`.
+- `src/injected.js` — модуль `checkSurvey()`, предикат `shouldShowSurvey()`, отправка метрик `sendSurveyMetric()`, методы отладки `window.MSE_*`.
+- `styles/styles.css` — стили 4-экранного модального окна опроса.
 - `data/survey.json` — локальный черновик для автора.
 - `.github/workflows/release.yml` — исключение каталога `data/*` из продакшен-бандла.
 

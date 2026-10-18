@@ -105,7 +105,7 @@ Accepted | Implemented (v2.2.3)
 
 ### Negative / Trade-offs
 - Расширение зависит от работоспособности Chromium DeclarativeNetRequest API.
-- Необходимость сопровождения файла `rules.json` и синхронизации сессионных ключей.
+- Необходимость сопровождения файла `data/rules.json` и синхронизации сессионных ключей.
 
 ### Risks
 
@@ -141,7 +141,7 @@ Accepted | Implemented (v2.2.3)
 
 Контракт является нерушимым и не подлежит произвольному пересмотру, **ЗА ИСКЛЮЧЕНИЕМ** наступления следующих событий:
 1. **Официальный переход Modeus на Authorization Code Flow с PKCE** и включенным CORS на бэкенде авторизации (позволит перейти на чистый фоновый `fetch()` без использования DOM-фреймов).
-2. **Официальное добавление домена `utmn.modeus.org` в заголовок `Content-Security-Policy: frame-ancestors`** сервера `fs.utmn.ru` (устранит необходимость сетевого правила в `rules.json`).
+2. **Официальное добавление домена `utmn.modeus.org` в заголовок `Content-Security-Policy: frame-ancestors`** сервера `fs.utmn.ru` (устранит необходимость сетевого правила в `data/rules.json`).
 3. **Изменение политик безопасности Chromium**, запрещающее модификацию заголовков подфреймов через DeclarativeNetRequest API или Same-Origin доступ к фрагменту хэша внутри фрейма.
 
 ## Implementation Contract
@@ -150,13 +150,13 @@ Accepted | Implemented (v2.2.3)
 Подсистема **Session Keeper**: поддержание непрерывности авторизационной сессии в рантайме и ранняя гидратация контекста при холодном старте вкладки.
 
 ### Affected Areas
-- `rules.json` — декларативные правила Chromium DNR.
+- `data/rules.json` — декларативные правила Chromium DNR.
 - `manifest.json` — разрешения `declarativeNetRequest`, `storage`, секция `declarative_net_request` и `host_permissions` для `fs.utmn.ru` и `auth.modeus.org`.
-- `keeper-early.js` — ранний content script (`run_at: document_start`).
-- `injected.js` — блок Session Keeper (функции `saveAuthTokensBackup`, `triggerSilentRefresh`, `monitorSessionHealth`, слушатель логаута).
+- `src/keeper-early.js` — ранний content script (`run_at: document_start`).
+- `src/injected.js` — блок Session Keeper (функции `saveAuthTokensBackup`, `triggerSilentRefresh`, `monitorSessionHealth`, слушатель логаута).
 
 ### Required Changes & Behavior
-1. `rules.json` обязан содержать правила `modifyHeaders` с удалением `content-security-policy` и `x-frame-options` для `resourceTypes: ["sub_frame"]` на фильтрах `||fs.utmn.ru` и `||auth.modeus.org`.
+1. `data/rules.json` обязан содержать правила `modifyHeaders` с удалением `content-security-policy` и `x-frame-options` для `resourceTypes: ["sub_frame"]` на фильтрах `||fs.utmn.ru` и `||auth.modeus.org`.
 2. Мониторинг должен производиться регулярно (интервал 20 секунд) и запускать рефреш строго за 60 секунд до `expires_at`.
 3. Фрейм `#mse-silent-refresher` обязан иметь стили скрытия:
    ```css
@@ -166,7 +166,7 @@ Accepted | Implemented (v2.2.3)
 5. При извлечении токенов обязательно обновлять `sessionStorage` (`access_token`, `access_token_stored_at`, `expires_at`, `id_token`, `session_state`) и немедленно вызывать `saveAuthTokensBackup()`.
 6. Обязательна обработка дожигания старого токена сервером (`accessToken === oldToken && expiresIn <= 90` -> установка `smartWaitTimer`).
 7. Обязателен предохранительный таймаут очистки фрейма на 12 секунд.
-8. Скрипт `keeper-early.js` обязан проверять валидность `id_token_expires_at > Date.now()` перед восстановлением ключей в `sessionStorage`.
+8. Скрипт `src/keeper-early.js` обязан проверять валидность `id_token_expires_at > Date.now()` перед восстановлением ключей в `sessionStorage`.
 9. Обязателен слушатель кликов на селекторы логаута (`a[href*="logout"], button[id*="logout"], .logout-btn`) для удаления `mse_auth_backup`.
 
 ### Patterns to Follow
@@ -179,14 +179,14 @@ Accepted | Implemented (v2.2.3)
 - ❌ **ЗАПРЕЩЕНО** заменять скрытый iframe на вызовы `fetch()` или `XMLHttpRequest` для продления сессии (гарантированный отказ из-за отсутствия CORS и потери хэша при 302-редиректах).
 - ❌ **ЗАПРЕЩЕНО** использовать `window.location.href` для обновления сессии (недопустимый сброс состояния Angular SPA, форм и фокуса).
 - ❌ **ЗАПРЕЩЕНО** подключать сторонние OAuth / OIDC библиотеки (раздувание размера бандла и усложнение архитектуры).
-- ❌ **ЗАПРЕЩЕНО** убирать проверку `id_token_expires_at` в `keeper-early.js` (риск зацикливания авторизации на протухших данных).
+- ❌ **ЗАПРЕЩЕНО** убирать проверку `id_token_expires_at` в `src/keeper-early.js` (риск зацикливания авторизации на протухших данных).
 
 ### Dependencies & Configuration
 - Нативные API Chromium: `chrome.declarativeNetRequest`, `Storage API`.
 - Внешние библиотеки: отсутствуют (0 зависимостей).
 
 ### Data Migration & Rollback
-- При отказе механизма: удаление правил из `rules.json` и блока Session Keeper из `injected.js` возвращает стандартное поведение платформы Modeus (ручной логин каждый час).
+- При отказе механизма: удаление правил из `data/rules.json` и блока Session Keeper из `src/injected.js` возвращает стандартное поведение платформы Modeus (ручной логин каждый час).
 - Формат хранилища `localStorage.mse_auth_backup` — JSON-объект словаря строковых ключей `AUTH_STORAGE_KEYS`.
 
 ## Related Decisions

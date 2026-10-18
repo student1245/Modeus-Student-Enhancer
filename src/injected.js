@@ -1102,10 +1102,11 @@
     window.addEventListener('click', handleLogoutClick, true);
 
     // Логирование динамического изменения статуса автовхода из content.js
-    document.addEventListener('mse:autologin-updated', (e) => {
+    const handleAutologinUpdated = (e) => {
         const isEnabled = Boolean(e?.detail?.isEnabled);
         logger.session(`Статус автовхода 24ч+ обновлен: ${isEnabled ? 'АКТИВЕН (1)' : 'отключен (0)'}`);
-    });
+    };
+    document.addEventListener('mse:autologin-updated', handleAutologinUpdated);
 
     // Межвкладочная синхронизация токенов сессии через Storage Event
     const handleAuthStorageSync = (e) => {
@@ -1544,6 +1545,7 @@
         }
         document.removeEventListener('click', handleOutsideSearchClick);
         document.removeEventListener('mse:databases-updated', handleDatabasesUpdated);
+        document.removeEventListener('mse:autologin-updated', handleAutologinUpdated);
 
         // 4. Очистка внедрённых DOM-элементов и деактивация стилей
         document.body.classList.remove(CLASS_MSE_ACTIVE);
@@ -1561,6 +1563,9 @@
         qs(`#${ID_OPEN_PE_BTN}`)?.remove();
 
         attendeesMemoryCache.clear();
+        eventCache.clear();
+        uniqueStudents.clear();
+        lastSearchResults.clear();
         lastActiveCalendarPersonId = null;
         clearSearch();
         delete window.studentEnhancer;
@@ -2069,7 +2074,7 @@
             <div class="mse-update-title">🚀 Доступно обновление Enhancer!</div>
             <div class="mse-update-text">Вышла версия <b>v${escapeHtml(latestVersion)}</b> с новыми функциями и исправлениями. Перейдите по ссылке, чтобы узнать, что появилось нового!</div>
             <div class="mse-update-actions">
-                <a href="${releaseUrl}" target="_blank" id="mse-update-btn">Посмотреть / Скачать</a>
+                <a href="${escapeHtml(releaseUrl)}" target="_blank" id="mse-update-btn">Посмотреть / Скачать</a>
                 <button id="mse-dismiss-btn">Позже</button>
             </div>
         `;

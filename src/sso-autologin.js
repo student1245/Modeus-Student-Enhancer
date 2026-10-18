@@ -253,8 +253,10 @@
                 <input type="checkbox" id="mse-remember-checkbox" style="cursor: pointer; width: 15px; height: 15px; accent-color: #0067b8; margin: 0;" ${isVaultSaved ? 'checked' : ''}>
                 <span>Запомнить меня (бесконечная сессия)</span>
             </label>
-            <div id="mse-remember-warning" style="display: none; margin-top: 8px; padding: 8px 12px; background: #f8f9fa; border-left: 3px solid #f59e0b; color: #475569; font-size: 12px; line-height: 1.45;">
-                ⚠️ <strong>Экспериментальная функция:</strong> используйте только на личном ПК. Учетные данные шифруются локально (AES-GCM 256-bit) для поддержания сессии 24ч+ и никогда не покидают браузер. При любой ошибке входа данные мгновенно удаляются.
+            <div id="mse-remember-warning" style="display: ${isVaultSaved ? 'block' : 'none'}; margin-top: 8px; padding: 10px 12px; background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #dc2626; color: #374151; font-size: 12px; line-height: 1.45; border-radius: 4px;">
+                <div style="margin-bottom: 4px; color: #1f2937;">⚠️ <strong>Экспериментальная функция — ТОЛЬКО ДЛЯ ЛИЧНОГО ПК!</strong></div>
+                <div style="color: #dc2626; margin-bottom: 4px;"><strong>Не включайте в компьютерных классах и на чужих устройствах</strong> — иначе следующий человек автоматически войдет в ваш аккаунт.</div>
+                <div style="color: #4b5563; font-size: 11.5px;">На личном устройстве данные шифруются локально (AES-GCM 256-bit) для поддержания сессии 24ч+, не покидают браузер и мгновенно удаляются при любой ошибке входа.</div>
             </div>
         `;
 

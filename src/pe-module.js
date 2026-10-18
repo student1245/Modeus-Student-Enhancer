@@ -531,12 +531,12 @@ window.MSE_PE = (function () {
                         userList.every((d, i) => d === friendList[i]);
 
                     if (isSameDisciplines) {
-                        html = `⛔ У обоих пары (${userList.length > 1 ? 'одинаковые предметы' : 'одинаковый предмет'}):<br><b>${userList.join('<br>+ ')}</b>`;
+                        html = `⛔ У обоих пары (${userList.length > 1 ? 'одинаковые предметы' : 'одинаковый предмет'}):<br><b>${userList.map(escapeHtml).join('<br>+ ')}</b>`;
                     } else {
-                        if (conflict.user) html += `🎓 У вас пара:<br><b>${conflict.user}</b>`;
+                        if (conflict.user) html += `🎓 У вас пара:<br><b>${userList.map(escapeHtml).join('<br>+ ')}</b>`;
                         if (conflict.friend) {
                             if (html !== '') html += `<hr style="margin: 6px 0; border: 0; border-top: 1px dashed #cbd5e1;">`;
-                            html += `👥 У друга (${escapeHtml(friendNameForUI)}):<br><b>${conflict.friend}</b>`;
+                            html += `👥 У друга (${escapeHtml(friendNameForUI)}):<br><b>${friendList.map(escapeHtml).join('<br>+ ')}</b>`;
                         }
                     }
 
