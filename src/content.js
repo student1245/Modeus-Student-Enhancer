@@ -15,6 +15,7 @@
   const META_BUILDINGS = 'modeus-buildings-map';
   const META_REVIEWS = 'modeus-teacher-reviews';
   const META_SURVEY = 'modeus-survey-config';
+  const META_AUTOLOGIN = 'modeus-sso-autologin';
 
   const RESOURCE_BUILDINGS = 'buildings.json';
   const RESOURCE_TEACHER_REVIEWS = 'teacher_reviews.json';
@@ -79,10 +80,23 @@
   }
 
   function mountVersionMeta() {
-    const versionMeta = document.createElement('meta');
-    versionMeta.name = 'modeus-enhancer-version';
+    let versionMeta = document.querySelector('meta[name="modeus-enhancer-version"]');
+    if (!versionMeta) {
+      versionMeta = document.createElement('meta');
+      versionMeta.name = 'modeus-enhancer-version';
+      (document.head || document.documentElement).appendChild(versionMeta);
+    }
     versionMeta.content = chrome.runtime.getManifest().version;
-    document.head.appendChild(versionMeta);
+  }
+
+  function mountOrUpdateAutologinMeta(hasVault) {
+    let meta = document.querySelector(`meta[name="${META_AUTOLOGIN}"]`);
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = META_AUTOLOGIN;
+      (document.head || document.documentElement).appendChild(meta);
+    }
+    meta.content = hasVault ? '1' : '0';
   }
 
   function injectScript(relativePath) {
@@ -192,10 +206,11 @@
   }
 
   // 1. Мгновенная инициализация из кэша / локального бандла (< 5 мс)
-  const [buildingsData, reviewsData, surveyData] = await Promise.all([
+  const [buildingsData, reviewsData, surveyData, vaultResult] = await Promise.all([
     getInitialResourceData(RESOURCE_BUILDINGS, CACHE_KEY_BUILDINGS, DATA_CACHE_TTL_MS),
     getInitialResourceData(RESOURCE_TEACHER_REVIEWS, CACHE_KEY_REVIEWS, DATA_CACHE_TTL_MS),
-    getInitialSurveyData()
+    getInitialSurveyData(),
+    chrome.storage.local.get('mse_sso_vault')
   ]);
 
   if (buildingsData?.text) {
@@ -210,6 +225,26 @@
     mountOrUpdateMeta(META_SURVEY, surveyData.text, surveyData.source);
     logDb(`Монтирован опрос (${surveyData.source})`);
   }
+
+  mountOrUpdateAutologinMeta(Boolean(vaultResult?.mse_sso_vault));
+  logDb(`Статус автовхода 24ч+: ${vaultResult?.mse_sso_vault ? 'активен (1)' : 'не настроен (0)'}`);
+
+  // Синхронизация статуса автовхода при изменениях в chrome.storage.local
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.mse_sso_vault) {
+      const isEnabled = Boolean(changes.mse_sso_vault.newValue);
+      mountOrUpdateAutologinMeta(isEnabled);
+      document.dispatchEvent(new CustomEvent('mse:autologin-updated', { detail: { isEnabled } }));
+      logDb(`Обновлен статус автовхода: ${isEnabled ? 'активен (1)' : 'отключен (0)'}`);
+    }
+  });
+
+  // Пауза автовхода на 10 минут при явном выходе пользователя («Выйти»)
+  document.addEventListener('mse:manual-logout', () => {
+    const cooldownUntil = Date.now() + 10 * 60 * 1000;
+    chrome.storage.local.set({ mse_manual_logout_until: cooldownUntil });
+    logDb('Зафиксирован явный выход из системы: автовход приостановлен на 10 минут');
+  });
 
   // 2. Мгновенная инъекция мета-версии и исполняемых скриптов ядра
   mountVersionMeta();

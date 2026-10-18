@@ -6,7 +6,7 @@
 
     // Стартовая визитка расширения (выводится всегда при запуске)
     console.log(
-        '%c Modeus Enhancer %c v2.2.2 %c by @JasonVurhyz & student1245\n' +
+        `%c Modeus Enhancer %c v${CURRENT_VERSION} %c by @JasonVurhyz & student1245\n` +
         '%cБаги и отзывы: %c@Theguestroom_bot%c  •  Отладка: %cMSE_enableDebug()',
         'background: #007bff; color: #fff; font-weight: bold; padding: 3px 7px; border-radius: 4px 0 0 4px;',
         'background: #1e293b; color: #e2e8f0; font-weight: bold; padding: 3px 7px; border-radius: 0 4px 4px 0;',
@@ -297,9 +297,11 @@
         const circuitBreakerText = typeof isCircuitBreakerOpen !== 'undefined' && isCircuitBreakerOpen
             ? ' | Circuit Breaker: АКТИВИРОВАН (сессия умерла, авторефреш остановлен)'
             : '';
+        const isAutologinActive = document.querySelector('meta[name="modeus-sso-autologin"]')?.content === '1';
+        const autologinText = ` | Автовход 24ч+: ${isAutologinActive ? 'АКТИВЕН' : 'не настроен'}`;
 
         console.log(
-            `%c[${formatLogTimestamp()}] [MSE Status] v${CURRENT_VERSION} | Токен: ${accessSummary} | Основной: ${mainSummary}${circuitBreakerText}`,
+            `%c[${formatLogTimestamp()}] [MSE Status] v${CURRENT_VERSION} | Токен: ${accessSummary} | Основной: ${mainSummary}${autologinText}${circuitBreakerText}`,
             'color: #0284c7; font-weight: bold;'
         );
         if (typeof printDatabaseStatus === 'function') printDatabaseStatus();
@@ -994,14 +996,34 @@
             }
         }
 
+        const isAutologinActive = document.querySelector('meta[name="modeus-sso-autologin"]')?.content === '1';
+
         // Фатальный предохранитель: если основной суточный токен просрочен или отсутствует,
         // фоновое silent-продление невозможно (требуется интерактивный вход в систему).
+        // Исключение: если активен автовход (ADR-005), скрытый iframe автоматически авторизуется на fs.utmn.ru!
         const mainStatus = getMainTokenStatus();
         if (!mainStatus.hasToken || mainStatus.secondsLeft <= 0) {
+            if (isAutologinActive) {
+                logger.session(
+                    `Основной токен истек (${formatTokenStatusSummary(mainStatus)}). Автовход активен (ADR-005): запуск фонового обновления 24ч+...`
+                );
+                triggerSilentRefresh();
+                return;
+            } else {
+                logger.session(
+                    `Основной токен истек или отсутствует (${formatTokenStatusSummary(mainStatus)}). Аварийная остановка фонового обновления.`
+                );
+                triggerCircuitBreaker();
+                return;
+            }
+        }
+
+        // Если суточный токен на исходе (< 60 с) и автовход активен — обновляем суточную сессию заранее
+        if (isAutologinActive && mainStatus.secondsLeft <= SESSION_REFRESH_THRESHOLD_SEC) {
             logger.session(
-                `Основной токен истек или отсутствует (${formatTokenStatusSummary(mainStatus)}). Аварийная остановка фонового обновления.`
+                `Основной суточный токен скоро истекает (${mainStatus.secondsLeftFormatted} с). Автовход активен (ADR-005): запуск фонового обновления 24ч+...`
             );
-            triggerCircuitBreaker();
+            triggerSilentRefresh();
             return;
         }
 
@@ -1054,13 +1076,20 @@
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Удаляем бэкап при явном выходе (с возможностью снятия слушателя при очистке)
+    // Удаляем бэкап при явном выходе и уведомляем контент-скрипт о паузе автовхода (10 мин)
     const handleLogoutClick = (e) => {
         if (e.target.closest('a[href*="logout"], button[id*="logout"], .logout-btn')) {
             localStorage.removeItem(STORAGE_KEY_AUTH_BACKUP);
+            document.dispatchEvent(new CustomEvent('mse:manual-logout'));
         }
     };
     window.addEventListener('click', handleLogoutClick);
+
+    // Логирование динамического изменения статуса автовхода из content.js
+    document.addEventListener('mse:autologin-updated', (e) => {
+        const isEnabled = Boolean(e?.detail?.isEnabled);
+        logger.session(`Статус автовхода 24ч+ обновлен: ${isEnabled ? 'АКТИВЕН (1)' : 'отключен (0)'}`);
+    });
 
     // Межвкладочная синхронизация токенов сессии через Storage Event
     const handleAuthStorageSync = (e) => {

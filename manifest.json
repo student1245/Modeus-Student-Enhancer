@@ -52,6 +52,16 @@
         "src/content.js"
       ],
       "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://fs.utmn.ru/*"
+      ],
+      "js": [
+        "src/sso-autologin.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_end"
     }
   ],
   "action": {

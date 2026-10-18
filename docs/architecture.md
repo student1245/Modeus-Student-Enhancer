@@ -61,6 +61,7 @@ modeus-beta/
 ├── src/
 │   ├── keeper-early.js   # Content script (run_at: document_start): ранняя реанимация сессии до старта Angular
 │   ├── content.js        # Content script (run_at: document_end): фоновый предзагрузчик баз и инжектор скриптов
+│   ├── sso-autologin.js  # Content script (all_frames, run_at: document_end на fs.utmn.ru): опциональный автовход 24ч+ (ADR-005)
 │   ├── injected.js       # Main world script: ядро календаря, поиск пар, успеваемость, Session Keeper
 │   └── pe-module.js      # Main world script: модуль умного подбора физкультуры и бронирования секций
 ├── styles/
@@ -80,20 +81,20 @@ modeus-beta/
 │    ISOLATED WORLD (Расширение)    │    MAIN WORLD (Страница Modeus)    │
 ├───────────────────────────────────┼────────────────────────────────────┤
 │ • Доступ к chrome.* API           │ • Доступ к window.studentEnhancer  │
-│ • chrome.storage.sync             │ • Доступ к window.MSE_PE           │
+│ • chrome.storage.local/sync       │ • Доступ к window.MSE_PE           │
 │ • data/rules.json (DNR сети)      │ • Перехват window.fetch            │
-│ • src/content.js                  │ • Перехват XMLHttpRequest.send     │
-│ • src/keeper-early.js             │ • Чтение/запись sessionStorage     │
-│ • Изолирован от window-переменных │ • Патчинг history.pushState        │
-│   страницы (хранилища             │ • Прямой доступ к контексту Angular│
-│   sessionStorage и localStorage   │                                    │
-│   общие)                          │                                    │
+│ • src/content.js (modeus.org)     │ • Перехват XMLHttpRequest.send     │
+│ • src/keeper-early.js (modeus.org)│ • Чтение/запись sessionStorage     │
+│ • src/sso-autologin.js (utmn.ru)  │ • Патчинг history.pushState        │
+│ • Изолирован от window-переменных │ • Прямой доступ к контексту Angular│
+│   страницы (сейф mse_sso_vault    │                                    │
+│   защищен от скриптов Main World) │                                    │
 └───────────────────────────────────┴────────────────────────────────────┘
 ```
 
 1. **Isolated World (Изолированный мир):**
-   * Выполняет `src/keeper-early.js` и `src/content.js`.
-   * Имеет доступ к `chrome.storage.sync`, `chrome.runtime.getURL` и декларативным сетевым правилам.
+   * Выполняет `src/keeper-early.js`, `src/content.js` (на `utmn.modeus.org`) и `src/sso-autologin.js` (на `fs.utmn.ru`).
+   * Имеет доступ к `chrome.storage.local` (зашифрованный сейф `mse_sso_vault`), `chrome.storage.sync`, `chrome.runtime.getURL` и декларативным сетевым правилам.
    * Изолирован от контекста `window` страницы и не может напрямую перехватывать вызовы `fetch` Angular-приложения, однако разделяет общее дисковое и сессионное хранилище источника (`localStorage` и `sessionStorage`).
 2. **Main World (Главный мир страницы):**
    * Выполняет `src/injected.js` и `src/pe-module.js`, внедряемые в DOM через теги `<script>`.
@@ -120,6 +121,8 @@ modeus-beta/
                            ▼
               [ document_end: src/content.js ]
              ├── Проверка флага chrome.storage.sync('enabled')
+             ├── Чтение mse_sso_vault -> Вставка <meta name="modeus-sso-autologin" content="1|0">
+             ├── Слушатель mse:manual-logout -> пауза автовхода на 10 минут
              ├── Мгновенная инициализация справочников из кэша localStorage / пакета (< 5 мс)
              │   ├── buildings.json (кэш mse_buildings_cache 24ч / локальный пакет)
              │   ├── teacher_reviews.json (кэш mse_reviews_cache 24ч / локальный пакет)
@@ -138,7 +141,7 @@ modeus-beta/
              ├── Guard от повторного запуска (window.studentEnhancer)
              ├── Инициализация баз initDatabases() (декодирование <meta>-тегов и loadSurveyConfig())
              ├── Перехват сетевых запросов (fetch и XMLHttpRequest.prototype.send)
-             ├── Инициализация Session Keeper (бэкап токенов + интервал 20с)
+             ├── Инициализация Session Keeper (бэкап токенов + интервал 20с + поддержка 24ч+ автовхода)
              ├── Патчинг history.pushState и слушатель popstate
              ├── Запуск фоновой проверки обновлений checkExtensionUpdate() (1.5с + интервал 2ч)
              ├── Запуск трекера активности startEngagementTracker() (heartbeat 1с)
@@ -156,8 +159,9 @@ modeus-beta/
 |---|---|---|---|
 | [ADR-001](adr/ADR-001-silent-session-refresh.md) | Бесшовное фоновое продление сессии (Session Keeper) | Accepted | Скрытый iframe + data/rules.json (DNR) вместо fetch и редиректа |
 | [ADR-002](adr/ADR-002-dom-data-bridge-meta-tags.md) | Передача данных через &lt;meta&gt;-теги (DOM Data Bridge) | Accepted | Синхронный мост Base64 вместо асинхронного postMessage |
-| [ADR-003](adr/ADR-003-rejection-of-credential-storage.md) | Отказ от хранения учетных данных Active Directory | Accepted | Zero Password Knowledge: сессия ограничена 24 ч, делегирование браузеру и DPAPI |
+| [ADR-003](adr/ADR-003-rejection-of-credential-storage.md) | Отказ от хранения учетных данных Active Directory | Superseded | Заменен на ADR-005 (переход к безопасному локальному Opt-In хранению) |
 | [ADR-004](adr/ADR-004-remote-survey-and-telemetry.md) | Удаленное управление опросами и бессерверная телеметрия | Accepted | GitHub Raw (Remote Config) + Google Apps Script Webhook (no-cors) |
+| [ADR-005](adr/ADR-005-opt-in-sso-autologin.md) | Опциональный автовход на сервере авторизации (Сессия 24ч+) | Accepted | AES-GCM 256-bit + chrome.storage.local + Single-Attempt Circuit Breaker |
 
 ---
 
@@ -195,7 +199,7 @@ modeus-beta/
 1. **Холодный старт (`src/keeper-early.js`):** На этапе `document_start` скрипт проверяет наличие `sessionStorage.getItem('access_token')`. Если токен пуст, из резервной копии `localStorage.mse_auth_backup` считывается суточный ID-токен: если он еще валиден по метаданным JWT (`claims.exp * 1000`), все 9 ключей сессии восстанавливаются в `sessionStorage` строго до старта Angular-приложения. При обнаружении просроченного токена невалидный бэкап удаляется.
 2. **Мониторинг каждые 20 с (`monitorSessionHealth`):** Фоновый таймер в `src/injected.js` регулярно опрашивает остаток времени жизни токена. При получении токена с малым остатком жизни запускается таймер точного ожидания до фактического истечения.
 3. **Тихий рефреш за 60 с до истечения (`triggerSilentRefresh`):** Когда до истечения срока действия токена остается менее 60 секунд, создается скрытый элемент `iframe#mse-silent-refresher`, направленный на URL авторизации Modeus. После прохождения SSO-редиректов фрейм возвращается на `https://utmn.modeus.org/#access_token=...`. Родительское окно опрашивает хэш с интервалом 50 мс по правилу Same-Origin, парсит свежие токены (`access_token`, `id_token`, `expires_in`, `session_state`), обновляет `sessionStorage` и перезаписывает бэкап `saveAuthTokensBackup()` ([ADR-001](adr/ADR-001-silent-session-refresh.md)).
-4. **Изоляция сетевых правил (`data/rules.json`):** Прямой `fetch` к SSO блокируется CORS и SameSite-куками ADFS. Поэтому для тихого фрейма задействован DeclarativeNetRequest, снимающий заголовки `Content-Security-Policy` и `X-Frame-Options` строго для типа ресурса `sub_frame` на доменах авторизации (`fs.utmn.ru`, `auth.modeus.org`), что полностью исключает влияние на основной контекст страницы (`main_frame`) и соблюдает принцип Zero Password Knowledge ([ADR-003](adr/ADR-003-rejection-of-credential-storage.md)).
+4. **Изоляция сетевых правил (`data/rules.json`):** Прямой `fetch` к SSO блокируется CORS и SameSite-куками ADFS. Поэтому для тихого фрейма задействован DeclarativeNetRequest, снимающий заголовки `Content-Security-Policy` и `X-Frame-Options` строго для типа ресурса `sub_frame` на доменах авторизации (`fs.utmn.ru`, `auth.modeus.org`), что полностью исключает влияние на основной контекст страницы (`main_frame`) и обеспечивает безопасность пользовательских данных ([ADR-005](adr/ADR-005-opt-in-sso-autologin.md)).
 
 #### Защита от сбоев и граничных сценариев
 
@@ -204,7 +208,8 @@ modeus-beta/
 | **Гонка нескольких вкладок** *(Multi-tab Race Condition)* | **Координация лидерства через Web Locks API:** `triggerSilentRefresh()` запрашивает блокировку `navigator.locks.request('mse_silent_refresh_lock', { ifAvailable: true })`. Только одна вкладка-лидер запускает рефреш и создает iframe; фоновые вкладки пропускают шаг. После обновления токенов вкладка-лидер сохраняет бэкап в `localStorage`, что вызывает событие `window.onstorage` (`handleAuthStorageSync`): остальные открытые вкладки синхронно переносят 9 ключей в свой `sessionStorage`, сбрасывают `refreshFailureCount = 0` и останавливают локальный процесс рефреша. |
 | **Спящий режим ПК / заморозка вкладки** *(Sleep Resilience)* | При пробуждении ПК или разморозке вкладки (`timeSinceLastCheck > 45` с, слушатель `visibilitychange`) выполняется принудительный сброс зависших состояний и удаление элементов `#mse-silent-refresher`. Сторожевой таймаут зависания (`SESSION_STUCK_TIMEOUT_MS = 25000` мс) гарантированно вызывает `cleanupSilentRefresh()`, предотвращая блокировку последующих проверок («iframe уже запущен»). |
 | **Отказ сервера SSO** *(Circuit Breaker)* | При 5 последовательных неудачных попытках тихого рефреша (`SESSION_MAX_REFRESH_ATTEMPTS = 5`) фоновые сетевые запросы прекращаются, исключая лавинообразный спам 302-редиректами в Network DevTools. Невалидный бэкап удаляется из `localStorage`, а пользователю выводится toast-уведомление о необходимости повторного входа. |
-| **Истечение суточного JWT** | Срок действия сессии определяется по клейму `claims.exp * 1000` в `getMainTokenExpiresAt()`. По истечении 24 часов сессия завершается без ложных сетевых запросов, а недействительный бэкап удаляется. |
+| **Истечение суточного JWT / Сессия 24ч+** | Срок действия сессии определяется по клейму `claims.exp * 1000` в `getMainTokenExpiresAt()`. При отключенном автовходе по истечении 24 часов сессия завершается. При активном автовходе ([ADR-005](adr/ADR-005-opt-in-sso-autologin.md), `<meta name="modeus-sso-autologin" content="1">`) функция `monitorSessionHealth()` не останавливает работу, а запускает `triggerSilentRefresh()`: скрытый iframe переходит на `fs.utmn.ru`, где `src/sso-autologin.js` автоматически авторизуется и обновляет токены на следующие 24 часа. |
+| **Смена пароля / Ошибка входа ADFS** *(Single-Attempt Circuit Breaker)* | Контент-скрипт `src/sso-autologin.js` проверяет наличие текста в `#errorText` и сессионный флаг `sessionStorage.mse_sso_tried`. При первой же ошибке входа хранилище `mse_sso_vault` немедленно удаляется из `chrome.storage.local`, а повторные попытки прекращаются, защищая корпоративную учетную запись от блокировки в Active Directory. |
 
 ### 2.2. Расписание и поиск общих пар
 
@@ -432,6 +437,9 @@ modeus-beta/
 | Хранилище | Ключ | Тип данных | Назначение и жизненный цикл |
 |---|---|---|---|
 | `chrome.storage.sync` | `enabled` | `boolean` | Глобальный переключатель работы расширения из popup-меню (`true`/`false`). Синхронизируется между браузерами пользователя. |
+| `chrome.storage.local` | `mse_sso_vault` | `object` (JSON) | Зашифрованные учетные данные корпоративного входа (`{ ciphertextBase64, ivBase64, keyJwk, updatedAt }`) для опционального автовхода 24ч+ ([ADR-005](adr/ADR-005-opt-in-sso-autologin.md)). Защищены от Main World. |
+| `chrome.storage.local` | `mse_manual_logout_until` | `number` (timestamp) | Метка времени, до которой приостановлен автовход на `fs.utmn.ru` (10 минут паузы после явного логаута в Modeus). |
+| `sessionStorage` | `mse_sso_tried` | `string` (`"1"`) | Сессионный флаг выполнения автоматической попытки входа на `fs.utmn.ru` для работы Single-Attempt Circuit Breaker. |
 | `localStorage` | `mse_auth_backup` | `string` (JSON) | Резервная копия 9 ключей авторизации для восстановления сессии скриптом `src/keeper-early.js` при холодном старте. Удаляется при логауте. |
 | `localStorage` | `mse_debug` | `string` (`"1"`) | Флаг включения подробного режима логирования в консоль браузера (Debug Mode). |
 | `localStorage` | `mse_friends_list` | `string` (JSON) | Список сохраненных друзей `[{"id": "...", "fullName": "..."}]`. |

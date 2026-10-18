@@ -4,10 +4,18 @@
   <meta charset="utf-8" />
   <title>Modeus Student Enhancer</title>
   <style>
-    body { font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 12px; }
+    body { font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 12px; min-width: 260px; }
     .row { display: flex; align-items: center; gap: 8px; }
-    .hint { color: #666; margin-top: 8px; max-width: 260px; }
+    .hint { color: #666; margin-top: 8px; max-width: 260px; font-size: 12px; }
     button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ddd; background: #f6f6f6; cursor: pointer; }
+    .divider { border: 0; border-top: 1px solid #e2e8f0; margin: 12px 0; }
+    .autologin-section { font-size: 13px; }
+    .autologin-row { display: flex; justify-content: space-between; align-items: center; }
+    .autologin-controls { display: flex; align-items: center; gap: 6px; }
+    .status-badge { font-weight: 600; font-size: 12px; color: #64748b; }
+    .status-badge.active { color: #16a34a; }
+    .btn-reset-vault { display: none; padding: 2px 7px; font-size: 11px; font-weight: 500; color: #dc2626; border: 1px solid #fecaca; background: #fef2f2; border-radius: 4px; cursor: pointer; line-height: 1.4; }
+    .btn-reset-vault:hover { background: #fee2e2; border-color: #f87171; }
   </style>
 </head>
 <body>
@@ -17,6 +25,16 @@
   </div>
   <div class="row" style="margin-top:10px;">
     <button id="reload">Перезагрузить вкладку</button>
+  </div>
+  <hr class="divider">
+  <div class="autologin-section">
+    <div class="autologin-row">
+      <span><strong>Автовход 24ч+:</strong></span>
+      <div class="autologin-controls">
+        <span id="autologin-status" class="status-badge">Не настроен</span>
+        <button id="reset-vault" class="btn-reset-vault" title="Сбросить сохраненные учетные данные">Сбросить</button>
+      </div>
+    </div>
   </div>
   <p class="hint">Если сайт жалуется на CSP, убедись, что установлен именно этот вариант расширения (он подключает внешний скрипт).</p>
   <script src="popup.js"></script>

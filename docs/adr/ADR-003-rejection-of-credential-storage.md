@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted | Implemented (v2.2.2)
+Superseded by [ADR-005: Опциональный автоматический вход на корпоративном сервере авторизации (Бесконечная сессия 24ч+)](ADR-005-opt-in-sso-autologin.md) (2026-10-18)
 
 ## Context
 
@@ -306,6 +306,7 @@ Accepted | Implemented (v2.2.2)
 
 ## Related Decisions
 
+- **Superseded by:** [ADR-005: Опциональный автоматический вход на корпоративном сервере авторизации (Бесконечная сессия 24ч+)](ADR-005-opt-in-sso-autologin.md)
 - [ADR-001: Бесшовное фоновое продление сессии (Session Keeper)](ADR-001-silent-session-refresh.md) — базовый механизм тихого обновления токенов в рамках суточного окна.
 - [ADR-002: Передача справочников через &lt;meta&gt;-теги (DOM Data Bridge)](ADR-002-dom-data-bridge-meta-tags.md) — архитектура межконтекстного взаимодействия без создания уязвимостей в безопасности.
 

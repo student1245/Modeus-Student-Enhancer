@@ -13,8 +13,8 @@
 
 #### 2.1. Токены сессии и данные для автоматического входа (Authentication Data)
 * **Фоновое поддержание сессии (Session Keeper):** Для предотвращения внезапного завершения сессии расширение считывает текущие авторизационные токены платформы (`access_token`, `id_token`) из `sessionStorage` и сохраняет их резервную копию в `localStorage` вашего браузера (`mse_auth_backup`), а также обновляет их через скрытый фрейм (`sub_frame`) на официальном сервере авторизации университета.
-* **Опциональный автовход (Auto-Login 24h+):** Только если вы **явно включите** функцию автоматического входа в настройках расширения, ваши логин и пароль шифруются непосредственно в браузере с использованием криптографического стандарта **Web Crypto API (AES-GCM 256-bit)** и неэкспортируемого ключа (`extractable: false`), после чего сохраняются исключительно локально на вашем устройстве в изолированном хранилище `chrome.storage.local`.
-* **Гарантия безопасности:** Ваши пароли и авторизационные токены **никогда не покидают ваше устройство**, не синхронизируются через облако и не передаются разработчикам или третьим лицам. При первой же ошибке авторизации (например, после смены пароля в университете) автоматический вход мгновенно отключается для защиты вашей учетной записи от блокировки.
+* **Опциональный автовход (Auto-Login 24h+):** Только если вы **явно включите** функцию автоматического входа (чекбокс «Запомнить меня» на форме авторизации для личных ПК), ваши логин и пароль шифруются непосредственно в браузере с использованием криптографического стандарта **Web Crypto API (AES-GCM 256-bit)** и сохраняются исключительно локально на вашем устройстве в изолированном хранилище `chrome.storage.local` (недоступном скриптам веб-страниц из Main World).
+* **Гарантия безопасности:** Ваши пароли и авторизационные токены **никогда не покидают ваше устройство**, не синхронизируются через облако и не передаются разработчикам или третьим лицам. При первой же ошибке авторизации (например, после смены пароля в университете) срабатывает Single-Attempt Circuit Breaker: сохраненные учетные данные немедленно удаляются из `chrome.storage.local` для защиты вашей учетной записи от блокировки в Active Directory.
 
 #### 2.2. Академические данные и расписание
 * Данные о вашем расписании, баллах успеваемости, учебных модулях физкультуры и составе учебных групп запрашиваются вашим браузером напрямую с официальных API-серверов платформы Modeus с использованием вашей текущей сессии.
@@ -32,8 +32,8 @@
 ### 4. Управление данными и их удаление
 Вы имеете полный контроль над своими данными:
 * Вы можете мгновенно остановить работу скрипта кнопкой аварийной остановки (`#enhancer-stop-button`) в интерфейсе портала или выключить расширение через всплывающее меню (`popup/popup.html`).
-* Вы можете в любой момент очистить сохраненные данные автовхода в настройках расширения.
-* При удалении расширения из браузера все данные в `chrome.storage.local` и `IndexedDB` удаляются автоматически.
+* Вы можете в любой момент сбросить сохраненные данные автовхода во всплывающем окне расширения (кнопка «Сбросить сохраненный вход»).
+* При удалении расширения из браузера все данные в `chrome.storage.local` удаляются автоматически.
 
 ### 5. Соответствие политике ограниченного использования (Limited Use)
 Использование информации, полученной из API браузера, полностью соответствует требованиям **Chrome Web Store User Data Policy**, включая требования **Limited Use**: мы не продаем данные третьим лицам, не используем их для показа рекламы и не передаем брокерам данных.
@@ -49,8 +49,8 @@
 
 #### 2.1. Authentication Information (Session Keeper & Optional Auto-Login)
 * **Session Keeper:** To prevent unexpected logouts and data loss, the extension reads active OAuth/JWT tokens (`access_token`, `id_token`) from `sessionStorage`, backs them up locally in the browser's `localStorage` (`mse_auth_backup`), and silently refreshes them via a hidden `sub_frame` pointing to the official university SSO endpoint.
-* **Optional Auto-Login (Strict Opt-In):** Only if the user **explicitly enables** the Auto-Login feature, the extension encrypts the user's login credentials locally using the browser's native **Web Crypto API (AES-GCM 256-bit)** with a non-extractable key (`extractable: false` stored in `IndexedDB`) and stores the ciphertext exclusively on the user's device in `chrome.storage.local`.
-* **Zero External Transfer:** User passwords and authentication tokens **never leave the user's device**, are never logged, and are never transmitted to any developer server or third party. On any authentication error, auto-login immediately trips a single-attempt circuit breaker and disables itself to prevent Active Directory account lockouts.
+* **Optional Auto-Login (Strict Opt-In):** Only if the user **explicitly enables** the Auto-Login feature ("Remember me" checkbox on the university SSO form on personal PCs), the extension encrypts the user's credentials locally using the browser's native **Web Crypto API (AES-GCM 256-bit)** and stores the encrypted vault exclusively on the user's device in isolated `chrome.storage.local` (inaccessible to web page scripts in the Main World).
+* **Zero External Transfer & Safety:** User passwords and authentication tokens **never leave the user's device**, are never logged, and are never transmitted to any developer server or third party. On any authentication error or repeated failure, auto-login immediately trips a Single-Attempt Circuit Breaker, purging stored credentials from `chrome.storage.local` to prevent Active Directory account lockouts. Users can reset stored credentials at any time via the extension popup.
 
 #### 2.2. Academic & Schedule Data
 * Schedule events, grades, physical education booking slots, and classmate lists are fetched directly by the user's browser from official Modeus API endpoints using the user's active session.
