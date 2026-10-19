@@ -55,7 +55,8 @@
     },
     {
       "matches": [
-        "https://fs.utmn.ru/*"
+        "https://fs.utmn.ru/*",
+        "https://auth.modeus.org/*"
       ],
       "js": [
         "src/sso-autologin.js"

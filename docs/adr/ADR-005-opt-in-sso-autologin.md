@@ -87,7 +87,7 @@ Accepted | Implemented (v2.2.3)
 Мы официально утверждаем замену [ADR-003](ADR-003-rejection-of-credential-storage.md) на настоящую архитектуру **Опционального автоматического входа на корпоративном сервере авторизации (ADR-005)**:
 
 1. **Изолированный контент-скрипт (`src/sso-autologin.js`):**
-   Регистрируется в `manifest.json` для `matches: ["https://fs.utmn.ru/*"]` с параметрами `"all_frames": true` и `"run_at": "document_end"`, исполняясь в изолированном контексте Isolated World.
+   Регистрируется в `manifest.json` для `matches: ["https://fs.utmn.ru/*", "https://auth.modeus.org/*"]` с параметрами `"all_frames": true` и `"run_at": "document_end"`, исполняясь в изолированном контексте Isolated World.
 
 2. **Интерфейс согласия пользователя (Consent UI):**
    В основном окне (`window.self === window.top`) под полем пароля монтируется блок `#mse-remember-container` с чекбоксом «Запомнить меня». При включении отображается предупреждение:
@@ -117,11 +117,15 @@ Accepted | Implemented (v2.2.3)
    - В `src/injected.js` функция `monitorSessionHealth()` проверяет данный метатег: если автовход активен, то при истечении даже суточного `id_token` выполнение не останавливается аварийно, а вызывается `triggerSilentRefresh()`.
    - Скрытый `iframe#mse-silent-refresher` переходит по цепочке OAuth на `fs.utmn.ru`, где `src/sso-autologin.js` внутри подфрейма автоматически отправляет сохраненные учетные данные и возвращает родительскому окну свежий 24-часовой токен без единого клика пользователя.
 
-6. **Пауза после ручного логаута (Manual Logout Cooldown):**
-   При явном нажатии пользователем кнопки выхода в Modeus отправляется событие `mse:manual-logout`, записывающее в `chrome.storage.local` ключ `mse_manual_logout_until = Date.now() + 10 * 60 * 1000` (10-минутная пауза), предотвращая нежелательный немедленный повторный вход.
+6. **Умный ручной выход и автовозврат из тупиковых страниц:**
+   - **Одноразовый флаг ручного выхода (`mse_manual_logout_once`):** При нажатии «Выйти» в интерфейсе Modeus (`p-button.logout-button, .logout-button, .fa-sign-out, [icon*="fa-sign-out"]` в `src/injected.js`) синхронно очищается `localStorage.mse_auth_backup`, выставляется `mse_manual_logout_once: true` в `chrome.storage.local` и диспатчится событие `mse:manual-logout` (без преждевременной очистки `sessionStorage`, что сохраняет `id_token` для корректного OIDC-запроса Angular). При переходе на форму входа `fs.utmn.ru` флаг однократно сбрасывается (`false`), и автоотправка формы не выполняется, позволяя пользователю сменить аккаунт или войти вручную.
+   - **Сбой выхода на WSO2 (`oauth2_error.do`):** При отсутствии сессионной куки WSO2 возвращает ошибку (`access_denied`, `opbs`, `missing` или на русской локали «Для полученного состояния сессии не найдена действительная сессия», «Доступ запрещен»). Скрипт `src/sso-autologin.js` независимо от локали распознает завершение сессии, выставляет `mse_manual_logout_once: true` и мгновенно перенаправляет на `https://fs.utmn.ru/adfs/ls/?wa=wsignout1.0`, минуя анти-цикл retry.
+   - **Сброс ADFS и принудительный сброс WSO2 (`wa=wsignout1.0` -> `#mse_logout=1`):** На странице `wa=wsignout1.0` скрипт выставляет `mse_manual_logout_once: true` и направляет браузер на `https://utmn.modeus.org/#mse_logout=1`. На стадии `document_start` скрипт `src/keeper-early.js` очищает `sessionStorage` и `mse_auth_backup`, после чего немедленно перенаправляет на `/oauth2/authorize?...&prompt=login`, гарантируя сброс сессионной куки `commonAuthId` сервера WSO2 и обязательный показ формы ввода учетных данных ADFS на `fs.utmn.ru`.
+   - **Ранняя гидратация хэша авторизации (`#access_token=...`):** При возврате с `fs.utmn.ru` скрипт `src/keeper-early.js` на стадии `document_start` до загрузки скриптов Angular парсит параметры OAuth (`access_token`, `id_token`, `expires_in`, `session_state`), декодирует JWT-клеймы, сохраняет 9 сессионных ключей в `sessionStorage` и бэкап в `localStorage.mse_auth_backup`, а затем очищает URL до `/` через `history.replaceState(null, '', '/')`. Это исключает конфликт стороннего `state` внутри Angular (`tryLoginImplicitFlow`) и предотвращает редирект на `/not-authorized/authorized-error`.
+   - **Мгновенное восстановление при ошибках входа (`retry.do` / обычный `oauth2_error.do`):** Скрипт мгновенно проверяет счетчик в `sessionStorage.mse_retry_count` за окно 10 секунд: при первой ошибке вызывается `window.location.replace('https://utmn.modeus.org/')`, а при повторной ошибке подряд цикл останавливается и в карточке ошибки появляется кнопка «Попробовать снова (Вернуться в Modeus)».
 
 7. **Управление в Popup расширения:**
-   В окне `popup/popup.html` отображается текущий статус автовхода («Активен» / «Не настроен») и кнопка «Сбросить сохраненный вход», позволяющая пользователю в любой момент мгновенно очистить сейф.
+   В окне `popup/popup.html` отображается текущий статус автовхода («Активен» / «Не настроен») и компактная кнопка «Сбросить», позволяющая пользователю в любой момент мгновенно очистить сейф.
 
 ---
 
@@ -144,8 +148,8 @@ Accepted | Implemented (v2.2.3)
 |---|---|---|---|---|
 | Блокировка аккаунта студента в Active Directory при смене пароля | Критическое | Появление `#errorText` или повторный рендеринг страницы с `mse_sso_tried` | Single-Attempt Circuit Breaker: строго 1 попытка, немедленное удаление `mse_sso_vault` | student1245 |
 | Использование функции на публичном ПК | Высокое | Пользователь активирует чекбокс на чужом устройстве | Яркий предупреждающий дисклеймер под чекбоксом, кнопка сброса в popup, отключение по умолчанию | student1245 |
-| Зацикливание авторизации при ручном выходе («Выйти») | Среднее | Страница мгновенно логинит обратно после логаута | Установка тайм-аута `mse_manual_logout_until` на 10 минут при клике на выход | student1245 |
-| Асинхронная отправка формы до завершения шифрования | Среднее | Данные не успевают записаться в storage до ухода страницы | Перехват `click`/`submit` с `e.preventDefault()`, шифрование, запись и последующий вызов `submit()` | student1245 |
+| Зацикливание авторизации при ручном выходе («Выйти») | Среднее | Страница мгновенно логинит обратно после логаута | Одноразовый флаг `mse_manual_logout_once: true`, отключающий автологин на один переход и сбрасывающийся на форме входа | student1245 |
+| Асинхронная отправка формы до завершения шифрования | Среднее | Данные не успевают записаться в storage до ухода страницы | Реактивное сохранение на событиях ввода + перехват на фазе capture с `e.stopImmediatePropagation()` до завершения записи | student1245 |
 
 ---
 
@@ -158,8 +162,10 @@ Accepted | Implemented (v2.2.3)
   2. При успешном входе с чекбоксом в `chrome.storage.local` создается валидный зашифрованный объект `mse_sso_vault`.
   3. При истечении суточного токена скрытый `iframe` успешно продлевает сессию в фоне без участия пользователя.
   4. При вводе неверного пароля или смене пароля в Active Directory сейф `mse_sso_vault` мгновенно удаляется, предотвращая блокировку учетной записи.
-  5. При явном логауте в Modeus выставляется 10-минутная пауза автовхода.
-  6. Кнопка сброса в popup успешно очищает сохраненные данные.
+  5. При явном логауте в Modeus выставляется одноразовый флаг `mse_manual_logout_once`, сбрасывается бэкап, а при возврате через `wa=wsignout1.0` и `prompt=login` гарантированно открывается чистая форма входа ADFS.
+  6. При ошибках `oauth2_error.do` на русской и английской локалях скрипт перенаправляет на сброс ADFS `wa=wsignout1.0`, а при возврате с токенами `#access_token=` ранняя гидратация в `keeper-early.js` предотвращает ошибку `/not-authorized/authorized-error`.
+  7. При циклических ошибках входа `retry.do` выполняется автоматический возврат в Modeus с защитой от зацикливания.
+  8. Кнопка сброса в popup успешно очищает сохраненные данные.
 - **Verification Method:**
   - Тестирование на реальной форме `https://fs.utmn.ru/*`: вход с чекбоксом, проверка ключа в DevTools Application -> Storage.
   - Тестирование Circuit Breaker: симуляция ошибки `#errorText` и проверка мгновенного удаления сейфа.
@@ -170,13 +176,14 @@ Accepted | Implemented (v2.2.3)
 ## Implementation Contract
 
 ### Scope
-Подсистема автоматического входа на стороне ADFS (`src/sso-autologin.js`), интеграция с Session Keeper (`src/content.js`, `src/injected.js`), расширение манифеста (`manifest.json`) и элементы управления в popup (`popup/popup.html`, `popup/popup.js`).
+Подсистема автоматического входа на стороне ADFS (`src/sso-autologin.js`), интеграция с Session Keeper (`src/keeper-early.js`, `src/content.js`, `src/injected.js`), расширение манифеста (`manifest.json`) и элементы управления в popup (`popup/popup.html`, `popup/popup.js`).
 
 ### Affected Areas
-- `manifest.json` — регистрация контент-скрипта `src/sso-autologin.js` для `https://fs.utmn.ru/*`.
-- `src/sso-autologin.js` — реализация UI чекбокса, шифрования AES-GCM, расшифровки, автоподстановки и Single-Attempt Circuit Breaker.
+- `manifest.json` — регистрация контент-скрипта `src/sso-autologin.js` для `https://fs.utmn.ru/*` и `https://auth.modeus.org/*`.
+- `src/sso-autologin.js` — реализация UI чекбокса, шифрования AES-GCM, расшифровки, автоподстановки, обработки `wa=wsignout1.0`, русскоязычных ошибок `oauth2_error.do` и Single-Attempt Circuit Breaker.
+- `src/keeper-early.js` — принудительный сброс WSO2-сессии через `prompt=login` по хэшу `#mse_logout=1`, ранняя гидратация `#access_token=` и синхронная очистка хэша до старта Angular.
 - `src/content.js` — передача флага автовхода через `<meta name="modeus-sso-autologin">` и слушатель `mse:manual-logout`.
-- `src/injected.js` — поддержка фонового рефреша 24ч+ в `monitorSessionHealth()` и отправка `mse:manual-logout` в `handleLogoutClick`.
+- `src/injected.js` — поддержка фонового рефреша 24ч+ в `monitorSessionHealth()` и точный селектор кнопки выхода с отправкой `mse:manual-logout` в `handleLogoutClick`.
 - `popup/popup.html`, `popup/popup.js` — блок статуса и кнопка сброса сейфа.
 - `docs/architecture.md`, `docs/PRIVACY.md` — актуализация архитектурной документации и политики конфиденциальности.
 

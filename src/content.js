@@ -239,11 +239,10 @@
     }
   });
 
-  // Пауза автовхода на 10 минут при явном выходе пользователя («Выйти»)
+  // Одноразовая пауза автовхода при явном выходе пользователя («Выйти»)
   document.addEventListener('mse:manual-logout', () => {
-    const cooldownUntil = Date.now() + 10 * 60 * 1000;
-    chrome.storage.local.set({ mse_manual_logout_until: cooldownUntil });
-    logDb('Зафиксирован явный выход из системы: автовход приостановлен на 10 минут');
+    chrome.storage.local.set({ mse_manual_logout_once: true });
+    logDb('Зафиксирован явный выход из системы: установлен одноразовый флаг mse_manual_logout_once');
   });
 
   // 2. Мгновенная инъекция мета-версии и исполняемых скриптов ядра

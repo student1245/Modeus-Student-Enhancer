@@ -3,10 +3,94 @@
     const { enabled = true } = await chrome.storage.sync.get({ enabled: true });
     if (!enabled) return;
 
-    // Игнорируем сценарий явного выхода ADFS
-    if (window.location.href.includes('wa=wsignout')) return;
+    // --- Обработка ошибок auth.modeus.org (retry.do / oauth2_error.do) ---
+    if (window.location.hostname === 'auth.modeus.org') {
+        if (window.self !== window.top) return;
 
-    // Поиск ключевых элементов формы авторизации Microsoft ADFS
+        const href = window.location.href;
+        const lowerHref = href.toLowerCase();
+        const pageText = (document.body?.textContent || '').toLowerCase();
+
+        // 1. Ошибка при выходе: auth.modeus.org/oidc/logout -> oauth2_error.do
+        // Распознается независимо от языка (ru/en): access_denied, opbs, Missing, «состояния сессии», «доступ запрещен»
+        const isLogoutError = href.includes('/oauth2_error.do') && (
+            lowerHref.includes('oautherrorcode=access_denied') ||
+            lowerHref.includes('opbs') ||
+            lowerHref.includes('missing') ||
+            pageText.includes('состояния сессии') ||
+            pageText.includes('missing session state') ||
+            pageText.includes('доступ запрещен') ||
+            pageText.includes('access_denied')
+        );
+
+        if (isLogoutError) {
+            await chrome.storage.local.set({ mse_manual_logout_once: true });
+            window.location.replace('https://fs.utmn.ru/adfs/ls/?wa=wsignout1.0');
+            return;
+        }
+
+        // 2. Обычные ошибки входа (/retry.do и прочие /oauth2_error.do): мгновенный возврат в Modeus
+        const isRetryUrl = href.includes('/retry.do') || href.includes('/oauth2_error.do');
+        const hasAuthErrorText = document.body?.textContent?.includes('AUTHENTICATION ERROR');
+
+        if (isRetryUrl || hasAuthErrorText) {
+            const RETRY_WINDOW_MS = 10000;
+            const now = Date.now();
+            const lastRetryTime = Number(sessionStorage.getItem('mse_retry_timestamp') || 0);
+            let retryCount = Number(sessionStorage.getItem('mse_retry_count') || 0);
+
+            if (now - lastRetryTime < RETRY_WINDOW_MS) {
+                retryCount++;
+            } else {
+                retryCount = 1;
+            }
+
+            sessionStorage.setItem('mse_retry_timestamp', String(now));
+            sessionStorage.setItem('mse_retry_count', String(retryCount));
+
+            if (retryCount === 1) {
+                // Первая ошибка за последние 10 секунд: мгновенный (0 мс) возврат
+                window.location.replace('https://utmn.modeus.org/');
+                return;
+            }
+
+            // Повторная ошибка подряд (сервер Modeus лежит): останавливаем редирект и отрисовываем кнопку
+            renderRetryRecoveryButton();
+        }
+        return;
+    }
+
+    function renderRetryRecoveryButton() {
+        const btnId = 'mse-retry-recovery-btn';
+        if (document.getElementById(btnId)) return;
+
+        const btn = document.createElement('a');
+        btn.id = btnId;
+        btn.href = 'https://utmn.modeus.org/';
+        btn.textContent = 'Попробовать снова (Вернуться в Modeus)';
+        btn.style.cssText = 'display: inline-block; margin-top: 16px; padding: 10px 18px; background: #007bff; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 500; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; text-align: center; cursor: pointer; transition: background 0.15s;';
+        btn.onmouseover = () => { btn.style.background = '#0056b3'; };
+        btn.onmouseout = () => { btn.style.background = '#007bff'; };
+
+        btn.addEventListener('click', () => {
+            sessionStorage.removeItem('mse_retry_count');
+            sessionStorage.removeItem('mse_retry_timestamp');
+        });
+
+        const target = document.querySelector('.card, .error-container, #content, .content, main, .form-container') || document.body;
+        target.appendChild(btn);
+    }
+
+    // --- Обработка страницы выхода ADFS на fs.utmn.ru (wa=wsignout1.0) ---
+    if (window.location.href.includes('wa=wsignout')) {
+        if (window.self === window.top) {
+            await chrome.storage.local.set({ mse_manual_logout_once: true });
+            window.location.replace('https://utmn.modeus.org/#mse_logout=1');
+        }
+        return;
+    }
+
+    // --- Форма авторизации Microsoft ADFS на fs.utmn.ru ---
     const usernameInput = document.querySelector('#userNameInput') || document.querySelector('input[name="UserName"]');
     const passwordInput = document.querySelector('#passwordInput') || document.querySelector('input[name="Password"]');
     const submitButton = document.querySelector('#submitButton') || document.querySelector('input[type="submit"], button[type="submit"]');
@@ -106,9 +190,9 @@
     const hasError = Boolean(document.querySelector('#errorText')?.textContent?.trim());
     const wasTried = sessionStorage.getItem('mse_sso_tried') === '1';
 
-    const { mse_sso_vault, mse_manual_logout_until = 0 } = await chrome.storage.local.get([
+    const { mse_sso_vault, mse_manual_logout_once = false } = await chrome.storage.local.get([
         'mse_sso_vault',
-        'mse_manual_logout_until'
+        'mse_manual_logout_once'
     ]);
 
     if (hasError || wasTried) {
@@ -125,9 +209,17 @@
         return;
     }
 
+    // Если пользователь ранее сам нажал «Выйти» — один раз сбрасываем флаг и пропускаем автологин
+    if (mse_manual_logout_once) {
+        await chrome.storage.local.remove('mse_manual_logout_once');
+        if (window.self === window.top) {
+            mountRememberMeUI(Boolean(mse_sso_vault));
+        }
+        return;
+    }
+
     // Шаг 2: Автоматический вход при наличии сохраненного сейфа
-    const isCooldownActive = Date.now() <= mse_manual_logout_until;
-    if (mse_sso_vault && !isCooldownActive) {
+    if (mse_sso_vault) {
         sessionStorage.setItem('mse_sso_tried', '1');
         try {
             const credentials = await decryptCredentials(mse_sso_vault);
@@ -195,9 +287,9 @@
             try {
                 const vault = await encryptCredentials(username, password);
                 await chrome.storage.local.set({
-                    mse_sso_vault: vault,
-                    mse_manual_logout_until: 0
+                    mse_sso_vault: vault
                 });
+                await chrome.storage.local.remove('mse_manual_logout_once');
                 return vault;
             } catch (err) {
                 console.error('[MSE SSO Autologin] Ошибка сохранения сейфа:', err);

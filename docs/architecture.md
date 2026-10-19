@@ -54,14 +54,14 @@ modeus-beta/
 ├── docs/
 │   ├── architecture.md   # Архитектурная спецификация и техническая документация подсистем
 │   ├── PRIVACY.md        # Политика конфиденциальности (RU / EN)
-│   └── adr/              # Реестр архитектурных решений (ADR-001 — ADR-004)
+│   └── adr/              # Реестр архитектурных решений (ADR-001 — ADR-005)
 ├── popup/
 │   ├── popup.html        # Всплывающее окно управления расширением (вкл/выкл)
 │   └── popup.js          # Логика переключения состояния в chrome.storage.sync
 ├── src/
 │   ├── keeper-early.js   # Content script (run_at: document_start): ранняя реанимация сессии до старта Angular
 │   ├── content.js        # Content script (run_at: document_end): фоновый предзагрузчик баз и инжектор скриптов
-│   ├── sso-autologin.js  # Content script (all_frames, run_at: document_end на fs.utmn.ru): опциональный автовход 24ч+ (ADR-005)
+│   ├── sso-autologin.js  # Content script (all_frames, run_at: document_end на fs.utmn.ru и auth.modeus.org): опциональный автовход 24ч+ и автовозврат (ADR-005)
 │   ├── injected.js       # Main world script: ядро календаря, поиск пар, успеваемость, Session Keeper
 │   └── pe-module.js      # Main world script: модуль умного подбора физкультуры и бронирования секций
 ├── styles/
@@ -85,7 +85,7 @@ modeus-beta/
 │ • data/rules.json (DNR сети)      │ • Перехват window.fetch            │
 │ • src/content.js (modeus.org)     │ • Перехват XMLHttpRequest.send     │
 │ • src/keeper-early.js (modeus.org)│ • Чтение/запись sessionStorage     │
-│ • src/sso-autologin.js (utmn.ru)  │ • Патчинг history.pushState        │
+│ • src/sso-autologin.js (utmn/auth)│ • Патчинг history.pushState        │
 │ • Изолирован от window-переменных │ • Прямой доступ к контексту Angular│
 │   страницы (сейф mse_sso_vault    │                                    │
 │   защищен от скриптов Main World) │                                    │
@@ -93,7 +93,7 @@ modeus-beta/
 ```
 
 1. **Isolated World (Изолированный мир):**
-   * Выполняет `src/keeper-early.js`, `src/content.js` (на `utmn.modeus.org`) и `src/sso-autologin.js` (на `fs.utmn.ru`).
+   * Выполняет `src/keeper-early.js`, `src/content.js` (на `utmn.modeus.org`) и `src/sso-autologin.js` (на `fs.utmn.ru` и `auth.modeus.org`).
    * Имеет доступ к `chrome.storage.local` (зашифрованный сейф `mse_sso_vault`), `chrome.storage.sync`, `chrome.runtime.getURL` и декларативным сетевым правилам.
    * Изолирован от контекста `window` страницы и не может напрямую перехватывать вызовы `fetch` Angular-приложения, однако разделяет общее дисковое и сессионное хранилище источника (`localStorage` и `sessionStorage`).
 2. **Main World (Главный мир страницы):**
@@ -110,43 +110,31 @@ modeus-beta/
                            │
                            ▼
              [ document_start: src/keeper-early.js ]
-             ├── Проверка window.self === window.top
-             ├── Чтение sessionStorage('access_token')
-             └── Если пусто -> Проверка суточного JWT в localStorage('mse_auth_backup')
-                 └── Если валиден -> Восстановление 9 ключей сессии
+             ├── Пропустить, если выполняется внутри фрейма
+             ├── Если хэш #mse_logout=1 → очистить сессию, редирект с prompt=login
+             ├── Если хэш #access_token=... → сохранить токены, очистить URL до /
+             └── Если sessionStorage пуст → восстановить из суточного бэкапа (localStorage)
                            │
                            ▼
           [ Браузер парсит DOM и стили страницы ]
                            │
                            ▼
               [ document_end: src/content.js ]
-             ├── Проверка флага chrome.storage.sync('enabled')
-             ├── Чтение mse_sso_vault -> Вставка <meta name="modeus-sso-autologin" content="1|0">
-             ├── Слушатель mse:manual-logout -> пауза автовхода на 10 минут
-             ├── Мгновенная инициализация справочников из кэша localStorage / пакета (< 5 мс)
-             │   ├── buildings.json (кэш mse_buildings_cache 24ч / локальный пакет)
-             │   ├── teacher_reviews.json (кэш mse_reviews_cache 24ч / локальный пакет)
-             │   └── survey.json (Prod: кэш mse_survey_cache 12ч; Dev: локальный черновик)
-             ├── Кодирование данных в Base64
-             ├── Вставка <meta name="modeus-buildings-map" content="...">
-             ├── Вставка <meta name="modeus-teacher-reviews" content="...">
-             ├── Вставка <meta name="modeus-survey-config" content="...">
-             ├── Вставка <meta name="modeus-enhancer-version" content="...">
-             ├── Мгновенная инъекция <script src="src/pe-module.js" async="false">
-             ├── Мгновенная инъекция <script src="src/injected.js" async="false">
-             └── Неблокирующая фоновая ревалидация с GitHub Raw (SWR) -> mse:databases-updated
+             ├── Проверить глобальный переключатель расширения
+             ├── Вставить флаг состояния автовхода в <meta>
+             ├── Синхронно прочитать справочники из кэша (<5 мс), сериализовать в <meta>-теги Base64
+             │   └── корпуса · отзывы · конфигурация опросов
+             ├── Внедрить <script src="src/pe-module.js"> и <script src="src/injected.js">
+             └── Запустить фоновую ревалидацию справочников с GitHub Raw (SWR)
                            │
                            ▼
               [ Main World: src/injected.js ]
-             ├── Guard от повторного запуска (window.studentEnhancer)
-             ├── Инициализация баз initDatabases() (декодирование <meta>-тегов и loadSurveyConfig())
-             ├── Перехват сетевых запросов (fetch и XMLHttpRequest.prototype.send)
-             ├── Инициализация Session Keeper (бэкап токенов + интервал 20с + поддержка 24ч+ автовхода)
-             ├── Патчинг history.pushState и слушатель popstate
-             ├── Запуск фоновой проверки обновлений checkExtensionUpdate() (1.5с + интервал 2ч)
-             ├── Запуск трекера активности startEngagementTracker() (heartbeat 1с)
-             └── Точка входа:
-                 checkReady (таймер готовности DOM) -> setupUI() -> loadAllData() -> запуск MutationObserver
+             ├── Защита от повторного запуска
+             ├── Декодировать справочники из <meta>-тегов
+             ├── Перехватить window.fetch и XMLHttpRequest для API Modeus
+             ├── Запустить Session Keeper (мониторинг токенов каждые 20 с)
+             ├── Запустить трекер активности и фоновую проверку обновлений
+             └── Дождаться готовности DOM → построить UI → загрузить расписание → MutationObserver
 ```
 
 Передача справочников корпусов, отзывов и конфигурации опросов из изолированного мира `src/content.js` в мир страницы `src/injected.js` выполняется через синхронный DOM-мост: данные сериализуются в Base64 и сохраняются в тегах `<meta>` (с мгновенным чтением из кэша `localStorage` и локального бандла, что гарантирует старт скриптов < 5 мс без сетевой блокировки). При получении обновлений с GitHub Raw фоновый процесс обновляет `<meta>` и рассылает событие `mse:databases-updated`. Архитектурное обоснование выбора синхронного DOM-моста вместо асинхронных `postMessage` и `CustomEvent` зафиксировано в [ADR-002](adr/ADR-002-dom-data-bridge-meta-tags.md).
@@ -169,21 +157,21 @@ modeus-beta/
 
 ### Карта монолита src/injected.js
 
-Поскольку основная бизнес-логика расширения сосредоточена в `src/injected.js` (Main World), данная таблица служит навигатором по подсистемам, ключевым точкам входа и объектам взаимодействия с DOM и браузерными API:
+Поскольку основная бизнес-логика расширения сосредоточена в `src/injected.js` (Main World), данная таблица служит навигатором по подсистемам:
 
-| Подсистема | Ключевые функции в `src/injected.js` | Какие DOM-селекторы и API трогает |
-|---|---|---|
-| **Логирование и отладка** | `logger`, `isDebug()`, `window.MSE_enableDebug()`, `window.MSE_status()` | `localStorage` (`mse_debug`), `window.__MSE_DEBUG__`, `console.log/warn/error` |
-| **Session Keeper** | `monitorSessionHealth()`, `triggerSilentRefresh()`, `handleAuthStorageSync()`, `saveAuthTokensBackup()` | `iframe#mse-silent-refresher`, `sessionStorage` (9 ключей авторизации), `localStorage` (`mse_auth_backup`), Web Locks API (`navigator.locks`, `mse_silent_refresh_lock`), события `storage`, `visibilitychange`, `click`, `#mse-toast-container` |
-| **Сетевой перехват** | `interceptNetworkRequests()`, `processPersonSearchResponse()` | Перехват `window.fetch` (`/api/people/persons/search`, `/module-elements/`, `/academic-period-results-table/primary`), перехват `XMLHttpRequest.prototype.open`/`send` (`/api/people/persons/search`, `/academic-period-results-table/primary`) |
-| **Базы данных и DOM-мост** | `initDatabases()`, `loadBuildingsDatabase()`, `loadTeacherReviewsDatabase()`, `loadSurveyConfig()` | `meta[name="modeus-buildings-map"]`, `meta[name="modeus-teacher-reviews"]`, `meta[name="modeus-survey-config"]`, `meta[name="modeus-enhancer-version"]`, `databaseState` |
-| **Меню друзей** | `renderFriendsMenu()`, `addFriend()`, `removeFriend()`, `getFriends()` | `localStorage` (`mse_friends_list`, `mse_my_person_id`), `modeus-main-menu p-panelmenu > .p-panelmenu.p-component`, `#mse-friends-menu`, `#mse-return-to-me-menu`, `.mse-remove-friend-btn`, `.p-multiselect-items li.p-multiselect-item` |
-| **Корпуса и отзывы** | `enhanceBuildingNames()`, `enhanceLists()`, `enhancePopovers()`, `renderFooterFeedback()` | `.fc-time small.text-muted`, `ngb-popover-window`, `.location-info__header-text`, `.teachers-list li > div:not(.title) div`, `#teacher-tooltip`, `modeus-aside-panel`, `#mse-feedback-footer` |
-| **Календарь и поиск студентов** | `setupUI()`, `loadAllData()`, `runWithConcurrency()`, `highlightEventsForStudents()` | `.main-calendar-form`, `#enhancer-search-container`, `#student-search-input`, `#search-suggestions`, `#selected-students-dropdown-wrapper`, `#selected-students-container`, `#selected-students-toggle`, `#refresh-data-btn`, `#search-clear-btn`, `.fc-time-grid-event`, in-memory кэш `attendeesMemoryCache` |
-| **Модуль успеваемости** | `processPrimaryGradesData()`, `enhanceGradesTable()`, `injectIndividualGradeBadges()` | `table thead th`, `.p-datatable-thead th`, `table tbody tr`, `.p-datatable-tbody > tr`, `.lesson-realization`, `.mse-max-done`, `.mse-grade-badge`, API `/courses/.../lessons-technology` |
-| **Проверка обновлений** | `checkExtensionUpdate()`, `resolveLatestRelease()`, `renderUpdatePopup()`, `window.MSE_testUpdate()` | `GitHub Releases API`, `localStorage` (`mse_last_update_check`, `mse_latest_release`, `mse_dismissed_v{version}`), `#search-controls`, `#mse-update-badge`, `#mse-update-popup`, `#mse-update-btn`, `#mse-dismiss-btn` |
-| **Опросы и трекер активности** | `startEngagementTracker()`, `recordActiveHeartbeat()`, `shouldShowSurvey()`, `renderSurveyPopup()` | `localStorage` (`mse_install_date`, `mse_today_active_seconds`, `mse_total_active_seconds`, `mse_qualified_days`, `mse_last_active_date`, `mse_survey_snooze_until`, `mse_survey_dismissed_{id}`, `mse_surveys_disabled_forever`), `#mse-survey-popup`, Google Apps Script Webhook |
-| **Жизненный цикл и деактивация** | `processUrlChange()`, `debouncedMutationHandler()`, `stopAndCleanUp()` | `MutationObserver`, `history.pushState`, `popstate`, `body.mse-active`, `#enhancer-stop-button`, `.event-card-container__header`, `window.studentEnhancer` |
+| Подсистема | Назначение |
+|---|---|
+| **Логирование и отладка** | Цветные консольные каналы по контекстам (`[MSE Session]`, `[MSE Calendar]` и др.); переключение детализации без перезагрузки через `window.MSE_enableDebug()` |
+| **Session Keeper** | Мониторинг жизни access-токена каждые 20 с, тихий рефреш через скрытый iframe за 60 с до истечения, синхронизация между вкладками через Web Locks API |
+| **Сетевой перехват** | Перехват `window.fetch` и `XMLHttpRequest` для получения данных расписания, поиска персон и успеваемости |
+| **Базы данных и DOM-мост** | Чтение корпусов, отзывов и конфигурации опросов из `<meta>`-тегов (Base64), подготовленных `src/content.js` |
+| **Меню друзей** | Хранение и отображение списка друзей в боковом меню; автодополнение при поиске пар |
+| **Корпуса и отзывы** | Замена кодов корпусов на адреса и ссылки 2ГИС в сетке календаря и карточках; тултипы с отзывами о преподавателях |
+| **Календарь и поиск студентов** | Загрузка расписания выбранных студентов, подсветка общих пар, бейджи друзей и однокурсников |
+| **Модуль успеваемости** | Отображение максимальных баллов из технологических карт в таблице оценок, расчёт потерь баллов |
+| **Проверка обновлений** | Сравнение текущей версии с GitHub Releases API, бейдж и модальное окно при наличии новой версии |
+| **Опросы и трекер активности** | Измерение чистого времени использования, показ продуктовых опросов активным студентам, анонимная телеметрия |
+| **Жизненный цикл и деактивация** | Отслеживание навигации по SPA через `MutationObserver`, чистая деактивация с восстановлением нативных методов браузера |
 
 ### 2.1. Session Keeper
 
@@ -210,6 +198,35 @@ modeus-beta/
 | **Отказ сервера SSO** *(Circuit Breaker)* | При 5 последовательных неудачных попытках тихого рефреша (`SESSION_MAX_REFRESH_ATTEMPTS = 5`) фоновые сетевые запросы прекращаются, исключая лавинообразный спам 302-редиректами в Network DevTools. Невалидный бэкап удаляется из `localStorage`, а пользователю выводится toast-уведомление о необходимости повторного входа. |
 | **Истечение суточного JWT / Сессия 24ч+** | Срок действия сессии определяется по клейму `claims.exp * 1000` в `getMainTokenExpiresAt()`. При отключенном автовходе по истечении 24 часов сессия завершается. При активном автовходе ([ADR-005](adr/ADR-005-opt-in-sso-autologin.md), `<meta name="modeus-sso-autologin" content="1">`) функция `monitorSessionHealth()` не останавливает работу, а запускает `triggerSilentRefresh()`: скрытый iframe переходит на `fs.utmn.ru`, где `src/sso-autologin.js` автоматически авторизуется и обновляет токены на следующие 24 часа. |
 | **Смена пароля / Ошибка входа ADFS** *(Single-Attempt Circuit Breaker)* | Контент-скрипт `src/sso-autologin.js` проверяет наличие текста в `#errorText` и сессионный флаг `sessionStorage.mse_sso_tried`. При первой же ошибке входа хранилище `mse_sso_vault` немедленно удаляется из `chrome.storage.local`, а повторные попытки прекращаются, защищая корпоративную учетную запись от блокировки в Active Directory. |
+| **Зависание на тупиковых страницах и сбои логаута (`retry.do` / `wa=wsignout1.0` / `oauth2_error.do`)** | Многошаговый сброс WSO2-сессии с принудительным показом формы входа. Подробнее — в разделе ниже. |
+
+#### Ручной выход и полный сброс сессии (Logout Flow)
+
+Стандартная кнопка «Выйти» в Modeus вызывает Angular OIDC logout, который при отсутствии
+сессионной куки WSO2 (`commonAuthId`) падает с ошибкой `oauth2_error.do` — сервер прерывает
+выход *до* удаления своих кук. Чтобы гарантированно открыть форму ввода логина/пароля:
+
+1. **Клик по «Выйти»** (`src/injected.js`) — немедленно удаляет резервную копию токенов из
+   `localStorage` и уведомляет контент-скрипт флагом `mse_manual_logout_once`.
+   `sessionStorage` не очищается, чтобы Angular корректно сформировал OIDC-запрос выхода.
+
+2. **Ошибка `oauth2_error.do`** (`src/sso-autologin.js`) — скрипт распознаёт ошибку выхода
+   по URL-параметрам и тексту страницы независимо от языка браузера (ru/en) и немедленно
+   перенаправляет на `https://fs.utmn.ru/adfs/ls/?wa=wsignout1.0`, минуя анти-цикл retry.
+
+3. **Страница ADFS выхода** (`wa=wsignout1.0`, `src/sso-autologin.js`) — перенаправляет браузер
+   на `https://utmn.modeus.org/#mse_logout=1`.
+
+4. **Хэш `#mse_logout=1`** (`src/keeper-early.js`, `document_start`) — очищает `sessionStorage`
+   и бэкап, после чего немедленно перенаправляет на `/oauth2/authorize?...&prompt=login`.
+   Параметр `prompt=login` заставляет WSO2 сбросить куку `commonAuthId` и отобразить форму
+   ввода учётных данных `fs.utmn.ru`.
+
+5. **Возврат с токенами** (`#access_token=...`, `src/keeper-early.js`) — до инициализации Angular
+   токены сохраняются в `sessionStorage` и бэкап, URL очищается до `/`.
+   Это предотвращает конфликт стороннего `state` внутри Angular и редирект на
+   `/not-authorized/authorized-error`.
+
 
 ### 2.2. Расписание и поиск общих пар
 
@@ -438,8 +455,10 @@ modeus-beta/
 |---|---|---|---|
 | `chrome.storage.sync` | `enabled` | `boolean` | Глобальный переключатель работы расширения из popup-меню (`true`/`false`). Синхронизируется между браузерами пользователя. |
 | `chrome.storage.local` | `mse_sso_vault` | `object` (JSON) | Зашифрованные учетные данные корпоративного входа (`{ ciphertextBase64, ivBase64, keyJwk, updatedAt }`) для опционального автовхода 24ч+ ([ADR-005](adr/ADR-005-opt-in-sso-autologin.md)). Защищены от Main World. |
-| `chrome.storage.local` | `mse_manual_logout_until` | `number` (timestamp) | Метка времени, до которой приостановлен автовход на `fs.utmn.ru` (10 минут паузы после явного логаута в Modeus). |
+| `chrome.storage.local` | `mse_manual_logout_once` | `boolean` | Одноразовый флаг ручного выхода (`true`), пропускающий автоматический вход на `fs.utmn.ru` один раз при следующем открытии формы логина и сбрасывающийся после этого. |
 | `sessionStorage` | `mse_sso_tried` | `string` (`"1"`) | Сессионный флаг выполнения автоматической попытки входа на `fs.utmn.ru` для работы Single-Attempt Circuit Breaker. |
+| `sessionStorage` | `mse_retry_count` | `string` (number) | Количество последовательных ошибок на `auth.modeus.org` (`retry.do`) за последние 10 секунд для защиты от зацикливания. |
+| `sessionStorage` | `mse_retry_timestamp` | `string` (timestamp) | Время последней ошибки на `auth.modeus.org` для вычисления 10-секундного скользящего окна. |
 | `localStorage` | `mse_auth_backup` | `string` (JSON) | Резервная копия 9 ключей авторизации для восстановления сессии скриптом `src/keeper-early.js` при холодном старте. Удаляется при логауте. |
 | `localStorage` | `mse_debug` | `string` (`"1"`) | Флаг включения подробного режима логирования в консоль браузера (Debug Mode). |
 | `localStorage` | `mse_friends_list` | `string` (JSON) | Список сохраненных друзей `[{"id": "...", "fullName": "..."}]`. |
@@ -518,5 +537,12 @@ modeus-beta/
    | `window.MSE_clearSurveyCache()` | Сбрасывает кэш опроса и флаги скрытия/отказа в `localStorage` |
    | `window.MSE_showToast(text, type, duration)` | Отображает тестовое всплывающее уведомление (toast) |
 
-3. **Правило чистой деактивации (`stopAndCleanUp`):**
+3. **Куда добавлять новый функционал:**
+   * Новая UI-фича (кнопка, тултип, бейдж) — в `src/injected.js`, в подходящую подсистему.
+   * Новый контент-скрипт — зарегистрировать в `manifest.json` и добавить описание в таблицу файловой структуры.
+   * Новый API-эндпоинт Modeus — добавить пример запроса и ответа в [раздел 3](#3-справочник-api-и-хранилищ).
+   * Новый storage-ключ — добавить строку в таблицу [3.3.2](#332-собственные-ключи-расширения-localstorage--sessionstorage--chromestorage).
+   * Любой DOM-элемент, таймер или перехват нативного метода — **обязательно** зарегистрировать сброс в `stopAndCleanUp()`.
+
+4. **Правило чистой деактивации (`stopAndCleanUp`):**
    * При реализации любых новых функций, добавляющих DOM-элементы, таймеры, наблюдатели (`MutationObserver`) или патчирующих нативные прототипы браузера, разработчик **обязан** зарегистрировать их удаление и сброс в процедуре `stopAndCleanUp()`. Это гарантирует корректную работу кнопки экстренной остановки «Стоп-скрипт» (`#enhancer-stop-button` / `window.studentEnhancer.stop()`).

@@ -1055,6 +1055,14 @@
         }
     }
 
+    try {
+        if (window.location.hash.includes('access_token=')) {
+            const hashStr = window.location.hash.replace(/^#/, '');
+            const params = new URLSearchParams(hashStr);
+            applyRefreshedTokens(params);
+        }
+    } catch { }
+
     saveAuthTokensBackup();
     sessionHealthInterval = setInterval(monitorSessionHealth, SESSION_CHECK_INTERVAL_MS);
 
@@ -1076,14 +1084,22 @@
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Удаляем бэкап при явном выходе и уведомляем контент-скрипт о паузе автовхода (10 мин)
+    // Точная детекция кнопки выхода Modeus (<p-button icon="fa fa-sign-out" class="p-element logout-button">)
+    const isLogoutElement = (target) => {
+        if (!target || !(target instanceof Element)) return false;
+        return Boolean(target.closest('p-button.logout-button, .logout-button, .fa-sign-out, [icon*="fa-sign-out"]'));
+    };
+
+    // Сброс постоянного бэкапа и уведомление о явном выходе пользователя («Выйти»)
     const handleLogoutClick = (e) => {
-        if (e.target.closest('a[href*="logout"], button[id*="logout"], .logout-btn')) {
-            localStorage.removeItem(STORAGE_KEY_AUTH_BACKUP);
-            document.dispatchEvent(new CustomEvent('mse:manual-logout'));
+        if (isLogoutElement(e.target)) {
+            try {
+                localStorage.removeItem(STORAGE_KEY_AUTH_BACKUP);
+                document.dispatchEvent(new CustomEvent('mse:manual-logout'));
+            } catch { }
         }
     };
-    window.addEventListener('click', handleLogoutClick);
+    window.addEventListener('click', handleLogoutClick, true);
 
     // Логирование динамического изменения статуса автовхода из content.js
     document.addEventListener('mse:autologin-updated', (e) => {
