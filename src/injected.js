@@ -490,6 +490,7 @@
     let lastActiveCalendarPersonId = null;
 
     // Успеваемость и технологические карты
+    const GRADES_MAX_UNKNOWN_THRESHOLD = 0.3; // Порог неизвестных макс. баллов (30%) для вывода Н/Д*
     let mseCourseRealizationsMap = new Map();
     let mseLessonMaxGrades = new Map();
     let mseLessonNameToMaxGrade = new Map();
@@ -1538,6 +1539,7 @@
         // 3. Снятие глобальных обработчиков событий
         window.removeEventListener('popstate', processUrlChange);
         window.removeEventListener('click', handleLogoutClick);
+        window.removeEventListener('beforeunload', handleBeforeUnloadLogoutCheck);
         window.removeEventListener('storage', handleAuthStorageSync);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         if (handleEngagementVisibilityChange) {
@@ -3092,6 +3094,10 @@
             if (!courseUnitRealization.name || !courseUnitRealization.lessons) return;
 
             const sortedLessons = [...courseUnitRealization.lessons].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+            sortedLessons.courseUnitId = courseUnitRealization.courseUnitId;
+            sortedLessons.forEach(lesson => {
+                lesson.courseUnitId = courseUnitRealization.courseUnitId;
+            });
             const normName = normalizeName(courseUnitRealization.name);
             mseCourseRealizationsMap.set(normName, sortedLessons);
 
@@ -3109,19 +3115,31 @@
                 .then(technologyData => {
                     if (technologyData.lessonTechnologies) {
                         technologyData.lessonTechnologies.forEach(lessonTech => {
+                            if (!lessonTech.lessonId) return;
+
+                            let maxGradeList = null;
                             if (lessonTech.controlObjects && lessonTech.controlObjects.length > 0) {
                                 // Сохраняем список максимумов по порядку точек (например: [10, 2])
                                 const sortedControlObjects = [...lessonTech.controlObjects].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-                                const maxGradeList = sortedControlObjects
+                                const positiveGrades = sortedControlObjects
                                     .map(controlObj => controlObj.maxValue)
                                     .filter(v => typeof v === 'number' && v > 0);
 
-                                if (maxGradeList.length > 0) {
-                                    mseLessonMaxGrades.set(lessonTech.lessonId, maxGradeList);
-                                    if (lessonTech.lessonName) {
-                                        mseLessonNameToMaxGrade.set(normalizeName(lessonTech.lessonName), maxGradeList);
-                                    }
+                                if (positiveGrades.length > 0) {
+                                    maxGradeList = positiveGrades;
                                 }
+                            }
+
+                            if (maxGradeList) {
+                                mseLessonMaxGrades.set(lessonTech.lessonId, maxGradeList);
+                                if (lessonTech.lessonName) {
+                                    const scopedKey = `${courseUnitId}:${normalizeName(lessonTech.lessonName)}`;
+                                    mseLessonNameToMaxGrade.set(scopedKey, maxGradeList);
+                                }
+                            } else {
+                                // Явно сохраняем null для неоцениваемых занятий (лекции/консультации),
+                                // чтобы предотвратить ошибочное срабатывание fallback-поиска по имени
+                                mseLessonMaxGrades.set(lessonTech.lessonId, null);
                             }
                         });
                     }
@@ -3150,6 +3168,16 @@
         const badge = document.createElement('span');
         badge.className = 'mse-max-grade';
         badge.textContent = ` /${maxGrade}`;
+        return badge;
+    }
+
+    function createUnknownGradeBadge() {
+        const badge = document.createElement('span');
+        badge.className = 'mse-max-grade mse-max-unknown';
+        badge.textContent = ' / ?';
+        badge.title = 'Преподаватель не указал максимальный балл за это занятие в техкарте Модеуса';
+        badge.style.color = '#94a3b8';
+        badge.style.cursor = 'help';
         return badge;
     }
 
@@ -3275,7 +3303,11 @@
     }
 
     function injectMaxGradeBadge(meetingCell, maxGrades) {
-        if (!meetingCell || meetingCell.querySelector('.mse-max-grade') || meetingCell.querySelector('.mse-max-done')) return;
+        if (!meetingCell) return;
+        const unknownBadge = meetingCell.querySelector('.mse-max-unknown');
+        if (unknownBadge) unknownBadge.remove();
+
+        if (meetingCell.querySelector('.mse-max-grade') || meetingCell.querySelector('.mse-max-done')) return;
         const maxGradeList = Array.isArray(maxGrades) ? maxGrades : [maxGrades];
         if (maxGradeList.length === 0) return;
 
@@ -3286,6 +3318,89 @@
 
         // Для 1-2 контрольных точек отображаем индивидуальные бейджи
         injectIndividualGradeBadges(meetingCell, maxGradeList);
+    }
+
+    /**
+     * Отображение приглушенного бейджа / ? для ячейки с числовой оценкой,
+     * у которой в техкарте Модеуса не указан максимальный балл.
+     */
+    function injectUnknownMaxGradeBadge(meetingCell) {
+        if (!meetingCell || meetingCell.querySelector('.mse-max-grade') || meetingCell.querySelector('.mse-max-done')) return;
+
+        // А. Если оценка лежит в отдельном элементе .lesson-realization
+        const leafElements = qsa('.lesson-realization:not(.present):not(.absent)', meetingCell);
+        let injected = false;
+        for (const el of leafElements) {
+            const txt = el.textContent.trim();
+            if (/^\d+(\.\d+)?$/.test(txt)) {
+                el.appendChild(createUnknownGradeBadge());
+                injected = true;
+            }
+        }
+        if (injected) return;
+
+        // Б. Если внутри ячейки текстовый узел
+        for (const node of Array.from(meetingCell.childNodes)) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const textContent = node.textContent;
+                const regex = /\b(\d+(\.\d+)?)\b/g;
+                let match;
+                const matches = [];
+
+                while ((match = regex.exec(textContent)) !== null) {
+                    matches.push({ num: match[1], index: match.index });
+                }
+
+                if (matches.length > 0) {
+                    const fragment = document.createDocumentFragment();
+                    let lastIdx = 0;
+
+                    for (const m of matches) {
+                        fragment.appendChild(document.createTextNode(textContent.substring(lastIdx, m.index)));
+
+                        const numSpan = document.createElement('span');
+                        numSpan.className = 'lesson-realization';
+                        numSpan.textContent = m.num;
+                        numSpan.appendChild(createUnknownGradeBadge());
+                        fragment.appendChild(numSpan);
+
+                        lastIdx = m.index + m.num.length;
+                    }
+
+                    if (lastIdx < textContent.length) {
+                        const tail = textContent.substring(lastIdx).replace(/^(\s*[-–—])/, '\u00A0$1');
+                        fragment.appendChild(document.createTextNode(tail));
+                    }
+
+                    node.replaceWith(fragment);
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * Получение максимальных баллов занятия с защитой от ложного срабатывания
+     * fallback-поиска для неоцениваемых занятий (лекций/консультаций).
+     */
+    function resolveLessonMaxGrades(lesson, courseUnitId) {
+        if (!lesson) return null;
+
+        // 1. Прямой поиск по ID занятия в техкарте
+        if (mseLessonMaxGrades.has(lesson.id)) {
+            // Если ID известен, возвращаем массив баллов либо null (для неоцениваемых лекций/консультаций)
+            return mseLessonMaxGrades.get(lesson.id);
+        }
+
+        // 2. Изолированный fallback по названию занятия в рамках конкретного предмета
+        // Срабатывает ТОЛЬКО если lesson.id вообще не был найден в техкарте
+        if (lesson.name) {
+            const normLessonName = normalizeName(lesson.name);
+            const scopedKey = courseUnitId ? `${courseUnitId}:${normLessonName}` : normLessonName;
+            return mseLessonNameToMaxGrade.get(scopedKey) || null;
+        }
+
+        return null;
     }
 
     // 3. Обновление таблицы оценок
@@ -3325,6 +3440,7 @@
 
             if (!matchedLessons) return;
 
+            const courseUnitId = matchedLessons.courseUnitId;
             const tds = qsa('td', row);
             // Скрытая кнопка на "Текущий итог" (двойной клик)
             if (currentTotalColIndex !== -1 && tds[currentTotalColIndex]) {
@@ -3341,18 +3457,12 @@
                         if (!isLost) {
                             // Считаем ТОЧНО в момент клика, когда все базы уже в памяти!
                             let totalLost = 0;
+                            let evaluatedWithMaxCount = 0;
+                            let missingMaxCount = 0;
 
                             meetingColumns.forEach(({ colIndex, meetingNumber }) => {
-                                const matchedLesson = matchedLessons[meetingNumber - 1];
                                 const meetingCell = tds[colIndex];
-                                if (!matchedLesson || !meetingCell) return;
-
-                                let maxGradeList = mseLessonMaxGrades.get(matchedLesson.id);
-                                if (!maxGradeList && matchedLesson.name) {
-                                    maxGradeList = mseLessonNameToMaxGrade.get(normalizeName(matchedLesson.name));
-                                }
-                                if (!maxGradeList) return;
-                                const maxGradeArray = Array.isArray(maxGradeList) ? maxGradeList : [maxGradeList];
+                                if (!meetingCell) return;
 
                                 // Клонируем ячейку и удаляем наши бейджи, чтобы посчитать чистые оценки студента
                                 const clone = meetingCell.cloneNode(true);
@@ -3360,6 +3470,17 @@
 
                                 const gradePart = clone.textContent.split('|')[0] || '';
                                 const matches = [...gradePart.matchAll(/\b(\d+(\.\d+)?)\b/g)];
+                                if (matches.length === 0) return;
+
+                                const matchedLesson = matchedLessons ? matchedLessons[meetingNumber - 1] : null;
+                                const maxGradeList = resolveLessonMaxGrades(matchedLesson, courseUnitId);
+                                if (!maxGradeList || maxGradeList.length === 0) {
+                                    missingMaxCount++;
+                                    return;
+                                }
+
+                                evaluatedWithMaxCount++;
+                                const maxGradeArray = Array.isArray(maxGradeList) ? maxGradeList : [maxGradeList];
 
                                 // Если пара была с 3+ оценками (суммированная)
                                 if (maxGradeArray.length >= 3 && matches.length === 1) {
@@ -3379,10 +3500,34 @@
                                 });
                             });
 
-                            const lostPoints = Math.round(totalLost * 100) / 100;
                             totalTd.dataset.mseOrigText = totalTd.textContent.trim();
                             totalTd.dataset.mseLostMode = '1';
 
+                            const totalGradedCount = evaluatedWithMaxCount + missingMaxCount;
+                            const unknownRatio = totalGradedCount > 0 ? (missingMaxCount / totalGradedCount) : 0;
+
+                            // 1. Невозможно рассчитать: неизвестно больше 30% оценок предмета или ни у одной нет максимума
+                            if (totalGradedCount > 0 && (unknownRatio > GRADES_MAX_UNKNOWN_THRESHOLD || evaluatedWithMaxCount === 0)) {
+                                const percent = Math.round(unknownRatio * 100);
+                                totalTd.innerHTML = `<span style="color: #64748b; font-weight: 500; cursor: help;" title="Невозможно рассчитать потери: у ${missingMaxCount} из ${totalGradedCount} оценок (${percent}%) в техкарте Модеуса не указан макс. балл.">Н/Д*</span>`;
+                                return;
+                            }
+
+                            const lostPoints = Math.round(totalLost * 100) / 100;
+
+                            // 2. Неполный расчет со звездочкой (до 30% неизвестных)
+                            if (missingMaxCount > 0) {
+                                const percent = Math.round(unknownRatio * 100);
+                                const titleAttr = ` title="Неполный расчет: у ${missingMaxCount} из ${totalGradedCount} оценок (${percent}%) в техкарте Модеуса не указан макс. балл."`;
+                                if (lostPoints > 0) {
+                                    totalTd.innerHTML = `<span style="color: #ff3b30; font-weight: 500; cursor: help;"${titleAttr}>-${totalLost.toFixed(2)}*</span>`;
+                                } else {
+                                    totalTd.innerHTML = `<span style="color: #34c759; font-weight: 500; cursor: help;"${titleAttr}>0.00*</span>`;
+                                }
+                                return;
+                            }
+
+                            // 3. Точный расчет (все максимумы известны)
                             if (lostPoints > 0) {
                                 totalTd.innerHTML = `<span style="color: #ff3b30; font-weight: 500;">-${lostPoints}</span>`;
                             } else {
@@ -3399,15 +3544,12 @@
                 const meetingCell = tds[colIndex];
                 if (!meetingCell) return;
 
-                const lesson = matchedLessons[meetingNumber - 1];
-                if (!lesson) return;
-
-                let maxGrades = mseLessonMaxGrades.get(lesson.id);
-                if (!maxGrades && lesson.name) {
-                    maxGrades = mseLessonNameToMaxGrade.get(normalizeName(lesson.name));
-                }
-                if (maxGrades) {
+                const lesson = matchedLessons ? matchedLessons[meetingNumber - 1] : null;
+                const maxGrades = resolveLessonMaxGrades(lesson, courseUnitId);
+                if (maxGrades && maxGrades.length > 0) {
                     injectMaxGradeBadge(meetingCell, maxGrades);
+                } else {
+                    injectUnknownMaxGradeBadge(meetingCell);
                 }
             });
         });
@@ -3428,6 +3570,13 @@
                         matchedMaxList = mseLessonNameToMaxGrade.get(name);
                         break;
                     }
+                    for (const [key, val] of mseLessonNameToMaxGrade.entries()) {
+                        if (key.endsWith(`:${name}`)) {
+                            matchedMaxList = val;
+                            break;
+                        }
+                    }
+                    if (matchedMaxList) break;
                 }
             }
 

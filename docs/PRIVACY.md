@@ -20,19 +20,19 @@
 * Данные о вашем расписании, баллах успеваемости, учебных модулях физкультуры и составе учебных групп запрашиваются вашим браузером напрямую с официальных API-серверов платформы Modeus с использованием вашей текущей сессии.
 * Вся обработка и визуализация этих данных происходят исключительно в оперативной памяти и локальном хранилище вашего браузера. Расширение не выгружает ваше расписание, ФИО, оценки или список друзей на внешние серверы.
 
-#### 2.3. Справочные базы и анонимная обратная связь
-* **Справочники (GitHub Raw):** При запуске расширение обращается к публичному репозиторию на GitHub только для чтения актуальных справочников адресов учебных корпусов (`buildings.json`), отзывов (`teacher_reviews.json`) и конфигурации опросов (`data/survey.json`).
+#### 2.3. Справочные базы, проверка обновлений и анонимная обратная связь
+* **Справочники и проверка обновлений (GitHub):** При запуске и периодически расширение обращается к публичному репозиторию на GitHub для чтения актуальных справочников адресов учебных корпусов (`buildings.json`), отзывов (`teacher_reviews.json`) и конфигурации опросов (`data/survey.json`), а также проверяет наличие новых версий расширения через публичный GitHub Releases API (`api.github.com`).
 * **Добровольные опросы и телеметрия:** Для понимания того, какие функции наиболее полезны активным пользователям, расширение ведет локальный подсчет времени активности вкладки в `localStorage` и может предложить пройти короткий встроенный опрос. При отправке ответа или отказе от опроса на вебхук Google Apps Script передается **строго анонимный пакет данных**: идентификатор опроса (`surveyId`), версия расширения, статус действия и выбранные варианты ответов. Пакет не содержит вашего имени, email, токенов или идентификатора студента (`person_id`). Вы можете навсегда отключить опросы кнопкой «Больше никогда не показывать».
 
 ### 3. Использование разрешений браузера (Permissions Justification)
 * `storage` — хранение локальных настроек расширения, состояния переключателя и зашифрованных данных опционального автовхода.
-* `declarativeNetRequest` (`data/rules.json`) — модификация сетевых заголовков `X-Frame-Options` и `Content-Security-Policy` строго для вложенных фреймов (`sub_frame`), инициированных доменом расписания, что технически необходимо для бесшовного фонового продления сессии в скрытом `iframe`.
+* `declarativeNetRequest` (`data/rules.json`) — модификация сетевых заголовков `X-Frame-Options` и `Content-Security-Policy` строго для вложенных фреймов (`sub_frame`) на доменах авторизации университета (`fs.utmn.ru`, `auth.modeus.org`), что технически необходимо для бесшовного фонового продления сессии в скрытом `iframe`.
 * `host_permissions` — встраивание пользовательского интерфейса в портал расписания, выполнение локального автовхода на домене SSO университета, загрузка статических JSON-справочников из репозитория GitHub и отправка анонимных ответов на опросы.
 
 ### 4. Управление данными и их удаление
 Вы имеете полный контроль над своими данными:
 * Вы можете мгновенно остановить работу скрипта кнопкой аварийной остановки (`#enhancer-stop-button`) в интерфейсе портала или выключить расширение через всплывающее меню (`popup/popup.html`).
-* Вы можете в любой момент сбросить сохраненные данные автовхода во всплывающем окне расширения (кнопка «Сбросить сохраненный вход»).
+* Вы можете в любой момент сбросить сохраненные данные автовхода во всплывающем окне расширения (кнопка «Сбросить»).
 * При удалении расширения из браузера все данные в `chrome.storage.local` удаляются автоматически.
 
 ### 5. Соответствие политике ограниченного использования (Limited Use)
@@ -56,13 +56,13 @@
 * Schedule events, grades, physical education booking slots, and classmate lists are fetched directly by the user's browser from official Modeus API endpoints using the user's active session.
 * All rendering and processing occur strictly locally in the browser's memory and local storage. No academic records or personal identifiers (`person_id`, full name, email) are ever transmitted externally.
 
-#### 2.3. Static Dictionaries & Anonymous Survey Telemetry
-* **Static Configurations:** The extension fetches read-only JSON dictionaries (building addresses, teacher reviews, and survey configurations) from the public GitHub repository.
+#### 2.3. Static Dictionaries, Update Checks & Anonymous Survey Telemetry
+* **Static Configurations & Update Checks:** The extension fetches read-only JSON dictionaries (building addresses, teacher reviews, and survey configurations) from the public GitHub repository and periodically checks for new extension releases via the public GitHub Releases API (`api.github.com`).
 * **Anonymous Product Feedback:** Engagement duration is calculated locally in `localStorage` to determine when to display an optional in-app feature survey. When a user submits or dismisses a survey, a strictly anonymous payload (`surveyId`, extension version, action status, and selected feature choices) is sent via a `POST` request to a Google Apps Script webhook. No personally identifiable information (PII) or authentication data is included. Users can permanently opt out of all surveys with a single click.
 
 ### 3. Permissions Justification
 * `storage`: Used to persist extension state, user preferences, and locally encrypted opt-in auto-login credentials.
-* `declarativeNetRequest`: Used strictly on `sub_frame` resources initiated by the schedule portal to strip framing restriction headers (`X-Frame-Options`, `Content-Security-Policy`) required for silent OAuth token refresh inside a hidden `iframe`.
+* `declarativeNetRequest`: Used strictly on `sub_frame` resources on university authentication domains (`fs.utmn.ru`, `auth.modeus.org`) to strip framing restriction headers (`X-Frame-Options`, `Content-Security-Policy`) required for silent OAuth token refresh inside a hidden `iframe`.
 * `host_permissions`: Required to inject UI enhancements on the university Modeus portal, perform opt-in SSO renewal, load static JSON dictionaries from GitHub Raw, and submit anonymous survey responses to Google Apps Script.
 
 ### 4. Compliance with Chrome Web Store Limited Use Policy

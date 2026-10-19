@@ -685,6 +685,11 @@ body.mse-active {
         white-space: nowrap !important;
     }
 
+    .mse-max-grade.mse-max-unknown {
+        color: #94a3b8 !important;
+        cursor: help !important;
+    }
+
     /* 9. Toast Notifications (баннеры обратной связи вместо alert) */
     #mse-toast-container {
         position: fixed;
