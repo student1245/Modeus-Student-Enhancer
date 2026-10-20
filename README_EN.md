@@ -1,6 +1,6 @@
 # 🎓 Modeus Student Enhancer (MSE)
 
-[🇷🇺 Русский](README.md) | 🇬🇧 English
+[🇷🇺 Русский](readme.md) | 🇬🇧 English
 
 ![Version](https://img.shields.io/badge/version-2.2.3-blue.svg)
 ![Chromium](https://img.shields.io/badge/Chromium-Chrome%20%7C%20Edge%20%7C%20Yandex%20%7C%20Opera%20%7C%20Brave-4285F4?logo=googlechrome&logoColor=white)
