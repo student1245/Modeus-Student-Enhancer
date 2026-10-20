@@ -3164,7 +3164,18 @@
         }
     }
 
+    function parseNumericGrade(str) {
+        if (str === null || str === undefined) return null;
+        const clean = String(str).trim().replace(',', '.');
+        if (!/^\d+(\.\d+)?$/.test(clean)) return null;
+        const num = parseFloat(clean);
+        return (!isNaN(num) && isFinite(num)) ? num : null;
+    }
+
     function createGradeBadge(maxGrade) {
+        if (typeof maxGrade !== 'number' || isNaN(maxGrade) || !isFinite(maxGrade) || maxGrade <= 0) {
+            return document.createDocumentFragment();
+        }
         const badge = document.createElement('span');
         badge.className = 'mse-max-grade';
         badge.textContent = ` /${maxGrade}`;
@@ -3188,44 +3199,86 @@
         return span;
     }
 
-    function aggregateMultiPointGrades(meetingCell, maxGradeList) {
-        const totalMax = maxGradeList.reduce((acc, m) => acc + (typeof m === 'number' ? m : 0), 0);
-        const numberElements = qsa('.lesson-realization:not(.present):not(.absent)', meetingCell);
+    function calculateMultiPointScore(gradeStrings, maxGradeList) {
+        let totalEarned = 0;
+        let numericCount = 0;
+        let evaluatedMax = 0;
 
-        // Вариант 1: если цифры оценок находятся в отдельных элементах .lesson-realization
-        if (numberElements.length >= 3) {
-            const totalEarned = Math.round(numberElements.reduce((acc, el) => acc + parseFloat(el.textContent), 0) * 100) / 100;
-            numberElements[0].innerHTML = `${totalEarned}`;
-            if (totalEarned >= totalMax) {
-                numberElements[0].classList.add('mse-max-done');
-            } else {
-                numberElements[0].appendChild(createGradeBadge(totalMax));
-            }
-            for (let i = 1; i < numberElements.length; i++) {
-                numberElements[i].remove();
-            }
-            return true;
-        }
-
-        // Вариант 2: если цифры оценок находятся в текстовом узле ячейки
-        const matches = [...meetingCell.textContent.matchAll(/\b(\d+(\.\d+)?)\b/g)];
-        if (matches.length >= 3) {
-            const totalEarned = Math.round(matches.reduce((acc, m) => acc + parseFloat(m[1]), 0) * 100) / 100;
-            for (const node of Array.from(meetingCell.childNodes)) {
-                if (node.nodeType === Node.TEXT_NODE && /\b\d/.test(node.textContent)) {
-                    const tail = node.textContent.replace(/^.*?(\s*[-–—]?\s*\|\s*[ПНH]|$)/, '$1');
-                    const fragment = document.createDocumentFragment();
-                    if (totalEarned >= totalMax) {
-                        fragment.appendChild(createMaxDoneSpan(totalEarned));
-                    } else {
-                        fragment.appendChild(document.createTextNode(totalEarned));
-                        fragment.appendChild(createGradeBadge(totalMax));
-                    }
-                    fragment.appendChild(document.createTextNode(tail));
-                    node.replaceWith(fragment);
-                    return true;
+        gradeStrings.forEach((str, index) => {
+            const grade = parseNumericGrade(str);
+            if (grade !== null) {
+                totalEarned += grade;
+                numericCount++;
+                if (index < maxGradeList.length && typeof maxGradeList[index] === 'number') {
+                    evaluatedMax += maxGradeList[index];
                 }
             }
+        });
+
+        if (numericCount === 0) return null;
+
+        totalEarned = Math.round(totalEarned * 100) / 100;
+        if (isNaN(totalEarned) || !isFinite(totalEarned)) return null;
+
+        return { totalEarned, evaluatedMax };
+    }
+
+    function aggregateElementGrades(elements, score, totalMax, meetingCell) {
+        meetingCell.dataset.mseAggregated = '1';
+        meetingCell.dataset.mseEvaluatedMax = String(score.evaluatedMax > 0 ? score.evaluatedMax : totalMax);
+
+        elements[0].innerHTML = `${score.totalEarned}`;
+        if (score.totalEarned >= totalMax) {
+            elements[0].classList.add('mse-max-done');
+        } else {
+            elements[0].appendChild(createGradeBadge(totalMax));
+        }
+
+        for (let i = 1; i < elements.length; i++) {
+            elements[i].remove();
+        }
+        return true;
+    }
+
+    function aggregateTextNodeGrades(meetingCell, score, totalMax) {
+        for (const node of Array.from(meetingCell.childNodes)) {
+            if (node.nodeType === Node.TEXT_NODE && /\b\d/.test(node.textContent)) {
+                meetingCell.dataset.mseAggregated = '1';
+                meetingCell.dataset.mseEvaluatedMax = String(score.evaluatedMax > 0 ? score.evaluatedMax : totalMax);
+
+                const tail = node.textContent.replace(/^.*?(\s*[-–—]?\s*\|\s*[ПНH]|$)/, '$1');
+                const fragment = document.createDocumentFragment();
+
+                if (score.totalEarned >= totalMax) {
+                    fragment.appendChild(createMaxDoneSpan(score.totalEarned));
+                } else {
+                    fragment.appendChild(document.createTextNode(score.totalEarned));
+                    fragment.appendChild(createGradeBadge(totalMax));
+                }
+                fragment.appendChild(document.createTextNode(tail));
+                node.replaceWith(fragment);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function aggregateMultiPointGrades(meetingCell, maxGradeList) {
+        const totalMax = maxGradeList.reduce((acc, m) => acc + (typeof m === 'number' ? m : 0), 0);
+        if (totalMax <= 0 || isNaN(totalMax) || !isFinite(totalMax)) return false;
+
+        const numberElements = qsa('.lesson-realization:not(.present):not(.absent)', meetingCell);
+        if (numberElements.length >= 3) {
+            const score = calculateMultiPointScore(numberElements.map(el => el.textContent), maxGradeList);
+            if (!score) return false;
+            return aggregateElementGrades(numberElements, score, totalMax, meetingCell);
+        }
+
+        const matches = [...meetingCell.textContent.matchAll(/\b(\d+([.,]\d+)?)\b/g)];
+        if (matches.length > 0) {
+            const score = calculateMultiPointScore(matches.map(m => m[1]), maxGradeList);
+            if (!score) return false;
+            return aggregateTextNodeGrades(meetingCell, score, totalMax);
         }
 
         return false;
@@ -3236,17 +3289,20 @@
 
         // А. Если оценка лежит в отдельном элементе .lesson-realization
         const leafElements = qsa('.lesson-realization:not(.present):not(.absent)', meetingCell);
-        for (const el of leafElements) {
-            const txt = el.textContent.trim();
-            if (/^\d+(\.\d+)?$/.test(txt)) {
-                if (gradeIndex < maxGradeList.length) {
-                    const max = maxGradeList[gradeIndex++];
-                    const val = parseFloat(txt);
-
-                    if (val >= max) {
-                        el.classList.add('mse-max-done');
-                    } else {
-                        el.appendChild(createGradeBadge(max));
+        for (let i = 0; i < leafElements.length; i++) {
+            const el = leafElements[i];
+            const grade = parseNumericGrade(el.textContent);
+            if (grade !== null) {
+                const targetIdx = leafElements.length === maxGradeList.length ? i : gradeIndex;
+                if (targetIdx < maxGradeList.length) {
+                    const max = maxGradeList[targetIdx];
+                    gradeIndex++;
+                    if (typeof max === 'number' && max > 0) {
+                        if (grade >= max) {
+                            el.classList.add('mse-max-done');
+                        } else {
+                            el.appendChild(createGradeBadge(max));
+                        }
                     }
                 }
             }
@@ -3258,13 +3314,7 @@
         for (const node of Array.from(meetingCell.childNodes)) {
             if (node.nodeType === Node.TEXT_NODE) {
                 const textContent = node.textContent;
-                const regex = /\b(\d+(\.\d+)?)\b/g;
-                let match;
-                const matches = [];
-
-                while ((match = regex.exec(textContent)) !== null) {
-                    matches.push({ num: match[1], index: match.index });
-                }
+                const matches = [...textContent.matchAll(/\b(\d+([.,]\d+)?)\b/g)].map(match => ({ num: match[1], index: match.index }));
 
                 if (matches.length > 0) {
                     const fragment = document.createDocumentFragment();
@@ -3272,12 +3322,14 @@
 
                     for (const m of matches) {
                         if (gradeIndex >= maxGradeList.length) break;
+                        const grade = parseNumericGrade(m.num);
+                        if (grade === null) continue;
                         const max = maxGradeList[gradeIndex++];
-                        const numVal = parseFloat(m.num);
+                        if (typeof max !== 'number' || max <= 0) continue;
 
                         fragment.appendChild(document.createTextNode(textContent.substring(lastIdx, m.index)));
 
-                        if (numVal >= max) {
+                        if (grade >= max) {
                             fragment.appendChild(createMaxDoneSpan(m.num));
                         } else {
                             const numSpan = document.createElement('span');
@@ -3331,8 +3383,8 @@
         const leafElements = qsa('.lesson-realization:not(.present):not(.absent)', meetingCell);
         let injected = false;
         for (const el of leafElements) {
-            const txt = el.textContent.trim();
-            if (/^\d+(\.\d+)?$/.test(txt)) {
+            const grade = parseNumericGrade(el.textContent);
+            if (grade !== null) {
                 el.appendChild(createUnknownGradeBadge());
                 injected = true;
             }
@@ -3343,19 +3395,16 @@
         for (const node of Array.from(meetingCell.childNodes)) {
             if (node.nodeType === Node.TEXT_NODE) {
                 const textContent = node.textContent;
-                const regex = /\b(\d+(\.\d+)?)\b/g;
-                let match;
-                const matches = [];
-
-                while ((match = regex.exec(textContent)) !== null) {
-                    matches.push({ num: match[1], index: match.index });
-                }
+                const matches = [...textContent.matchAll(/\b(\d+([.,]\d+)?)\b/g)].map(match => ({ num: match[1], index: match.index }));
 
                 if (matches.length > 0) {
                     const fragment = document.createDocumentFragment();
                     let lastIdx = 0;
 
                     for (const m of matches) {
+                        const grade = parseNumericGrade(m.num);
+                        if (grade === null) continue;
+
                         fragment.appendChild(document.createTextNode(textContent.substring(lastIdx, m.index)));
 
                         const numSpan = document.createElement('span');
@@ -3445,9 +3494,9 @@
             // Скрытая кнопка на "Текущий итог" (двойной клик)
             if (currentTotalColIndex !== -1 && tds[currentTotalColIndex]) {
                 const totalTd = tds[currentTotalColIndex];
-                const currentTotalNum = parseFloat(totalTd.textContent.trim());
+                const currentTotalNum = parseNumericGrade(totalTd.textContent.trim());
 
-                if (!isNaN(currentTotalNum) && !totalTd.dataset.mseDblclickAttached) {
+                if (currentTotalNum !== null && !totalTd.dataset.mseDblclickAttached) {
                     totalTd.dataset.mseDblclickAttached = '1';
 
                     totalTd.addEventListener('dblclick', (e) => {
@@ -3469,7 +3518,7 @@
                                 clone.querySelectorAll('.mse-max-grade').forEach(b => b.remove());
 
                                 const gradePart = clone.textContent.split('|')[0] || '';
-                                const matches = [...gradePart.matchAll(/\b(\d+(\.\d+)?)\b/g)];
+                                const matches = [...gradePart.matchAll(/\b(\d+([.,]\d+)?)\b/g)];
                                 if (matches.length === 0) return;
 
                                 const matchedLesson = matchedLessons ? matchedLessons[meetingNumber - 1] : null;
@@ -3482,18 +3531,21 @@
                                 evaluatedWithMaxCount++;
                                 const maxGradeArray = Array.isArray(maxGradeList) ? maxGradeList : [maxGradeList];
 
-                                // Если пара была с 3+ оценками (суммированная)
-                                if (maxGradeArray.length >= 3 && matches.length === 1) {
+                                // Если пара была агрегирована (3+ контрольные точки)
+                                if (meetingCell.dataset.mseAggregated === '1' && matches.length === 1) {
                                     const sumMax = maxGradeArray.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
-                                    const earned = parseFloat(matches[0][1]);
-                                    if (!isNaN(earned) && sumMax > earned) totalLost += (sumMax - earned);
+                                    const evaluatedMax = parseFloat(meetingCell.dataset.mseEvaluatedMax) || sumMax;
+                                    const earned = parseNumericGrade(matches[0][1]);
+                                    if (earned !== null && evaluatedMax > earned) {
+                                        totalLost += (evaluatedMax - earned);
+                                    }
                                     return;
                                 }
 
                                 // Для обычных пар: считаем недополученное только по реально сданным точкам
                                 matches.forEach((m, idx) => {
-                                    const num = parseFloat(m[1]);
-                                    if (!isNaN(num) && idx < maxGradeArray.length) {
+                                    const num = parseNumericGrade(m[1]);
+                                    if (num !== null && idx < maxGradeArray.length) {
                                         const maxVal = maxGradeArray[idx];
                                         if (maxVal > num) totalLost += (maxVal - num);
                                     }
@@ -3587,7 +3639,7 @@
                         const txt = el.textContent.trim();
 
                         // 1. Выставленная оценка
-                        if (/^\d+(\.\d+)?$/.test(txt)) {
+                        if (/^\d+([.,]\d+)?$/.test(txt)) {
                             if (maxIdx < matchedMaxList.length) {
                                 el.textContent = `${txt} / ${matchedMaxList[maxIdx++]}`;
                             }
