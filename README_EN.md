@@ -60,7 +60,7 @@ The extension works in any popular desktop browser (**Yandex Browser, Google Chr
 | Vivaldi | `vivaldi://extensions` | ✅ |
 | Firefox | — | ❌ not supported |
 | Safari | — | ❌ not supported |
-| Mobile browsers (Android / iOS) | — | ❌ extensions don't work there |
+| Mobile browsers (Android / iOS) | — | ❌ not supported |
 
 ---
 
