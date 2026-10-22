@@ -1574,6 +1574,45 @@
         logger.debug('Скрипт полностью остановлен, нативные прототипы и таймеры очищены.');
     };
 
+    const getMyPersonId = () => {
+        if (myPersonId) return myPersonId;
+        try {
+            const token = sessionStorage.getItem('id_token');
+            if (token) {
+                const claims = parseJwt(token);
+                myPersonId = claims.person_id || claims.sub || null;
+                if (myPersonId) localStorage.setItem(STORAGE_KEY_MY_PERSON_ID, myPersonId);
+            }
+        } catch { }
+        return myPersonId || localStorage.getItem(STORAGE_KEY_MY_PERSON_ID) || null;
+    };
+
+    const isSameStudyDirection = (studentInfo) => {
+        if (!mySpecialty || !studentInfo?.specialtyName) return false;
+        if (studentInfo.specialtyName !== mySpecialty) return false;
+        return myProfile ? studentInfo.specialtyProfile === myProfile : true;
+    };
+
+    const renderAttendeeBadges = (studentInfo, isFriend) => {
+        const isCurrentUser = Boolean(studentInfo.id && studentInfo.id === getMyPersonId());
+
+        if (isCurrentUser) {
+            return '<span title="Это вы" style="cursor:help; margin-right:4px;">👤</span>';
+        }
+
+        let badges = '';
+        if (isFriend) {
+            badges += '<span title="Ваш друг" style="cursor:help; margin-right:4px;">❤️</span>';
+        }
+        if (isSameStudyDirection(studentInfo)) {
+            const tooltipText = myProfile
+                ? `Обучается на вашем направлении и профиле (${myProfile})`
+                : 'Обучается на вашем направлении';
+            badges += `<span title="${escapeHtml(tooltipText)}" style="cursor:help; margin-right:4px;">🎓</span>`;
+        }
+        return badges;
+    };
+
     const enhanceLists = () => {
         const friends = getFriends();
         const friendNames = new Set(friends.map(f => normalizeName(f.fullName)));
@@ -1585,32 +1624,12 @@
             const studentInfo = uniqueStudents.get(nameOnPage);
 
             if (studentInfo) {
-                let customStyle = '';
-                let badges = '';
-
-                // Иконки СЛЕВА
-                if (friendNames.has(nameOnPage)) {
-                    badges += '<span title="Ваш друг" style="cursor:help; margin-right:4px;">❤️</span>';
-                }
-                // Проверяем совпадение направления
-                const isSameSpecialty = mySpecialty && studentInfo.specialtyName && (studentInfo.specialtyName === mySpecialty);
-
-                // Проверяем совпадение профиля (если у вас есть профиль — он должен совпадать; если профиля нет у обоих — достаточно направления)
-                const isSameProfile = myProfile
-                    ? (studentInfo.specialtyProfile && studentInfo.specialtyProfile === myProfile)
-                    : true;
-
-                if (isSameSpecialty && isSameProfile) {
-                    const tooltipText = myProfile
-                        ? `Обучается на вашем направлении и профиле (${myProfile})`
-                        : 'Обучается на вашем направлении';
-                    badges += `<span title="${escapeHtml(tooltipText)}" style="cursor:help; margin-right:4px;">🎓</span>`;
-                }
-
-                // Убрал inline-block, теперь фон будет облегать текст без разрыва
-                if (normalizedSelected.has(nameOnPage)) {
-                    customStyle = 'background: rgba(40, 167, 69, 0.3); border-radius: 3px; padding: 0 3px; font-weight: bold; color: #000;';
-                }
+                const isFriend = friendNames.has(nameOnPage);
+                const badges = renderAttendeeBadges(studentInfo, isFriend);
+                const isSelected = normalizedSelected.has(nameOnPage);
+                const customStyle = isSelected
+                    ? 'background: rgba(40, 167, 69, 0.3); border-radius: 3px; padding: 0 3px; font-weight: bold; color: #000;'
+                    : '';
 
                 // Сборка: Иконки -> Имя -> Специальность с безопасным экранированием
                 p.innerHTML = `${badges}<span style="${customStyle}">${escapeHtml(studentInfo.fullName)}</span><span class="student-details">${escapeHtml(studentInfo.details)}</span>`;
