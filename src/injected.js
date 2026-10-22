@@ -454,6 +454,12 @@
 
     // Классы и идентификаторы элементов DOM
     const CLASS_MSE_ACTIVE = 'mse-active';
+    const CLASS_SHORT_CARD = 'mse-short-card';
+    const CLASS_NATIVE_POPOVER_SHARED = 'mse-native-popover-shared';
+    const SHORT_CARD_MAX_HEIGHT_PX = 54;
+    const BANNER_HEIGHT_PX = 17;
+    const BANNER_SAFETY_MARGIN_PX = 2;
+    const COMPACT_CHIP_MAX_WIDTH_PX = 110;
     const ID_SILENT_REFRESHER = 'mse-silent-refresher';
     const ID_SEARCH_CONTAINER = 'enhancer-search-container';
     const ID_STOP_BUTTON = 'enhancer-stop-button';
@@ -488,6 +494,11 @@
     let selectedStudents = new Set();
     const attendeesMemoryCache = new Map();
     let lastActiveCalendarPersonId = null;
+    let nativePopoverObserver = null;
+    let hoveredHighlightedEventId = null;
+    let calendarResizeObserver = null;
+    let calendarResizeDebounceTimer = null;
+    let observedCalendarTarget = null;
 
     // Успеваемость и технологические карты
     const GRADES_MAX_UNKNOWN_THRESHOLD = 0.3; // Порог неизвестных макс. баллов (30%) для вывода Н/Д*
@@ -1545,6 +1556,8 @@
         if (handleEngagementVisibilityChange) {
             document.removeEventListener('visibilitychange', handleEngagementVisibilityChange);
         }
+        cleanupNativePopoverObserver();
+        cleanupCalendarResizeObserver();
         document.removeEventListener('click', handleOutsideSearchClick);
         document.removeEventListener('mse:databases-updated', handleDatabasesUpdated);
         document.removeEventListener('mse:autologin-updated', handleAutologinUpdated);
@@ -1664,56 +1677,251 @@
     };
 
     const formatShortName = (fullName) => {
+        if (!fullName) return '';
         const parts = fullName.trim().split(/\s+/);
         if (parts.length >= 3) return `${parts[0]} ${parts[1][0]}. ${parts[2][0]}.`;
         if (parts.length === 2) return `${parts[0]} ${parts[1][0]}.`;
         return fullName;
     };
 
-    const highlightEventsForStudents = () => {
-        if (selectedStudents.size === 0) { clearHighlight(); return; }
-        const normalizedSelected = new Set([...selectedStudents].map(normalizeName));
+    const getMatchedStudentNames = (matchedKeys, uniqueStudentsMap) => {
+        return matchedKeys.map(key => uniqueStudentsMap.get(key)?.fullName || key);
+    };
 
-        qsa('.fc-time-grid-event').forEach(el => {
-            const eventId = el.getAttribute('data-event-id');
-            el.classList.remove('search-highlight', 'search-fade');
+    const getMatchedStudentsForEvent = (eventId, normalizedSelected = null) => {
+        if (!eventId || !eventCache.has(eventId)) return [];
+        const eventAttendees = eventCache.get(eventId).attendees;
+        const selected = normalizedSelected || new Set([...selectedStudents].map(normalizeName));
+        const matchedKeys = [...selected].filter(name => eventAttendees.has(name));
+        return getMatchedStudentNames(matchedKeys, uniqueStudents);
+    };
 
-            el.querySelectorAll('.mse-event-match-tooltip').forEach(e => e.remove());
-            el.removeAttribute('title');
+    const isShortCard = (cardElement) => {
+        return cardElement.clientHeight <= SHORT_CARD_MAX_HEIGHT_PX ||
+               cardElement.offsetHeight <= SHORT_CARD_MAX_HEIGHT_PX;
+    };
 
-            if (eventId && eventCache.has(eventId)) {
-                const eventAttendees = eventCache.get(eventId).attendees;
-                const matchedStudents = [...normalizedSelected].filter(student => eventAttendees.has(student));
+    const doesExpandedBannerFit = (cardElement) => {
+        if (!cardElement) return false;
+        if (isShortCard(cardElement)) return false;
 
-                if (matchedStudents.length > 0) {
-                    el.classList.add('search-highlight');
+        const title = cardElement.querySelector('.fc-title');
+        if (!title) return true;
 
-                    // 1. Короткие имена на самой карточке (влезет намного больше!)
-                    const shortNames = matchedStudents.map(formatShortName).join(', ');
+        const titleRect = title.getBoundingClientRect();
+        const cardRect = cardElement.getBoundingClientRect();
+        const estimatedBannerTop = cardRect.bottom - BANNER_HEIGHT_PX - BANNER_SAFETY_MARGIN_PX;
 
-                    // 2. Полные имена во всплывающей системной подсказке при наведении
-                    const fullNamesList = matchedStudents.join('\n• ');
-                    el.setAttribute('title', `Совместная пара с:\n• ${fullNamesList}`);
+        return estimatedBannerTop >= titleRect.bottom + BANNER_SAFETY_MARGIN_PX;
+    };
 
-                    const matchText = document.createElement('div');
-                    matchText.className = 'mse-event-match-tooltip';
-                    matchText.title = `Совместная пара с:\n• ${fullNamesList}`;
-                    matchText.innerHTML = `<strong>С вами:</strong> ${escapeHtml(shortNames)}`;
+    const formatSingleStudentCompact = (fullName, cardWidth) => {
+        if (cardWidth && cardWidth < COMPACT_CHIP_MAX_WIDTH_PX) {
+            return '👥 1 чел.';
+        }
+        return `👥 ${formatShortName(fullName)}`;
+    };
 
-                    const container = el.querySelector('.fc-content') || el;
-                    container.appendChild(matchText);
-                } else {
-                    el.classList.add('search-fade');
+    const formatCompressedBannerLabel = (matchedStudents, cardWidth) => {
+        return matchedStudents.length === 1
+            ? formatSingleStudentCompact(matchedStudents[0], cardWidth)
+            : `👥 ${matchedStudents.length} чел.`;
+    };
+
+    const formatExpandedBannerLabel = (matchedStudents) => {
+        const count = matchedStudents.length;
+        const shortNames = matchedStudents.map(formatShortName).join(', ');
+        return count === 1
+            ? `👥 С вами: ${shortNames}`
+            : `👥 С вами (${count}): ${shortNames}`;
+    };
+
+    const updateCardLayout = (cardElement, matchedStudents) => {
+        const banner = cardElement.querySelector('.mse-event-match-tooltip');
+        if (!banner) return;
+
+        if (isShortCard(cardElement)) {
+            cardElement.classList.add(CLASS_SHORT_CARD);
+            banner.textContent = formatCompressedBannerLabel(matchedStudents, cardElement.clientWidth);
+            return;
+        }
+
+        cardElement.classList.remove(CLASS_SHORT_CARD);
+
+        if (doesExpandedBannerFit(cardElement)) {
+            banner.textContent = formatExpandedBannerLabel(matchedStudents);
+        } else {
+            banner.textContent = formatCompressedBannerLabel(matchedStudents, cardElement.clientWidth);
+        }
+    };
+
+    const renderSharedAttendeeItem = (fullName) => {
+        return `<div class="mse-shared-item">• ${escapeHtml(fullName)}</div>`;
+    };
+
+    const createSharedAttendeesSection = (matchedStudents) => {
+        const count = matchedStudents.length;
+        const headerTitle = count === 1
+            ? '👥 С вами на паре:'
+            : `👥 С вами на паре (${count}):`;
+
+        const section = document.createElement('div');
+        section.className = CLASS_NATIVE_POPOVER_SHARED;
+        section.innerHTML = `
+            <div class="mse-shared-header">${escapeHtml(headerTitle)}</div>
+            <div class="mse-shared-list">${matchedStudents.map(renderSharedAttendeeItem).join('')}</div>
+        `;
+        return section;
+    };
+
+    const findTriggeringCard = (popoverWindow) => {
+        if (popoverWindow.id) {
+            const cardByAria = document.querySelector(`[aria-describedby="${popoverWindow.id}"]`);
+            if (cardByAria) return cardByAria.closest('.fc-time-grid-event') || cardByAria;
+        }
+        if (hoveredHighlightedEventId) {
+            return document.querySelector(`.fc-time-grid-event.search-highlight[data-event-id="${hoveredHighlightedEventId}"]`);
+        }
+        return null;
+    };
+
+    const enrichNativePopover = (popoverWindow) => {
+        if (!popoverWindow || popoverWindow.hasAttribute('data-mse-popover-enriched')) return;
+
+        const tryEnrich = () => {
+            const container = popoverWindow.querySelector('.popover-event');
+            if (!container) return false;
+            if (container.querySelector(`.${CLASS_NATIVE_POPOVER_SHARED}`)) return true;
+
+            const card = findTriggeringCard(popoverWindow);
+            if (!card || !card.classList.contains('search-highlight')) return true;
+
+            const eventId = card.getAttribute('data-event-id');
+            const matchedStudents = getMatchedStudentsForEvent(eventId);
+            if (matchedStudents.length === 0) return true;
+
+            const sharedSection = createSharedAttendeesSection(matchedStudents);
+            container.appendChild(sharedSection);
+            popoverWindow.setAttribute('data-mse-popover-enriched', 'true');
+            return true;
+        };
+
+        if (!tryEnrich()) {
+            setTimeout(tryEnrich, 20);
+        }
+    };
+
+    const handleCardMouseOver = (e) => {
+        const card = e.target.closest('.fc-time-grid-event');
+        hoveredHighlightedEventId = (card && card.classList.contains('search-highlight'))
+            ? card.getAttribute('data-event-id')
+            : null;
+    };
+
+    const handleBodyMutations = (mutations) => {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                if (node.tagName === 'NGB-POPOVER-WINDOW') {
+                    enrichNativePopover(node);
+                } else if (node.querySelector) {
+                    const nestedPopover = node.querySelector('ngb-popover-window');
+                    if (nestedPopover) enrichNativePopover(nestedPopover);
                 }
-            } else {
-                el.classList.add('search-fade');
+            }
+        }
+    };
+
+    const setupNativePopoverObserver = () => {
+        if (nativePopoverObserver) return;
+        document.addEventListener('mouseover', handleCardMouseOver, true);
+        nativePopoverObserver = new MutationObserver(handleBodyMutations);
+        nativePopoverObserver.observe(document.body, { childList: true, subtree: true });
+    };
+
+    const cleanupNativePopoverObserver = () => {
+        if (nativePopoverObserver) {
+            nativePopoverObserver.disconnect();
+            nativePopoverObserver = null;
+        }
+        document.removeEventListener('mouseover', handleCardMouseOver, true);
+        hoveredHighlightedEventId = null;
+    };
+
+    const clearCardHighlight = (card) => {
+        card.classList.remove('search-highlight', 'search-fade', CLASS_SHORT_CARD);
+        card.removeAttribute('title');
+        card.querySelectorAll('.mse-event-match-tooltip').forEach(el => el.remove());
+    };
+
+    const highlightSingleCard = (card, normalizedSelected) => {
+        clearCardHighlight(card);
+
+        const eventId = card.getAttribute('data-event-id');
+        const matchedStudents = getMatchedStudentsForEvent(eventId, normalizedSelected);
+        if (matchedStudents.length === 0) {
+            card.classList.add('search-fade');
+            return;
+        }
+
+        card.classList.add('search-highlight');
+        const banner = document.createElement('div');
+        banner.className = 'mse-event-match-tooltip';
+        const container = card.querySelector('.fc-content') || card;
+        container.appendChild(banner);
+
+        updateCardLayout(card, matchedStudents);
+    };
+
+    const refreshCardCompression = () => {
+        if (selectedStudents.size === 0) return;
+        const normalizedSelected = new Set([...selectedStudents].map(normalizeName));
+        qsa('.fc-time-grid-event.search-highlight').forEach(card => {
+            const eventId = card.getAttribute('data-event-id');
+            const matchedStudents = getMatchedStudentsForEvent(eventId, normalizedSelected);
+            if (matchedStudents.length > 0) {
+                updateCardLayout(card, matchedStudents);
             }
         });
     };
 
+    const handleCalendarResize = () => {
+        clearTimeout(calendarResizeDebounceTimer);
+        calendarResizeDebounceTimer = setTimeout(refreshCardCompression, 100);
+    };
+
+    const setupCalendarResizeObserver = () => {
+        const target = qs('.fc-view-container') || qs('.main-calendar-form') || qs('.fc-time-grid');
+        if (!target) return;
+        if (calendarResizeObserver && observedCalendarTarget === target && target.isConnected) return;
+
+        cleanupCalendarResizeObserver();
+        observedCalendarTarget = target;
+        calendarResizeObserver = new ResizeObserver(handleCalendarResize);
+        calendarResizeObserver.observe(target);
+    };
+
+    const cleanupCalendarResizeObserver = () => {
+        if (calendarResizeObserver) {
+            calendarResizeObserver.disconnect();
+            calendarResizeObserver = null;
+        }
+        clearTimeout(calendarResizeDebounceTimer);
+        calendarResizeDebounceTimer = null;
+        observedCalendarTarget = null;
+    };
+
+    const highlightEventsForStudents = () => {
+        if (selectedStudents.size === 0) {
+            clearHighlight();
+            return;
+        }
+        const normalizedSelected = new Set([...selectedStudents].map(normalizeName));
+        qsa('.fc-time-grid-event').forEach(card => highlightSingleCard(card, normalizedSelected));
+    };
+
     const clearHighlight = () => {
-        qsa('.search-highlight, .search-fade').forEach(el => el.classList.remove('search-highlight', 'search-fade'));
-        qsa('.mse-event-match-tooltip').forEach(e => e.remove());
+        qsa('.fc-time-grid-event').forEach(clearCardHighlight);
     };
 
     const clearSearch = () => {
@@ -3086,6 +3294,8 @@
 
         document.removeEventListener('click', handleOutsideSearchClick);
         document.addEventListener('click', handleOutsideSearchClick);
+        setupNativePopoverObserver();
+        setupCalendarResizeObserver();
 
         loadAllData();
     };
@@ -3746,6 +3956,7 @@
             enhancePopovers();
 
             if (qs('.main-calendar-form') && !qs(`#${ID_SEARCH_CONTAINER}`)) setupUI();
+            if (!calendarResizeObserver && qs('.main-calendar-form')) setupCalendarResizeObserver();
 
             // Если выбран хоть один человек — всегда держим подсветку включенной (даже если кликнули на пару)
             if (selectedStudents.size > 0) {

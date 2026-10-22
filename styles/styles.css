@@ -217,7 +217,7 @@ body.mse-active {
     }
 
     .search-highlight {
-        border: 3px solid #28a745 !important;
+        border: 2.5px solid #16a34a !important;
         z-index: 2 !important;
     }
 
@@ -225,20 +225,97 @@ body.mse-active {
         opacity: 0.25 !important;
     }
 
+    /* Clean block layout: preserves natural FullCalendar flow so title is never squashed */
+    .search-highlight .fc-content {
+        display: block !important;
+        height: 100% !important;
+        overflow: hidden !important;
+        position: relative !important;
+    }
+
+    .search-highlight .fc-time {
+        display: block !important;
+    }
+
+    .search-highlight .fc-title {
+        display: -webkit-box !important;
+        -webkit-box-orient: vertical !important;
+        -webkit-line-clamp: 2 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        font-size: 12.5px !important;
+        line-height: 16.25px !important;
+        min-height: 32.5px !important;
+    }
+
+    /* Short card optimization (strictly for <= 54px slots like 8th period LXP) */
+    .fc-time-grid-event.search-highlight.mse-short-card {
+        padding: 1px 3px !important;
+    }
+
+    .fc-time-grid-event.search-highlight.mse-short-card .fc-title {
+        -webkit-line-clamp: 1 !important;
+        min-height: 16px !important;
+        white-space: nowrap !important;
+    }
+
+    .fc-time-grid-event.search-highlight.mse-short-card .mse-event-match-tooltip {
+        padding: 0 4px !important;
+        font-size: 9.5px !important;
+        line-height: 13px !important;
+        bottom: 1px !important;
+        right: 1px !important;
+    }
+
+    /* Stable, non-blinking badge positioned at bottom-right of the event card */
     .mse-event-match-tooltip {
+        position: absolute;
+        bottom: 2px;
+        right: 2px;
         font-size: 10px;
-        color: #000;
-        background: rgba(40, 167, 69, 0.35);
-        padding: 2px 4px;
-        border-radius: 3px;
-        margin-top: 3px;
-        line-height: 1.2;
-        display: block;
+        line-height: 1.25;
+        color: #14532d;
+        background: #dcfce7;
+        padding: 1px 6px;
+        border-radius: 4px;
+        max-width: calc(100% - 4px);
+        width: fit-content;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        border-left: 2px solid #28a745;
-        cursor: help;
+        border: 1px solid #86efac;
+        border-left: 3px solid #16a34a;
+        user-select: none;
+        pointer-events: none;
+        box-sizing: border-box;
+        z-index: 2;
+    }
+
+    /* Shared attendees section inside native Modeus popover (ngb-popover-window) */
+    .mse-native-popover-shared {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .mse-shared-header {
+        font-weight: 600;
+        color: #4ade80;
+        margin-bottom: 4px;
+        font-size: 13px;
+        line-height: 1.2;
+    }
+
+    .mse-shared-list {
+        font-size: 12px;
+        line-height: 1.45;
+        color: #f3f4f6;
+    }
+
+    .mse-shared-item {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     /* 4. Тултипы преподавателей */
