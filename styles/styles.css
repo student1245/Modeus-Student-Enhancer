@@ -651,9 +651,16 @@ body.mse-active {
         min-width: 105px !important;
     }
 
+    td.text-center:not(.p-frozen-column),
+    .p-datatable-tbody > tr > td.text-center:not(.p-frozen-column) {
+        width: 105px !important;
+        min-width: 105px !important;
+    }
+
     .lesson-realization-wrap {
         font-size: 12px !important;
         overflow: visible !important;
+        white-space: nowrap !important;
     }
 
     .lesson-realization:not(.present):not(.absent) {
@@ -664,6 +671,16 @@ body.mse-active {
         text-overflow: clip !important;
     }
 
+    .lesson-realization.present,
+    .lesson-realization.absent {
+        display: inline-block !important;
+        width: auto !important;
+        min-width: 16px !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        margin-left: 4px !important;
+        vertical-align: baseline !important;
+    }
     .mse-max-done {
         color: #1e293b !important;
         border-bottom: 2px solid #1c9b4a !important;

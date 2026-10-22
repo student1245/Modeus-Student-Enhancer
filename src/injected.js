@@ -3471,6 +3471,60 @@
         return null;
     }
 
+    const BASE_MEETING_COLUMN_WIDTH = 105;
+    const CELL_HORIZONTAL_PADDING = 20;
+    const REALIZATION_BADGE_GAP = 4;
+
+    const calculateCellContentWidth = (cell) => {
+        const wrap = cell?.querySelector('.lesson-realization-wrap');
+        if (!wrap) return 0;
+
+        let contentWidth = 0;
+        const items = wrap.querySelectorAll('.lesson-realization');
+        items.forEach((item, index) => {
+            contentWidth += item.offsetWidth;
+            if (index > 0) contentWidth += REALIZATION_BADGE_GAP;
+        });
+        return contentWidth;
+    };
+
+    const calculateColumnRequiredWidth = (colIndex, rows) => {
+        let maxContentWidth = 0;
+        rows.forEach(row => {
+            const cell = row.querySelectorAll('td')[colIndex];
+            if (cell) {
+                const width = calculateCellContentWidth(cell);
+                if (width > maxContentWidth) maxContentWidth = width;
+            }
+        });
+        const neededWidth = maxContentWidth + CELL_HORIZONTAL_PADDING;
+        return Math.max(BASE_MEETING_COLUMN_WIDTH, Math.ceil(neededWidth));
+    };
+
+    const applyColumnWidth = (meetingColumn, width, rows) => {
+        const { colIndex, th } = meetingColumn;
+        const widthPx = `${width}px`;
+        th.style.setProperty('width', widthPx, 'important');
+        th.style.setProperty('min-width', widthPx, 'important');
+
+        rows.forEach(row => {
+            const cell = row.querySelectorAll('td')[colIndex];
+            if (cell) {
+                cell.style.setProperty('width', widthPx, 'important');
+                cell.style.setProperty('min-width', widthPx, 'important');
+            }
+        });
+    };
+
+    const adjustMeetingColumnWidths = (meetingColumns, rows) => {
+        meetingColumns.forEach(column => {
+            const requiredWidth = calculateColumnRequiredWidth(column.colIndex, rows);
+            if (requiredWidth > BASE_MEETING_COLUMN_WIDTH) {
+                applyColumnWidth(column, requiredWidth, rows);
+            }
+        });
+    };
+
     // 3. Обновление таблицы оценок
     function enhanceGradesTable() {
         const isGradesUrl = window.location.href.includes('/my-results') || window.location.href.includes('/student-card');
@@ -3484,7 +3538,7 @@
         ths.forEach((th, idx) => {
             const match = th.textContent.match(/Встреча\s*(\d+)/i);
             if (match) {
-                meetingColumns.push({ colIndex: idx, meetingNumber: parseInt(match[1], 10) });
+                meetingColumns.push({ colIndex: idx, meetingNumber: parseInt(match[1], 10), th });
             }
             // Запоминаем индекс колонки "Текущий итог"
             if (th.textContent.includes('Текущий итог')) {
@@ -3611,7 +3665,7 @@
                     });
                 }
             }
-            meetingColumns.forEach(({ colIndex, meetingNumber }) => {
+            meetingColumns.forEach(({ colIndex, meetingNumber, th }) => {
                 const meetingCell = tds[colIndex];
                 if (!meetingCell) return;
 
@@ -3624,6 +3678,8 @@
                 }
             });
         });
+
+        adjustMeetingColumnWidths(meetingColumns, rows);
     }
 
     // 4. Обновление всплывающего тултипа
