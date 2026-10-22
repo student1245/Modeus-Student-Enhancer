@@ -75,8 +75,7 @@
         "src/injected.js",
         "src/pe-module.js",
         "buildings.json",
-        "teacher_reviews.json",
-        "data/survey.json"
+        "teacher_reviews.json"
       ],
       "matches": [
         "https://utmn.modeus.org/*"

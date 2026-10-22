@@ -51,8 +51,8 @@ modeus-beta/
 ├── README_EN.md          # Пользовательское руководство и инструкция по установке (EN)
 ├── PRIVACY.md            # Политика конфиденциальности (RU / EN) — в корне для Chrome Web Store URL
 ├── data/
-│   ├── rules.json        # Декларативные правила DeclarativeNetRequest для снятия заголовков CSP и XFO
-│   └── survey.json       # Конфигурация дистанционных опросов (локальный dev-черновик)
+│   ├── rules.json        # Декларативные правила DeclarativeNetRequest для снятия заголовков CSP и XFO (включается в релизный бандл)
+│   └── survey.json       # Конфигурация дистанционных опросов (локальный dev-черновик, исключается из релизного ZIP)
 ├── docs/
 │   ├── architecture.md   # Архитектурная спецификация и техническая документация подсистем
 │   ├── Img/              # Скриншоты для README (grades.png, sport-grid.png, sport-grid-crop.png)

@@ -93,7 +93,7 @@ Accepted | Implemented (v2.2.2)
 - Запрос выполняется из Isolated World (`src/content.js`) с таймаутом `FETCH_TIMEOUT_MS = 2500` мс.
 - Успешный ответ сохраняется в `localStorage.mse_survey_cache` с временем жизни 12 часов (`SURVEY_CACHE_TTL_MS = 12 * 60 * 60 * 1000`).
 - В продакшене опрос работает строго онлайн: если запрос к GitHub завершился сбоем и кэш отсутствует, загрузчик тихо возвращает `null` без обращения к локальному пакету и без спама ошибками 404 в консоль.
-- В релизном GitHub Actions workflow (`.github/workflows/release.yml`) файл `data/survey.json` и каталог `data/*` принудительно исключаются из финального архива через флаг `-x`.
+- В релизном GitHub Actions workflow (`.github/workflows/release.yml`) файл `data/survey.json` принудительно исключается из финального архива через флаг `-x "data/survey.json"`, в то время как необходимые для DeclarativeNetRequest правила `data/rules.json` остаются в бандле.
 
 ### 2. Пятиступенчатый предикат допуска к показу (`shouldShowSurvey`)
 Показ опроса инициируется методом `checkSurvey()` только при одновременном выполнении 5 условий:
@@ -138,7 +138,7 @@ Accepted | Implemented (v2.2.2)
 |---|---|---|---|---|
 | Блокировка `raw.githubusercontent.com` провайдерами | Среднее | `TypeError: Failed to fetch` в тихом режиме | Тихий fallback без ошибок; опрос просто не показывается | `student1245` |
 | Исчерпание суточной квоты Apps Script (20k req/day) | Низкое | Ошибки HTTP 429 на сервере Google | Ограничение таргетинга `config.targeting` (квалифицированные дни) и разовый показ на опрос | `student1245` |
-| Появление зомби-опроса из-за попадания survey.json в ZIP | Высокое | Наличие `data/survey.json` в релизном архиве | Исключение `-x "data/*"` в `.github/workflows/release.yml` | `student1245` |
+| Появление зомби-опроса из-за попадания survey.json в ZIP | Высокое | Наличие `data/survey.json` в релизном архиве | Исключение `-x "data/survey.json"` в `.github/workflows/release.yml` | `student1245` |
 | Спуфинг или спам вебхука пустыми запросами | Низкое | Замусоривание Google Таблицы | Валидация структуры payload в коде скрипта таблицы | `student1245` |
 
 ## Verification & Control
@@ -177,7 +177,7 @@ Accepted | Implemented (v2.2.2)
 - `src/injected.js` — модуль `checkSurvey()`, предикат `shouldShowSurvey()`, отправка метрик `sendSurveyMetric()`, методы отладки `window.MSE_*`.
 - `styles/styles.css` — стили 4-экранного модального окна опроса.
 - `data/survey.json` — локальный черновик для автора.
-- `.github/workflows/release.yml` — исключение каталога `data/*` из продакшен-бандла.
+- `.github/workflows/release.yml` — исключение файла `data/survey.json` из продакшен-бандла (при сохранении `data/rules.json`).
 
 ### Patterns to Follow
 - Использование `mode: 'no-cors'` и `headers: { 'Content-Type': 'text/plain' }` для обхода 302-редиректов Apps Script.
