@@ -1515,8 +1515,10 @@
             const suggestions = qs('#search-suggestions', container);
             if (suggestions) suggestions.style.display = 'none';
         }
+        const path = e.composedPath ? e.composedPath() : [];
+        const isInsideDropdown = path.some(el => el && el.id === 'selected-students-dropdown-wrapper');
         const dropdown = qs('#selected-students-dropdown-wrapper');
-        if (dropdown && !dropdown.contains(e.target)) {
+        if (dropdown && !dropdown.contains(e.target) && !isInsideDropdown) {
             const cont = qs('#selected-students-container');
             if (cont) cont.style.display = 'none';
         }
@@ -1946,14 +1948,6 @@
             container.innerHTML = [...selectedStudents].map(name =>
                 `<div class="selected-student-tag">${escapeHtml(name)}<button class="remove-student-btn" data-name="${escapeHtml(name)}">×</button></div>`
             ).join('');
-
-            qsa('.remove-student-btn', container).forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    selectedStudents.delete(e.target.getAttribute('data-name'));
-                    updateSelectedStudentsDisplay();
-                    highlightEventsForStudents();
-                });
-            });
         } else {
             wrapper.style.display = 'none';
             container.style.display = 'none';
@@ -3273,6 +3267,19 @@
         qs('#selected-students-toggle').addEventListener('click', () => {
             const cont = qs('#selected-students-container');
             cont.style.display = cont.style.display === 'flex' ? 'none' : 'flex';
+        });
+
+        qs('#selected-students-container').addEventListener('click', (e) => {
+            const removeBtn = e.target.closest('.remove-student-btn');
+            if (removeBtn) {
+                e.stopPropagation();
+                const name = removeBtn.getAttribute('data-name');
+                if (name) {
+                    selectedStudents.delete(name);
+                    updateSelectedStudentsDisplay();
+                    highlightEventsForStudents();
+                }
+            }
         });
 
         qs('#refresh-data-btn').addEventListener('click', () => {
