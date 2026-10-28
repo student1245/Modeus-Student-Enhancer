@@ -472,6 +472,7 @@
     const ID_SURVEY_POPUP = 'mse-survey-popup';
     const ID_FEEDBACK_FOOTER = 'mse-feedback-footer';
     const ID_OPEN_PE_BTN = 'mse-open-pe-btn';
+    const ID_SMART_PICKER_BANNER = 'mse-smart-picker-banner';
     const ID_SPOTLIGHT_OVERLAY = 'mse-spotlight-overlay';
     const ID_SPOTLIGHT_CARD = 'mse-spotlight-card';
     const ID_OPEN_ADD_FRIEND_BTN = 'mse-open-add-friend-guide-btn';
@@ -491,6 +492,8 @@
     const SVG_USER_GROUP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" class="mse-menu-icon-svg"><path d="M17 21v-1a2 2 0 00-2-2H9a2 2 0 00-2 2v1z"/><path d="M19 10h1a2 2 0 012 2v1z"/><path d="M5 10H4a2 2 0 00-2 2v1z"/><circle cx="12" cy="11" r="3"/><circle cx="18" cy="4" r="2"/><circle cx="6" cy="4" r="2"/></svg>';
     const SVG_USER_MENU = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" class="mse-menu-icon-svg"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2z"/><circle cx="12" cy="7" r="4"/></svg>';
     const SVG_USER_PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>';
+    const SVG_CALENDAR_SEARCH = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 2v3"/><path d="M21 10.69V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h7.25"/><path d="m22 21-1.875-1.875"/><path d="M3 9h18"/><path d="M8 2v3"/><circle cx="18" cy="17" r="3"/></svg>';
+    const SVG_MOVE_RIGHT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8L22 12L18 16"/><path d="M2 12H22"/></svg>';
 
     // Регулярные выражения
     const REGEX_BUILDING_CODE = /Корпус-(\d{2})/i;
@@ -1855,6 +1858,7 @@
         qs(`#${ID_SURVEY_POPUP}`)?.remove();
         qs(`#${ID_FEEDBACK_FOOTER}`)?.remove();
         qs(`#${ID_OPEN_PE_BTN}`)?.remove();
+        qs(`#${ID_SMART_PICKER_BANNER}`)?.remove();
 
         attendeesMemoryCache.clear();
         eventCache.clear();
@@ -4304,6 +4308,233 @@
         });
     }
 
+    let isSmartPickerLoading = false;
+
+    const createSmartPickerBannerElement = () => {
+        const banner = document.createElement('div');
+        banner.id = ID_SMART_PICKER_BANNER;
+        banner.className = 'smart-picker-banner';
+        banner.innerHTML = `
+            <div class="spb-left">
+                <div class="spb-icon">
+                    ${SVG_CALENDAR_SEARCH}
+                </div>
+                <div class="spb-text">
+                    <div class="spb-title">Умный подбор секций</div>
+                    <div class="spb-sub">Найдите секции без окон в расписании, в удобные дни или вместе с друзьями</div>
+                </div>
+            </div>
+            <button type="button" class="spb-action-btn">
+                <span>Открыть подбор</span>
+                ${SVG_MOVE_RIGHT}
+            </button>
+        `;
+        return banner;
+    };
+
+    const insertSmartPickerBanner = (banner) => {
+        // Стратегия 1: Поиск карточки меню выбора через поисковый инпут таблицы
+        const searchInput = qs('input[placeholder*="Наименование"], input[placeholder*="элемент"]');
+        if (searchInput) {
+            let el = searchInput;
+            while (el && el.parentElement && el.parentElement !== document.body) {
+                const prev = el.previousElementSibling;
+                if (prev && (prev.textContent.includes('Выбирать можно') || prev.textContent.includes('Выбор сделан'))) {
+                    el.insertAdjacentElement('beforebegin', banner);
+                    return true;
+                }
+                if (el.classList.contains('card') || el.classList.contains('p-card') || el.tagName.toLowerCase() === 'p-card') {
+                    el.insertAdjacentElement('beforebegin', banner);
+                    return true;
+                }
+                el = el.parentElement;
+            }
+        }
+
+        // Стратегия 2: Поиск по заголовку «Меню выбора» (вне навигационных хлебных крошек)
+        const candidateHeaders = Array.from(document.querySelectorAll('h1, h2, h3, h4, div, span, p')).filter(el =>
+            el.children.length === 0 &&
+            el.textContent.trim() === 'Меню выбора' &&
+            !el.closest('nav, .breadcrumb, p-breadcrumb, a')
+        );
+        for (const menuTitle of candidateHeaders) {
+            const tableCard = menuTitle.closest('.card, p-card, .p-card, p-table, .p-table') || menuTitle.parentElement?.parentElement;
+            if (tableCard && tableCard.parentElement) {
+                tableCard.insertAdjacentElement('beforebegin', banner);
+                return true;
+            }
+        }
+
+        // Стратегия 3: Поиск контейнера строки статуса кампании
+        const statusTextNode = Array.from(document.querySelectorAll('h1, h2, h3, h4, div, span, p')).find(el =>
+            el.children.length === 0 &&
+            (el.textContent.includes('Выбирать можно') || el.textContent.includes('Выбор сделан')) &&
+            !el.closest('button, .smart-picker-banner')
+        );
+        if (statusTextNode) {
+            let statusContainer = statusTextNode;
+            while (statusContainer && statusContainer.parentElement && statusContainer.parentElement.children.length === 1) {
+                statusContainer = statusContainer.parentElement;
+            }
+            if (statusContainer && statusContainer.parentElement) {
+                statusContainer.insertAdjacentElement('afterend', banner);
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    const fetchPeCampaignModules = async (token, bookingStudentId, campaignId) => {
+        const menuRes = await fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu`, {
+            headers: { 'authorization': `Bearer ${token}` }
+        });
+        if (!menuRes.ok) {
+            const raw = await menuRes.text();
+            console.error('[MSE PE] Ошибка загрузки меню кампании:', { status: menuRes.status, raw });
+            throw new Error(`Ошибка загрузки меню: HTTP ${menuRes.status}`);
+        }
+        const menuData = await menuRes.json();
+        if (!menuData.moduleElements || menuData.moduleElements.length === 0) {
+            throw new Error('Модули для выбора не найдены.');
+        }
+
+        const modulePromises = menuData.moduleElements.map(m =>
+            fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu/module-elements/${m.id}`, {
+                headers: { 'authorization': `Bearer ${token}` }
+            }).then(async r => {
+                if (!r.ok) {
+                    const raw = await r.text();
+                    console.error('[MSE PE] Ошибка загрузки команд модуля:', { moduleId: m.id, status: r.status, raw });
+                    throw new Error(`Ошибка модуля ${m.id}: HTTP ${r.status}`);
+                }
+                const data = await r.json();
+                return {
+                    ...data,
+                    id: data.id || m.id,
+                    moduleElementId: data.moduleElementId || data.id || m.id,
+                    name: data.name || m.name
+                };
+            })
+        );
+        return Promise.all(modulePromises);
+    };
+
+    const fetchPeBlockedScheduleSlots = async (token) => {
+        const personId = parseJwt(token).person_id || parseJwt(token).sub;
+        const now = new Date();
+        const future = new Date(now.getTime() + PE_SCHEDULE_DAYS * 24 * 60 * 60 * 1000);
+
+        const schedRes = await fetch(API_CALENDAR_SEARCH, {
+            method: 'POST',
+            headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ size: 500, timeMin: now.toISOString(), timeMax: future.toISOString(), attendeePersonId: [personId] })
+        });
+        const eventsData = await schedRes.json();
+        const events = eventsData._embedded?.events || [];
+
+        const blockedSlots = {};
+        const dayMap = { 1: 'ПН', 2: 'ВТ', 3: 'СР', 4: 'ЧТ', 5: 'ПТ', 6: 'СБ' };
+
+        events.forEach(ev => {
+            if (ev.name.toLowerCase().includes('физическая культура')) return;
+            const d = new Date(ev.startsAtLocal);
+            const day = dayMap[d.getDay()];
+            if (!day) return;
+
+            let time = ev.startsAtLocal.split('T')[1].substring(0, 5);
+            if (time.startsWith('0')) time = time.substring(1);
+
+            if (!blockedSlots[day]) blockedSlots[day] = {};
+            if (blockedSlots[day][time]) {
+                if (!blockedSlots[day][time].includes(ev.name)) blockedSlots[day][time] += `<br>+ ${ev.name}`;
+            } else {
+                blockedSlots[day][time] = ev.name;
+            }
+        });
+        return blockedSlots;
+    };
+
+    const handleSmartPickerClick = async (banner) => {
+        if (isSmartPickerLoading) return;
+
+        const urlMatch = window.location.href.match(/menus\/([^\/]+)\/student\/([^\/]+)/);
+        if (!urlMatch) {
+            showToast('Зайдите внутрь кампании физкультуры, чтобы подбор заработал.', 'warning');
+            return;
+        }
+        const campaignId = urlMatch[1];
+        const bookingStudentId = urlMatch[2]; // ID для API записи
+
+        isSmartPickerLoading = true;
+        const btnSpan = qs('.spb-action-btn span', banner);
+        const actionBtn = qs('.spb-action-btn', banner);
+
+        if (btnSpan) btnSpan.textContent = 'Загрузка баз...';
+        if (actionBtn) actionBtn.disabled = true;
+
+        try {
+            const token = sessionStorage.getItem('id_token');
+
+            // Параллельно загружаем модули кампании и слоты расписания
+            const [allModulesData, blockedSlots] = await Promise.all([
+                fetchPeCampaignModules(token, bookingStudentId, campaignId),
+                fetchPeBlockedScheduleSlots(token)
+            ]);
+
+            console.log(
+                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
+                `Успешно загружено модулей: ${allModulesData.length}`,
+                allModulesData.map(mod => ({
+                    moduleId: mod.moduleElementId,
+                    name: mod.name,
+                    selectedTeamIds: mod.selectedTeamIds || []
+                }))
+            );
+
+            if (window.MSE_PE) {
+                window.MSE_PE.openModal(allModulesData, blockedSlots, campaignId, bookingStudentId, teacherReviews);
+            } else {
+                showToast('Модуль pe-module.js не загружен.', 'error');
+            }
+        } catch (e) {
+            logger.error('Ошибка подготовки модального окна физкультуры:', e);
+            showToast('Ошибка загрузки: ' + e.message, 'error');
+        } finally {
+            isSmartPickerLoading = false;
+            if (btnSpan) btnSpan.textContent = 'Открыть подбор';
+            if (actionBtn) actionBtn.disabled = false;
+        }
+    };
+
+    const enhanceSmartPickerBanner = () => {
+        const peHeader = Array.from(document.querySelectorAll('h1, h2')).find(el =>
+            el.textContent.includes('Физическая культура')
+        );
+
+        // Если это не кампания физкультуры, удаляем баннер (если он остался после SPA-перехода)
+        if (!peHeader) {
+            qs(`#${ID_SMART_PICKER_BANNER}`)?.remove();
+            return;
+        }
+
+        // Очищаем старую кнопку из h1/h2 и восстанавливаем чистый заголовок
+        qs(`#${ID_OPEN_PE_BTN}`, peHeader)?.remove();
+        if (peHeader.style.display === 'inline-flex') {
+            peHeader.style.display = '';
+            peHeader.style.alignItems = '';
+            peHeader.style.flexWrap = '';
+        }
+
+        if (qs(`#${ID_SMART_PICKER_BANNER}`)) return;
+
+        const banner = createSmartPickerBannerElement();
+        const inserted = insertSmartPickerBanner(banner);
+        if (inserted) {
+            banner.addEventListener('click', () => handleSmartPickerClick(banner));
+        }
+    };
+
     const debouncedMutationHandler = () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
@@ -4326,137 +4557,10 @@
             }
 
             if (window.location.href.includes('/learning-path-selection/menus/')) {
-                const mainHeader = Array.from(document.querySelectorAll('h2, h1')).find(el => el.textContent.includes('Физическая культура'));
-
-                if (mainHeader && !document.getElementById(ID_OPEN_PE_BTN)) {
-                    const peBtn = document.createElement('button');
-                    peBtn.id = ID_OPEN_PE_BTN;
-                    peBtn.innerHTML = '⚡ Умный подбор секций';
-                    peBtn.style.cssText = 'margin-left: 15px; background: #2563eb; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2); transition: background 0.15s; white-space: nowrap;';
-
-                    peBtn.addEventListener('mouseenter', () => { peBtn.style.background = '#1d4ed8'; });
-                    peBtn.addEventListener('mouseleave', () => { peBtn.style.background = '#2563eb'; });
-
-                    peBtn.addEventListener('click', async () => {
-                        const urlMatch = window.location.href.match(/menus\/([^\/]+)\/student\/([^\/]+)/);
-                        if (!urlMatch) {
-                            showToast('Зайдите внутрь кампании физкультуры, чтобы кнопка заработала.', 'warning');
-                            return;
-                        }
-                        const campaignId = urlMatch[1];
-                        const bookingStudentId = urlMatch[2]; // ID для API записи
-
-                        peBtn.innerHTML = '⏳ Загрузка баз...';
-                        peBtn.disabled = true;
-
-                        try {
-                            const token = sessionStorage.getItem('id_token');
-
-                            console.log(
-                                '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
-                                'Загрузка меню кампании физкультуры...',
-                                { campaignId, bookingStudentId }
-                            );
-
-                            // 1. Получаем меню кампании (узнаем ID модулей 1 и 2 семестра)
-                            const menuRes = await fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu`, {
-                                headers: { "authorization": `Bearer ${token}` }
-                            });
-                            if (!menuRes.ok) {
-                                const raw = await menuRes.text();
-                                console.error('[MSE PE] Ошибка загрузки меню кампании:', { status: menuRes.status, raw });
-                                throw new Error(`Ошибка загрузки меню: HTTP ${menuRes.status}`);
-                            }
-                            const menuData = await menuRes.json();
-
-                            if (!menuData.moduleElements || menuData.moduleElements.length === 0) {
-                                throw new Error("Модули для выбора не найдены.");
-                            }
-
-                            // 2. Параллельно загружаем все команды для всех найденных модулей
-                            const modulePromises = menuData.moduleElements.map(m =>
-                                fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu/module-elements/${m.id}`, { headers: { "authorization": `Bearer ${token}` } })
-                                    .then(async r => {
-                                        if (!r.ok) {
-                                            const raw = await r.text();
-                                            console.error('[MSE PE] Ошибка загрузки команд модуля:', { moduleId: m.id, status: r.status, raw });
-                                            throw new Error(`Ошибка модуля ${m.id}: HTTP ${r.status}`);
-                                        }
-                                        const data = await r.json();
-                                        return {
-                                            ...data,
-                                            id: data.id || m.id,
-                                            moduleElementId: data.moduleElementId || data.id || m.id,
-                                            name: data.name || m.name
-                                        };
-                                    })
-                            );
-                            const allModulesData = await Promise.all(modulePromises);
-
-                            console.log(
-                                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
-                                `Успешно загружено модулей: ${allModulesData.length}`,
-                                allModulesData.map(mod => ({
-                                    moduleId: mod.moduleElementId,
-                                    name: mod.name,
-                                    selectedTeamIds: mod.selectedTeamIds || []
-                                }))
-                            );
-
-                            // 3. Загружаем расписание (ВНИМАНИЕ: тут нужен personId из токена, а не bookingStudentId!)
-                            const personId = parseJwt(token).person_id || parseJwt(token).sub;
-
-                            const now = new Date();
-                            const future = new Date(now.getTime() + PE_SCHEDULE_DAYS * 24 * 60 * 60 * 1000);
-
-                            const schedRes = await fetch(API_CALENDAR_SEARCH, {
-                                method: "POST",
-                                headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
-                                body: JSON.stringify({ size: 500, timeMin: now.toISOString(), timeMax: future.toISOString(), attendeePersonId: [personId] })
-                            });
-                            const eventsData = await schedRes.json();
-                            const events = eventsData._embedded?.events || [];
-
-                            const blockedSlots = {};
-                            const dayMap = { 1: 'ПН', 2: 'ВТ', 3: 'СР', 4: 'ЧТ', 5: 'ПТ', 6: 'СБ' };
-
-                            events.forEach(ev => {
-                                if (ev.name.toLowerCase().includes('физическая культура')) return;
-                                const d = new Date(ev.startsAtLocal);
-                                const day = dayMap[d.getDay()];
-                                if (!day) return;
-
-                                let time = ev.startsAtLocal.split('T')[1].substring(0, 5);
-                                if (time.startsWith('0')) time = time.substring(1);
-
-                                if (!blockedSlots[day]) blockedSlots[day] = {};
-                                if (blockedSlots[day][time]) {
-                                    if (!blockedSlots[day][time].includes(ev.name)) blockedSlots[day][time] += `<br>+ ${ev.name}`;
-                                } else {
-                                    blockedSlots[day][time] = ev.name;
-                                }
-                            });
-
-                            // 4. Открываем наше окно с готовыми данными
-                            if (window.MSE_PE) {
-                                window.MSE_PE.openModal(allModulesData, blockedSlots, campaignId, bookingStudentId, teacherReviews);
-                            } else {
-                                showToast('Модуль pe-module.js не загружен.', 'error');
-                            }
-                        } catch (e) {
-                            logger.error('Ошибка подготовки модального окна физкультуры:', e);
-                            showToast('Ошибка загрузки: ' + e.message, 'error');
-                        } finally {
-                            peBtn.innerHTML = '⚡ Умный подбор секций';
-                            peBtn.disabled = false;
-                        }
-                    });
-
-                    mainHeader.style.display = 'inline-flex';
-                    mainHeader.style.alignItems = 'center';
-                    mainHeader.style.flexWrap = 'wrap';
-                    mainHeader.appendChild(peBtn);
-                }
+                enhanceSmartPickerBanner();
+            } else {
+                qs(`#${ID_SMART_PICKER_BANNER}`)?.remove();
+                qs(`#${ID_OPEN_PE_BTN}`)?.remove();
             }
 
             if (window.location.href.includes('/schedule-calendar/')) {
