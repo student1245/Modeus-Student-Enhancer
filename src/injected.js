@@ -472,6 +472,11 @@
     const ID_SURVEY_POPUP = 'mse-survey-popup';
     const ID_FEEDBACK_FOOTER = 'mse-feedback-footer';
     const ID_OPEN_PE_BTN = 'mse-open-pe-btn';
+    const ID_SPOTLIGHT_OVERLAY = 'mse-spotlight-overlay';
+    const ID_SPOTLIGHT_CARD = 'mse-spotlight-card';
+    const ID_OPEN_ADD_FRIEND_BTN = 'mse-open-add-friend-guide-btn';
+    const PARTICIPANT_SEARCH_HINT = 'Поиск по имени или фамилии...';
+    const DROPDOWN_EXPAND_DELAY_MS = 350;
 
     // Векторные SVG-иконки Lucide для интерфейса.
     // Иконки бейджей (12–13px) — для квадратиков рядом с именем студента.
@@ -485,6 +490,7 @@
     const SVG_X_DRAWER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
     const SVG_USER_GROUP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" class="mse-menu-icon-svg"><path d="M17 21v-1a2 2 0 00-2-2H9a2 2 0 00-2 2v1z"/><path d="M19 10h1a2 2 0 012 2v1z"/><path d="M5 10H4a2 2 0 00-2 2v1z"/><circle cx="12" cy="11" r="3"/><circle cx="18" cy="4" r="2"/><circle cx="6" cy="4" r="2"/></svg>';
     const SVG_USER_MENU = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" class="mse-menu-icon-svg"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2z"/><circle cx="12" cy="7" r="4"/></svg>';
+    const SVG_USER_PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>';
 
     // Регулярные выражения
     const REGEX_BUILDING_CODE = /Корпус-(\d{2})/i;
@@ -1309,6 +1315,178 @@
         return url.href;
     };
 
+    const dismissAddFriendGuide = () => {
+        qs(`#${ID_SPOTLIGHT_OVERLAY}`)?.remove();
+        qs(`#${ID_SPOTLIGHT_CARD}`)?.remove();
+        qsa('.mse-spotlight-elevated').forEach(el => el.classList.remove('mse-spotlight-elevated'));
+        document.removeEventListener('keydown', handleSpotlightKeydown);
+    };
+
+    const handleSpotlightKeydown = (event) => {
+        if (event.key === 'Escape') {
+            dismissAddFriendGuide();
+        }
+    };
+
+    const isParticipantFilterPanel = (panel) => {
+        if (!panel) return false;
+        const participantMs = findParticipantMultiselect();
+        if (participantMs) {
+            const isParticipantOpen = participantMs.classList.contains('p-multiselect-open') ||
+                !!participantMs.querySelector('.p-multiselect-open, input[aria-expanded="true"]');
+            if (isParticipantOpen) return true;
+        }
+        return !!panel.querySelector('.mse-add-friend-btn');
+    };
+
+    const enhanceParticipantSearchPlaceholder = (targetPanel) => {
+        const panel = targetPanel || qs('.p-multiselect-panel');
+        if (!isParticipantFilterPanel(panel)) return;
+
+        const input = qs('.search-field, .p-multiselect-filter, .p-multiselect-header input', panel);
+        if (input && input.placeholder !== PARTICIPANT_SEARCH_HINT) {
+            input.placeholder = PARTICIPANT_SEARCH_HINT;
+        }
+    };
+
+    const calculateSpotlightCardPosition = (targetPanel, cardWidth = 310) => {
+        const rect = targetPanel.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const offset = 14;
+
+        let left = rect.right + offset;
+        if (left + cardWidth > viewportWidth - 10) {
+            left = Math.max(10, rect.left - cardWidth - offset);
+        }
+
+        let top = Math.max(12, rect.top);
+        const estimatedCardHeight = 180;
+        if (top + estimatedCardHeight > viewportHeight) {
+            top = Math.max(12, viewportHeight - estimatedCardHeight - 10);
+        }
+
+        return { left: Math.round(left), top: Math.round(top) };
+    };
+
+    const createSpotlightCardElement = () => {
+        const card = document.createElement('div');
+        card.id = ID_SPOTLIGHT_CARD;
+        card.className = 'mse-spotlight-card';
+        card.innerHTML = `
+            <div class="mse-spotlight-header">
+                <div class="mse-spotlight-title">
+                    <span class="mse-spotlight-title-icon">${SVG_HEART}</span>
+                    <span>Как добавить друга</span>
+                </div>
+                <button id="mse-spotlight-close-btn" class="mse-spotlight-close-btn" title="Закрыть подсказку">×</button>
+            </div>
+            <div class="mse-spotlight-body">
+                Введите имя или фамилию в поиске и нажмите <span class="mse-spotlight-inline-heart">${SVG_HEART}</span> напротив нужного человека. Он появится в списке ваших друзей!
+            </div>
+            <div class="mse-spotlight-footer">
+                <button id="mse-spotlight-confirm-btn" class="mse-spotlight-confirm-btn">Понятно</button>
+            </div>
+        `;
+        return card;
+    };
+
+    const showSpotlightGuidance = (targetPanel) => {
+        dismissAddFriendGuide();
+
+        const overlay = document.createElement('div');
+        overlay.id = ID_SPOTLIGHT_OVERLAY;
+        overlay.className = 'is-active';
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) dismissAddFriendGuide();
+        });
+        document.body.appendChild(overlay);
+
+        targetPanel.classList.add('mse-spotlight-elevated');
+        const overlayContainer = targetPanel.closest('.p-overlay') || targetPanel.parentElement;
+        if (overlayContainer) {
+            overlayContainer.classList.add('mse-spotlight-elevated');
+        }
+
+        const card = createSpotlightCardElement();
+        document.body.appendChild(card);
+
+        const pos = calculateSpotlightCardPosition(targetPanel);
+        card.style.left = `${pos.left}px`;
+        card.style.top = `${pos.top}px`;
+
+        qs('#mse-spotlight-close-btn', card)?.addEventListener('click', dismissAddFriendGuide);
+        qs('#mse-spotlight-confirm-btn', card)?.addEventListener('click', dismissAddFriendGuide);
+        document.addEventListener('keydown', handleSpotlightKeydown);
+    };
+
+    const ensureCalendarFiltersOpen = async () => {
+        const filterContainer = qs('mds-schedule-calendar-filter');
+        const isFilterOpen = filterContainer && window.getComputedStyle(filterContainer).display !== 'none' && filterContainer.offsetHeight > 0;
+        if (!isFilterOpen) {
+            const filterBtn = qs('button.btn-filter');
+            if (filterBtn) {
+                filterBtn.click();
+                await new Promise(resolve => setTimeout(resolve, DROPDOWN_EXPAND_DELAY_MS));
+            }
+        }
+    };
+
+    const findParticipantMultiselect = () => {
+        const elements = qsa('mds-schedule-calendar-filter p-multiselect, form p-multiselect, p-multiselect');
+        return elements.find(ms => {
+            const text = (ms.textContent || '').toLowerCase();
+            const placeholder = (ms.querySelector('.p-placeholder')?.textContent || '').toLowerCase();
+            return text.includes('участник') || placeholder.includes('участник');
+        }) || null;
+    };
+
+    const openParticipantDropdown = async (participantMs) => {
+        const isOpen = !!participantMs.querySelector('.p-multiselect-open, input[aria-expanded="true"]');
+        if (!isOpen) {
+            const trigger = participantMs.querySelector('.p-multiselect-trigger') || participantMs.querySelector('.p-multiselect') || participantMs;
+            trigger.click();
+            await new Promise(resolve => setTimeout(resolve, DROPDOWN_EXPAND_DELAY_MS));
+        }
+
+        const panels = qsa('.p-multiselect-panel');
+        return panels.find(p => p.offsetHeight > 0) || panels[0] || null;
+    };
+
+    const startAddFriendGuide = async () => {
+        try {
+            if (!window.location.href.includes('/schedule-calendar/')) {
+                showToast('Перейдите в раздел «Мое расписание», чтобы добавить друга', 'info');
+                return;
+            }
+
+            await ensureCalendarFiltersOpen();
+
+            const participantMs = findParticipantMultiselect();
+            if (!participantMs) {
+                showToast('Фильтр участников не найден на странице', 'warning');
+                return;
+            }
+
+            participantMs.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            const panel = await openParticipantDropdown(participantMs);
+            if (!panel) {
+                showToast('Не удалось открыть список участников', 'warning');
+                return;
+            }
+
+            enhanceParticipantSearchPlaceholder(panel);
+            const searchInput = qs('.p-multiselect-panel .search-field') || qs('.p-multiselect-filter', panel);
+            searchInput?.focus();
+
+            showSpotlightGuidance(panel);
+        } catch (err) {
+            console.error('[MSE] Ошибка при запуске подсказки поиска друзей:', err);
+            dismissAddFriendGuide();
+        }
+    };
+
     const renderFriendsMenu = () => {
         const mainMenuContainer = qs('modeus-main-menu p-panelmenu > .p-panelmenu.p-component');
         if (!mainMenuContainer) { return; }
@@ -1318,6 +1496,14 @@
         qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
 
         const friends = getFriends();
+        const addFriendBtnHTML = `
+            <li class="p-menuitem mse-add-friend-menuitem ng-star-inserted">
+                <a role="button" class="p-menuitem-link mse-add-friend-action" id="${ID_OPEN_ADD_FRIEND_BTN}" title="Добавить друга">
+                    <span class="mse-add-friend-icon">${SVG_USER_PLUS}</span>
+                    <span class="p-menuitem-text">Добавить друга</span>
+                </a>
+            </li>`;
+
         const friendListHTML = friends.length > 0
             ? friends.map(friend => `
                 <li class="p-menuitem ng-star-inserted" style="position: relative;">
@@ -1343,7 +1529,7 @@
             </div>
             <div class="p-toggleable-content" style="display: none; overflow: hidden;">
                 <div class="p-panelmenu-content">
-                    <ul class="p-submenu-list p-panelmenu-root-submenu">${friendListHTML}</ul>
+                    <ul class="p-submenu-list p-panelmenu-root-submenu">${addFriendBtnHTML}${friendListHTML}</ul>
                 </div>
             </div>`;
         mainMenuContainer.appendChild(friendsMenuPanel);
@@ -1384,6 +1570,13 @@
                 removeFriend(btn.dataset.id);
             });
         });
+
+        // Кнопка «Добавить друга»
+        qs(`#${ID_OPEN_ADD_FRIEND_BTN}`, friendsMenuPanel)?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startAddFriendGuide();
+        });
     };
 
     const renderFooterFeedback = () => {
@@ -1420,6 +1613,7 @@
 
         if (items.length === 0) return;
 
+        let hasParticipantItems = false;
         for (const item of items) {
             const label = item.getAttribute('aria-label');
             if (!label) continue;
@@ -1428,6 +1622,7 @@
             const person = lastSearchResults.get(normalizedLabel);
 
             if (!person || !person.id) { continue; }
+            hasParticipantItems = true;
 
             const personId = person.id;
             const isFriend = friendIds.has(personId);
@@ -1470,6 +1665,11 @@
                 btn.innerHTML = isFriend ? SVG_HEART : SVG_HEART_OUTLINE;
                 btn.title = isFriend ? 'Удалить из друзей' : 'Добавить в друзья';
             }
+        }
+
+        if (hasParticipantItems) {
+            const panel = filterList.closest('.p-multiselect-panel');
+            if (panel) enhanceParticipantSearchPlaceholder(panel);
         }
     };
 
@@ -1582,6 +1782,7 @@
         document.removeEventListener('mse:autologin-updated', handleAutologinUpdated);
 
         // 4. Очистка внедрённых DOM-элементов и деактивация стилей
+        dismissAddFriendGuide();
         document.body.classList.remove(CLASS_MSE_ACTIVE);
         qs(`#${ID_SEARCH_CONTAINER}`)?.remove();
         qs(`#${ID_TEACHER_TOOLTIP}`)?.remove();
@@ -1730,7 +1931,7 @@
 
     const isShortCard = (cardElement) => {
         return cardElement.clientHeight <= SHORT_CARD_MAX_HEIGHT_PX ||
-               cardElement.offsetHeight <= SHORT_CARD_MAX_HEIGHT_PX;
+            cardElement.offsetHeight <= SHORT_CARD_MAX_HEIGHT_PX;
     };
 
     const doesExpandedBannerFit = (cardElement) => {
@@ -1988,10 +2189,10 @@
             countSpan.textContent = selectedStudents.size;
             container.innerHTML = [...selectedStudents].map(name =>
                 `<div class="selected-item selected-student-tag">` +
-                    `<span class="selected-student-name" title="${escapeHtml(name)}">${formatStudentDisplayNameHtml(name)}</span>` +
-                    `<button class="selected-item-remove remove-student-btn" data-name="${escapeHtml(name)}" title="Убрать из поиска">` +
-                        `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
-                    `</button>` +
+                `<span class="selected-student-name" title="${escapeHtml(name)}">${formatStudentDisplayNameHtml(name)}</span>` +
+                `<button class="selected-item-remove remove-student-btn" data-name="${escapeHtml(name)}" title="Убрать из поиска">` +
+                `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
+                `</button>` +
                 `</div>`
             ).join('');
         } else {
@@ -4083,6 +4284,7 @@
             renderFooterFeedback();
             enhanceGradesTable();
             enhancePopovers();
+            updateAddFriendButtons();
 
             if (qs('.main-calendar-form') && !qs(`#${ID_SEARCH_CONTAINER}`)) setupUI();
             if (!calendarResizeObserver && qs('.main-calendar-form')) setupCalendarResizeObserver();

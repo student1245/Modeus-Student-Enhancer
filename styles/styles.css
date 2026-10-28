@@ -61,7 +61,8 @@ body.mse-active {
     .mse-badge-friend-outline {
         flex-shrink: 0;
         vertical-align: -2px;
-        color: #94a3b8;
+        color: inherit;
+        stroke: currentColor;
     }
 
     /* 2. Блок поиска и кнопок расширения */
@@ -587,14 +588,19 @@ body.mse-active {
     /* Кнопка добавления в друзья в штатном мультиселекте */
     .p-multiselect-panel .p-multiselect-item .item {
         position: relative !important;
-        padding-right: 36px !important;
+        padding-right: 44px !important;
         width: 100%;
         box-sizing: border-box;
     }
 
+    /* Подзаголовок (описание) на светло-голубых и белых строках всегда темно-серый */
+    .p-multiselect-panel .p-multiselect-item .item:not(.is-active) .description {
+        color: #7c909b !important;
+    }
+
     .mse-add-friend-btn {
         position: absolute;
-        right: 8px;
+        right: 12px;
         top: 50%;
         transform: translateY(-50%);
         width: 20px;
@@ -610,18 +616,63 @@ body.mse-active {
         user-select: none;
         box-sizing: border-box;
         background: transparent;
-        color: #94a3b8;
+        color: #64748b;
+        flex-shrink: 0;
+        margin-left: 8px;
+        margin-right: 4px;
         transition: background-color 0.15s ease, color 0.15s ease;
     }
 
-    .mse-add-friend-btn:hover {
+    /* На белых и светло-голубых строках незалайканное сердечко серое (#64748b) */
+    .p-multiselect-panel .item:not(.is-active) .mse-add-friend-btn:not(.is-friend) {
+        color: #64748b;
+    }
+
+    .p-multiselect-panel .item:not(.is-active) .mse-add-friend-btn:not(.is-friend) svg {
+        color: #64748b !important;
+        stroke: #64748b !important;
+    }
+
+    .p-multiselect-panel .item:not(.is-active) .mse-add-friend-btn:not(.is-friend):hover {
         background: #fef2f2 !important;
         color: #ef4444 !important;
     }
 
+    .p-multiselect-panel .item:not(.is-active) .mse-add-friend-btn:not(.is-friend):hover svg {
+        color: #ef4444 !important;
+        stroke: #ef4444 !important;
+    }
+
+    /* ТОЛЬКО на тёмно-синей активной строке (.is-active) незалайканное сердечко чисто белое */
+    .p-multiselect-panel .item.is-active .mse-add-friend-btn:not(.is-friend) {
+        color: #ffffff !important;
+    }
+
+    .p-multiselect-panel .item.is-active .mse-add-friend-btn:not(.is-friend) svg {
+        color: #ffffff !important;
+        stroke: #ffffff !important;
+    }
+
+    .p-multiselect-panel .item.is-active .mse-add-friend-btn:not(.is-friend):hover {
+        background: rgba(255, 255, 255, 0.25) !important;
+        color: #ffffff !important;
+    }
+
+    .p-multiselect-panel .item.is-active .mse-add-friend-btn:not(.is-friend):hover svg {
+        color: #ffffff !important;
+        stroke: #ffffff !important;
+    }
+
+    /* Уже добавленные друзья (розовый квадрат с красным сердечком) */
     .mse-add-friend-btn.is-friend {
         background: #fef2f2 !important;
         color: #ef4444 !important;
+    }
+
+    .mse-add-friend-btn.is-friend svg {
+        color: #ef4444 !important;
+        stroke: #ef4444 !important;
+        fill: #ef4444 !important;
     }
 
     .mse-add-friend-btn.is-friend:hover {
@@ -629,15 +680,170 @@ body.mse-active {
         color: #dc2626 !important;
     }
 
-    .p-multiselect-panel .p-multiselect-item:focus .mse-add-friend-btn:not(.is-friend),
-    .p-multiselect-panel .p-multiselect-item .is-active .mse-add-friend-btn:not(.is-friend) {
-        color: rgba(255, 255, 255, 0.85);
+    .mse-add-friend-btn.is-friend:hover svg {
+        color: #dc2626 !important;
+        stroke: #dc2626 !important;
+        fill: #dc2626 !important;
     }
 
-    .p-multiselect-panel .p-multiselect-item:focus .mse-add-friend-btn:not(.is-friend):hover,
-    .p-multiselect-panel .p-multiselect-item .is-active .mse-add-friend-btn:not(.is-friend):hover {
-        background: rgba(255, 255, 255, 0.25) !important;
+    .p-multiselect-panel .search-wrap .search-field {
+        font-size: 13px !important;
+    }
+
+    /* 6. Кнопка «Добавить друга» в боковом меню друзей */
+    #mse-friends-menu .mse-add-friend-menuitem a.mse-add-friend-action {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        padding: 8px 12px !important;
+        margin: 6px 12px !important;
+        background: rgba(255, 255, 255, 0.12) !important;
+        border-radius: 6px !important;
         color: #ffffff !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        cursor: pointer !important;
+        border: none !important;
+        text-decoration: none !important;
+        transition: background 0.15s ease !important;
+    }
+
+    #mse-friends-menu .mse-add-friend-menuitem a.mse-add-friend-action:hover {
+        background: rgba(255, 255, 255, 0.2) !important;
+    }
+
+    #mse-friends-menu .mse-add-friend-menuitem .mse-add-friend-icon {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-shrink: 0 !important;
+    }
+
+    #mse-friends-menu .mse-add-friend-menuitem .mse-add-friend-icon svg {
+        width: 16px !important;
+        height: 16px !important;
+    }
+
+    /* 7. Spotlight-онбординг для быстрого поиска друзей */
+    #mse-spotlight-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.55);
+        backdrop-filter: blur(2px);
+        z-index: 9999;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.22s ease;
+    }
+
+    #mse-spotlight-overlay.is-active {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .mse-spotlight-elevated,
+    .p-overlay.mse-spotlight-elevated,
+    .p-overlay-content.mse-spotlight-elevated {
+        z-index: 10001 !important;
+    }
+
+    .p-multiselect-panel.mse-spotlight-elevated {
+        z-index: 10001 !important;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.6), 0 20px 30px -5px rgba(0, 0, 0, 0.45) !important;
+    }
+
+    .mse-spotlight-card {
+        position: fixed;
+        background: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 20px 35px -5px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.08);
+        padding: 16px 18px;
+        width: 310px;
+        z-index: 10002;
+        font-family: inherit;
+        animation: mseSpotlightFadeIn 0.2s ease-out;
+    }
+
+    @keyframes mseSpotlightFadeIn {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .mse-spotlight-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+    }
+
+    .mse-spotlight-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #0f172a;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .mse-spotlight-title-icon {
+        color: #ef4444;
+        display: inline-flex;
+    }
+
+    .mse-spotlight-close-btn {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        color: #94a3b8;
+        font-size: 18px;
+        line-height: 1;
+        padding: 2px 5px;
+        border-radius: 4px;
+    }
+
+    .mse-spotlight-close-btn:hover {
+        color: #0f172a;
+        background: #f1f5f9;
+    }
+
+    .mse-spotlight-body {
+        font-size: 12.5px;
+        color: #475569;
+        line-height: 1.45;
+        margin-bottom: 12px;
+    }
+
+    .mse-spotlight-inline-heart {
+        display: inline-flex;
+        vertical-align: -2px;
+        margin: 0 2px;
+        color: #ef4444;
+    }
+
+    .mse-spotlight-inline-heart svg {
+        width: 13px !important;
+        height: 13px !important;
+    }
+
+    .mse-spotlight-footer {
+        display: flex;
+        justify-content: flex-end;
+    }
+
+    .mse-spotlight-confirm-btn {
+        background: #2563eb;
+        color: #ffffff;
+        border: none;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 12.5px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+
+    .mse-spotlight-confirm-btn:hover {
+        background: #1d4ed8;
     }
 
     /* Список обучающихся в боковой карточке события */
