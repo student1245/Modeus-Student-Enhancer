@@ -524,20 +524,26 @@ body.mse-active {
         margin-top: 2px;
     }
 
-    /* 5. Боковое меню друзей */
-    #mse-friends-menu .p-panelmenu-header a {
+    /* 5. Боковое меню друзей и возврат к себе */
+    #mse-friends-menu .p-panelmenu-header a,
+    #mse-return-to-me-menu .p-panelmenu-header a {
         position: relative !important;
         display: flex !important;
         align-items: center !important;
         cursor: pointer !important;
     }
 
-    #mse-friends-menu .p-panelmenu-header .p-menuitem-icon {
+    #mse-friends-menu .p-panelmenu-header .p-menuitem-icon,
+    #mse-return-to-me-menu .p-panelmenu-header .p-menuitem-icon {
         margin-right: 14px !important;
         flex-shrink: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
-    #mse-friends-menu .p-panelmenu-header .p-menuitem-text {
+    #mse-friends-menu .p-panelmenu-header .p-menuitem-text,
+    #mse-return-to-me-menu .p-panelmenu-header .p-menuitem-text {
         flex-grow: 1 !important;
     }
 

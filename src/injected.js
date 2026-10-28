@@ -483,6 +483,8 @@
     const SVG_BAN = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><circle cx="12" cy="12" r="10"/><path d="M4.929 4.929 19.07 19.071"/></svg>';
     const SVG_EXTERNAL_LINK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
     const SVG_X_DRAWER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+    const SVG_USER_GROUP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" class="mse-menu-icon-svg"><path d="M17 21v-1a2 2 0 00-2-2H9a2 2 0 00-2 2v1z"/><path d="M19 10h1a2 2 0 012 2v1z"/><path d="M5 10H4a2 2 0 00-2 2v1z"/><circle cx="12" cy="11" r="3"/><circle cx="18" cy="4" r="2"/><circle cx="6" cy="4" r="2"/></svg>';
+    const SVG_USER_MENU = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" class="mse-menu-icon-svg"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2z"/><circle cx="12" cy="7" r="4"/></svg>';
 
     // Регулярные выражения
     const REGEX_BUILDING_CODE = /Корпус-(\d{2})/i;
@@ -1334,7 +1336,7 @@
         friendsMenuPanel.innerHTML = `
             <div class="p-component p-panelmenu-header">
                 <a class="p-panelmenu-header-link ng-star-inserted" tabindex="0">
-                    <span class="p-menuitem-icon fa fa-users ng-star-inserted"></span>
+                    <span class="p-menuitem-icon mse-menu-icon ng-star-inserted">${SVG_USER_GROUP}</span>
                     <span class="p-menuitem-text ng-star-inserted">Друзья</span>
                     <span class="p-panelmenu-icon pi pi-chevron-right ng-star-inserted"></span>
                 </a>
@@ -1354,7 +1356,7 @@
             returnMenuPanel.innerHTML = `
                 <div class="p-component p-panelmenu-header">
                     <a class="p-panelmenu-header-link ng-star-inserted" href="${generateFriendUrl(myPersonId)}" title="Вернуться к своему расписанию">
-                        <span class="p-menuitem-icon fa fa-user ng-star-inserted"></span>
+                        <span class="p-menuitem-icon mse-menu-icon ng-star-inserted">${SVG_USER_MENU}</span>
                         <span class="p-menuitem-text ng-star-inserted">Вернуться к себе</span>
                     </a>
                 </div>`;
