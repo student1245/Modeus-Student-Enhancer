@@ -1304,6 +1304,43 @@
         }
     };
 
+    const getMyPersonId = () => {
+        if (myPersonId) return myPersonId;
+        try {
+            const token = sessionStorage.getItem('id_token');
+            if (token) {
+                const claims = parseJwt(token);
+                myPersonId = claims.person_id || claims.sub || null;
+                if (myPersonId) localStorage.setItem(STORAGE_KEY_MY_PERSON_ID, myPersonId);
+            }
+        } catch { }
+        return myPersonId || localStorage.getItem(STORAGE_KEY_MY_PERSON_ID) || null;
+    };
+
+    const getActiveCalendarPersonId = (myJwtPersonId) => {
+        try {
+            const urlObj = new URL(window.location.href);
+            const filterParam = urlObj.searchParams.get('eventsFilter');
+            if (filterParam) {
+                const filter = JSON.parse(filterParam);
+                if (filter.attendee && filter.attendee.length > 0 && filter.attendee[0].key) {
+                    return filter.attendee[0].key;
+                }
+            }
+        } catch (e) {
+            logger.warn('Не удалось распарсить eventsFilter из URL:', e);
+        }
+        return myJwtPersonId;
+    };
+
+    const isViewingOwnSchedule = () => {
+        const currentUserId = getMyPersonId();
+        if (!currentUserId) return true;
+        const activePersonId = getActiveCalendarPersonId(currentUserId);
+        if (!activePersonId) return true;
+        return String(activePersonId).toLowerCase() === String(currentUserId).toLowerCase();
+    };
+
     const generateFriendUrl = (personId) => {
         const url = new URL(window.location.origin + '/schedule-calendar/my');
         const filter = {
@@ -1487,6 +1524,40 @@
         }
     };
 
+    const updateReturnToMeButton = () => {
+        const mainMenuContainer = qs('modeus-main-menu p-panelmenu > .p-panelmenu.p-component');
+        if (!mainMenuContainer) return;
+
+        const currentUserId = getMyPersonId();
+        const shouldShow = Boolean(currentUserId && !isViewingOwnSchedule());
+        const existingButton = qs(`#${ID_RETURN_TO_ME_MENU}`, mainMenuContainer);
+
+        if (!shouldShow) {
+            existingButton?.remove();
+            return;
+        }
+
+        if (!existingButton) {
+            const returnMenuPanel = document.createElement('div');
+            returnMenuPanel.id = ID_RETURN_TO_ME_MENU;
+            returnMenuPanel.className = 'p-panelmenu-panel ng-star-inserted';
+            returnMenuPanel.innerHTML = `
+                <div class="p-component p-panelmenu-header">
+                    <a class="p-panelmenu-header-link ng-star-inserted" href="${generateFriendUrl(currentUserId)}" title="Вернуться к своему расписанию">
+                        <span class="p-menuitem-icon mse-menu-icon ng-star-inserted">${SVG_USER_MENU}</span>
+                        <span class="p-menuitem-text ng-star-inserted">Вернуться к себе</span>
+                    </a>
+                </div>`;
+
+            const friendsMenuPanel = qs(`#${ID_FRIENDS_MENU}`, mainMenuContainer);
+            if (friendsMenuPanel && friendsMenuPanel.nextElementSibling) {
+                mainMenuContainer.insertBefore(returnMenuPanel, friendsMenuPanel.nextElementSibling);
+            } else {
+                mainMenuContainer.appendChild(returnMenuPanel);
+            }
+        }
+    };
+
     const renderFriendsMenu = () => {
         const mainMenuContainer = qs('modeus-main-menu p-panelmenu > .p-panelmenu.p-component');
         if (!mainMenuContainer) { return; }
@@ -1534,20 +1605,8 @@
             </div>`;
         mainMenuContainer.appendChild(friendsMenuPanel);
 
-        // 2. Отдельная панель «Вернуться к себе» — идет строго ПОД блоком друзей
-        if (myPersonId) {
-            const returnMenuPanel = document.createElement('div');
-            returnMenuPanel.id = ID_RETURN_TO_ME_MENU;
-            returnMenuPanel.className = 'p-panelmenu-panel ng-star-inserted';
-            returnMenuPanel.innerHTML = `
-                <div class="p-component p-panelmenu-header">
-                    <a class="p-panelmenu-header-link ng-star-inserted" href="${generateFriendUrl(myPersonId)}" title="Вернуться к своему расписанию">
-                        <span class="p-menuitem-icon mse-menu-icon ng-star-inserted">${SVG_USER_MENU}</span>
-                        <span class="p-menuitem-text ng-star-inserted">Вернуться к себе</span>
-                    </a>
-                </div>`;
-            mainMenuContainer.appendChild(returnMenuPanel);
-        }
+        // 2. Отдельная панель «Вернуться к себе» — отображается только при просмотре чужого расписания
+        updateReturnToMeButton();
 
         // Открытие / закрытие списка друзей
         const header = qs('.p-panelmenu-header a', friendsMenuPanel);
@@ -1805,19 +1864,6 @@
         clearSearch();
         delete window.studentEnhancer;
         logger.debug('Скрипт полностью остановлен, нативные прототипы и таймеры очищены.');
-    };
-
-    const getMyPersonId = () => {
-        if (myPersonId) return myPersonId;
-        try {
-            const token = sessionStorage.getItem('id_token');
-            if (token) {
-                const claims = parseJwt(token);
-                myPersonId = claims.person_id || claims.sub || null;
-                if (myPersonId) localStorage.setItem(STORAGE_KEY_MY_PERSON_ID, myPersonId);
-            }
-        } catch { }
-        return myPersonId || localStorage.getItem(STORAGE_KEY_MY_PERSON_ID) || null;
     };
 
     const isSameStudyDirection = (studentInfo) => {
@@ -2319,22 +2365,6 @@
             }
         });
         return linkedCount;
-    };
-
-    const getActiveCalendarPersonId = (myJwtPersonId) => {
-        try {
-            const urlObj = new URL(window.location.href);
-            const filterParam = urlObj.searchParams.get('eventsFilter');
-            if (filterParam) {
-                const filter = JSON.parse(filterParam);
-                if (filter.attendee && filter.attendee.length > 0 && filter.attendee[0].key) {
-                    return filter.attendee[0].key;
-                }
-            }
-        } catch (e) {
-            logger.warn('Не удалось распарсить eventsFilter из URL:', e);
-        }
-        return myJwtPersonId;
     };
 
     async function runWithConcurrency(taskFns, limit = 5) {
@@ -3510,6 +3540,7 @@
             if (lastFilterParam !== filterParam) {
                 lastFilterParam = filterParam;
                 clearSearch();
+                updateReturnToMeButton();
                 setTimeout(() => { loadAllData(); }, 300);
             } else if (lastCalendarParam && lastCalendarParam !== calendarParam) {
                 // Если просто переключили неделю
@@ -4429,7 +4460,11 @@
             }
 
             if (window.location.href.includes('/schedule-calendar/')) {
-                if (qs('modeus-main-menu') && !qs(`#${ID_FRIENDS_MENU}`)) renderFriendsMenu();
+                if (qs('modeus-main-menu') && !qs(`#${ID_FRIENDS_MENU}`)) {
+                    renderFriendsMenu();
+                } else if (qs('modeus-main-menu')) {
+                    updateReturnToMeButton();
+                }
             } else {
                 qs(`#${ID_FRIENDS_MENU}`)?.remove();
                 qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
