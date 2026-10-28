@@ -1,4 +1,4 @@
-/* Keyframe Animations (Глобальные анимации) */
+/* Глобальные анимации */
 @keyframes mseSlideUp {
     from {
         transform: translateY(20px);
@@ -341,7 +341,7 @@ body.mse-active {
         opacity: 0.25 !important;
     }
 
-    /* Clean block layout: preserves natural FullCalendar flow so title is never squashed */
+    /* Блочная раскладка: сохраняет естественный поток FullCalendar, заголовок пары не сжимается флексбоксом */
     .search-highlight .fc-content {
         display: block !important;
         height: 100% !important;
@@ -364,7 +364,7 @@ body.mse-active {
         min-height: 32.5px !important;
     }
 
-    /* Short card optimization & compact capsule badge (for <= 54px slots like 8th period LXP or narrow cards) */
+    /* Оптимизация коротких карточек и компактный чип-бейдж (для слотов ≤ 54px: 8-я пара LXP, узкие карточки) */
     .fc-time-grid-event.search-highlight.mse-short-card {
         padding: 1px 3px !important;
     }
@@ -407,7 +407,7 @@ body.mse-active {
         max-width: calc(100% - 2px) !important;
     }
 
-    /* Expanded friends line badge */
+    /* Развёрнутый бейдж общих пар на ячейке расписания */
     .friends-line-badge,
     .mse-event-match-tooltip {
         position: absolute;
@@ -443,7 +443,7 @@ body.mse-active {
         text-overflow: ellipsis;
     }
 
-    /* Shared attendees section inside native Modeus popover (ngb-popover-window) */
+    /* Секция общих участников внутри нативного тултипа Модеуса (ngb-popover-window) */
     .mse-native-popover-shared {
         margin-top: 8px;
         padding-top: 8px;
@@ -595,8 +595,8 @@ body.mse-active {
         border-radius: 4px;
         cursor: help;
         margin-right: 4px;
-        margin-bottom: 1px;
-        vertical-align: -2px;
+        margin-bottom: 5px;
+        vertical-align: -1px;
         flex-shrink: 0;
         box-sizing: border-box;
         line-height: 1;
@@ -623,6 +623,15 @@ body.mse-active {
 
     .mse-badge-icon {
         flex-shrink: 0;
+    }
+
+    /* Выделение выбранного студента в списке обучающихся */
+    .mse-student-selected {
+        background: rgba(40, 167, 69, 0.3) !important;
+        border-radius: 3px !important;
+        padding: 0 3px !important;
+        font-weight: bold !important;
+        color: #000 !important;
     }
 
     /* 6. Боковая карточка пары (фикс ширины 325px) */
@@ -722,7 +731,7 @@ body.mse-active {
         background: #dee2e6;
     }
 
-    /* 7.1. Всплывающий опрос (Remote Survey Popup) */
+    /* 7.1. Всплывающий опрос */
     #mse-survey-popup {
         position: fixed;
         bottom: 25px;
@@ -922,7 +931,7 @@ body.mse-active {
     }
 
 
-    /* 8. Таблица успеваемости (Results Table) */
+    /* 8. Таблица успеваемости */
     th.text-center:not(.p-frozen-column) {
         width: 105px !important;
         min-width: 105px !important;
@@ -984,7 +993,7 @@ body.mse-active {
         cursor: help !important;
     }
 
-    /* 9. Toast Notifications (баннеры обратной связи вместо alert) */
+    /* 9. Всплывающие уведомления (Toast) вместо alert() */
     #mse-toast-container {
         position: fixed;
         top: 24px;

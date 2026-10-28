@@ -1620,9 +1620,7 @@
         return myProfile ? studentInfo.specialtyProfile === myProfile : true;
     };
 
-    const renderAttendeeBadges = (studentInfo, isFriend) => {
-        const isCurrentUser = Boolean(studentInfo.id && studentInfo.id === getMyPersonId());
-
+    const renderAttendeeBadges = (studentInfo, isFriend, isCurrentUser) => {
         if (isCurrentUser) {
             return `<span title="Это вы" class="mse-attendee-badge mse-badge-me">${SVG_USER_ME}</span>`;
         }
@@ -1640,28 +1638,40 @@
         return badges;
     };
 
-    const enhanceLists = () => {
+    const updateAttendeeSelectionHighlights = () => {
+        const normalizedSelected = new Set([...selectedStudents].map(normalizeName));
+        qsa('p[data-student-name]').forEach(p => {
+            const studentName = p.getAttribute('data-student-name');
+            const nameSpan = p.querySelector('.mse-student-name');
+            if (nameSpan && studentName) {
+                nameSpan.classList.toggle('mse-student-selected', normalizedSelected.has(studentName));
+            }
+        });
+    };
+
+    const enhanceStudentRows = () => {
         const friends = getFriends();
         const friendNames = new Set(friends.map(f => normalizeName(f.fullName)));
         const normalizedSelected = new Set([...selectedStudents].map(normalizeName));
+        const myPersonId = getMyPersonId();
 
-        // Ищем все теги <p>, в которых потенциально могут быть имена студентов (работает везде)
         qsa('p:not([data-enhanced])').forEach(p => {
             const nameOnPage = normalizeName(p.textContent);
             const studentInfo = uniqueStudents.get(nameOnPage);
+            if (!studentInfo) return;
 
-            if (studentInfo) {
-                const isFriend = friendNames.has(nameOnPage);
-                const badges = renderAttendeeBadges(studentInfo, isFriend);
-                const isSelected = normalizedSelected.has(nameOnPage);
-                const customStyle = isSelected ? 'background: rgba(40, 167, 69, 0.3); border-radius: 3px; font-weight: bold;' : '';
+            const isFriend = friendNames.has(nameOnPage);
+            const isCurrentUser = Boolean(studentInfo.id && studentInfo.id === myPersonId);
+            const badges = renderAttendeeBadges(studentInfo, isFriend, isCurrentUser);
+            const selectedClass = normalizedSelected.has(nameOnPage) ? ' mse-student-selected' : '';
 
-                // Сборка: Иконки -> Имя -> Специальность
-                p.innerHTML = `${badges}<span style="${customStyle}">${escapeHtml(studentInfo.fullName)}</span><span class="student-details">${escapeHtml(studentInfo.details)}</span>`;
-                p.setAttribute('data-enhanced', 'true');
-            }
+            p.innerHTML = `${badges}<span class="mse-student-name${selectedClass}">${escapeHtml(studentInfo.fullName)}</span><span class="student-details">${escapeHtml(studentInfo.details)}</span>`;
+            p.setAttribute('data-enhanced', 'true');
+            p.setAttribute('data-student-name', nameOnPage);
         });
+    };
 
+    const enhanceTeacherTooltips = () => {
         qsa('.teachers-list li > div:not(.title) div:not([data-enhanced-teacher])').forEach(div => {
             const teacherName = normalizeName(div.textContent);
             div.addEventListener('mouseenter', (e) => {
@@ -1686,6 +1696,11 @@
             div.addEventListener('mouseleave', () => qs(`#${ID_TEACHER_TOOLTIP}`)?.remove());
             div.setAttribute('data-enhanced-teacher', 'true');
         });
+    };
+
+    const enhanceLists = () => {
+        enhanceStudentRows();
+        enhanceTeacherTooltips();
     };
 
     const formatShortName = (fullName) => {
@@ -1927,6 +1942,7 @@
     };
 
     const highlightEventsForStudents = () => {
+        updateAttendeeSelectionHighlights();
         if (selectedStudents.size === 0) {
             clearHighlight();
             return;
@@ -1937,6 +1953,7 @@
 
     const clearHighlight = () => {
         qsa('.fc-time-grid-event').forEach(clearCardHighlight);
+        updateAttendeeSelectionHighlights();
     };
 
     const clearSearch = () => {
@@ -1947,6 +1964,7 @@
         selectedStudents.clear();
         updateSelectedStudentsDisplay();
         clearHighlight();
+        updateAttendeeSelectionHighlights();
     };
 
     const formatStudentDisplayNameHtml = (fullName) => {
