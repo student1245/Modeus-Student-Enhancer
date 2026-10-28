@@ -329,12 +329,27 @@ body.mse-active {
 
     /* 3. Сетка календаря и подсветка пар */
     .fc-time-grid-event {
-        transition: opacity 0.3s ease, border 0.3s ease;
+        transition: opacity 0.3s ease, border 0.3s ease, box-shadow 0.2s ease;
     }
 
     .search-highlight {
         border: 2.5px solid #16a34a !important;
         z-index: 2 !important;
+    }
+
+    /* Зелёное свечение вместо синего для общих пар при нажатии и наведении */
+    .fc-time-grid-event.search-highlight.mds-event-opened,
+    .fc-time-grid-event.search-highlight.fc-selected,
+    .calendar-container mds-fullcalendar .fc-time-grid-event.search-highlight.mds-event-opened {
+        box-shadow: 0 0 10px #16a34a !important;
+    }
+
+    .fc-time-grid-event.search-highlight:hover {
+        box-shadow: 0 0 8px rgba(22, 163, 74, 0.75) !important;
+    }
+
+    .fc-time-grid-event.search-highlight.mds-event-opened:hover {
+        box-shadow: 0 0 12px #16a34a !important;
     }
 
     .search-fade {
