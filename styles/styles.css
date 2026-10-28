@@ -378,6 +378,7 @@ body.mse-active {
     .search-highlight .fc-title {
         display: -webkit-box !important;
         -webkit-box-orient: vertical !important;
+        line-clamp: 2 !important;
         -webkit-line-clamp: 2 !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
@@ -392,6 +393,7 @@ body.mse-active {
     }
 
     .fc-time-grid-event.search-highlight.mse-short-card .fc-title {
+        line-clamp: 1 !important;
         -webkit-line-clamp: 1 !important;
         min-height: 16px !important;
         white-space: nowrap !important;
@@ -577,28 +579,59 @@ body.mse-active {
     }
 
     /* Кнопка добавления в друзья в штатном мультиселекте */
-    .p-multiselect-item {
-        display: flex !important;
-        align-items: center;
-    }
-
-    .p-multiselect-item .item {
-        display: flex !important;
-        align-items: center;
+    .p-multiselect-panel .p-multiselect-item .item {
+        position: relative !important;
+        padding-right: 36px !important;
         width: 100%;
+        box-sizing: border-box;
     }
 
     .mse-add-friend-btn {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         cursor: pointer;
-        margin-left: auto;
-        padding: 5px 10px;
         z-index: 5;
         line-height: 1;
         -webkit-user-select: none;
         user-select: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
+        box-sizing: border-box;
+        background: transparent;
+        color: #94a3b8;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .mse-add-friend-btn:hover {
+        background: #fef2f2 !important;
+        color: #ef4444 !important;
+    }
+
+    .mse-add-friend-btn.is-friend {
+        background: #fef2f2 !important;
+        color: #ef4444 !important;
+    }
+
+    .mse-add-friend-btn.is-friend:hover {
+        background: #fee2e2 !important;
+        color: #dc2626 !important;
+    }
+
+    .p-multiselect-panel .p-multiselect-item:focus .mse-add-friend-btn:not(.is-friend),
+    .p-multiselect-panel .p-multiselect-item .is-active .mse-add-friend-btn:not(.is-friend) {
+        color: rgba(255, 255, 255, 0.85);
+    }
+
+    .p-multiselect-panel .p-multiselect-item:focus .mse-add-friend-btn:not(.is-friend):hover,
+    .p-multiselect-panel .p-multiselect-item .is-active .mse-add-friend-btn:not(.is-friend):hover {
+        background: rgba(255, 255, 255, 0.25) !important;
+        color: #ffffff !important;
     }
 
     /* Список обучающихся в боковой карточке события */

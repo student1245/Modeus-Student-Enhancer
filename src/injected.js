@@ -1438,9 +1438,7 @@
 
                 const itemContent = item.querySelector('.item');
                 if (itemContent) {
-                    itemContent.style.display = 'flex';
-                    itemContent.style.alignItems = 'center';
-                    itemContent.style.width = '100%';
+                    itemContent.style.position = 'relative';
                     itemContent.appendChild(btn);
 
                     btn.addEventListener('click', (e) => {
@@ -1452,10 +1450,12 @@
 
                         if (isCurrentlyFriend) {
                             removeFriend(personId);
+                            btn.classList.remove('is-friend');
                             btn.innerHTML = SVG_HEART_OUTLINE;
                             btn.title = 'Добавить в друзья';
                         } else {
                             addFriend(personId, label);
+                            btn.classList.add('is-friend');
                             btn.innerHTML = SVG_HEART;
                             btn.title = 'Удалить из друзей';
                         }
@@ -1464,6 +1464,7 @@
             }
 
             if (btn) {
+                btn.classList.toggle('is-friend', isFriend);
                 btn.innerHTML = isFriend ? SVG_HEART : SVG_HEART_OUTLINE;
                 btn.title = isFriend ? 'Удалить из друзей' : 'Добавить в друзья';
             }
