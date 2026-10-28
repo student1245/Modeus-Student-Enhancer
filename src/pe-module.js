@@ -312,6 +312,18 @@ window.MSE_PE = (function () {
         renderGrid();
     }
 
+    function isFilterActive(id) {
+        const el = document.getElementById(id);
+        return el ? el.classList.contains('active') : false;
+    }
+
+    function setFilterActive(id, isActive) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.toggle('active', Boolean(isActive));
+        el.checked = Boolean(isActive);
+    }
+
     window.togglePeMultiSelect = function (id) {
         const el = document.getElementById(id);
         if (!el) return;
@@ -483,9 +495,9 @@ window.MSE_PE = (function () {
     function renderGrid() {
         const tbody = document.getElementById('pe-tableBody');
         if (!tbody) return; tbody.innerHTML = '';
-        const onlyAvail = document.getElementById('pe-onlyAvailable').checked;
-        const onlyMine = document.getElementById('pe-onlyMySections').checked;
-        const considerSchedule = document.getElementById('pe-considerSchedule').checked;
+        const onlyAvail = isFilterActive('pe-onlyAvailable');
+        const onlyMine = isFilterActive('pe-onlyMySections');
+        const considerSchedule = isFilterActive('pe-considerSchedule');
 
         let filtered = courses.filter(c => {
             if (!selectedSports.has(c.sport)) return false; if (!selectedCampuses.has(c.campus)) return false;
@@ -995,18 +1007,47 @@ window.MSE_PE = (function () {
 
                 overlay.innerHTML = `<button id="mse-pe-close" title="Закрыть">✕</button>
                     <div class="container">
-                        <div class="header-panel"><h2>⚡ Умный подбор физкультуры</h2>
-                            <div class="filters-group"><button class="reset-filters-btn" id="pe-reset-filters-btn">↺ Сбросить фильтры</button>
-                                <div class="custom-multiselect" id="pe-sportMultiSelect"><button class="ms-btn" data-action="toggle-multiselect" data-target="pe-sportMultiSelect"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span> ▼</button><div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="sport" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="sport" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-sportOptionsList"></div></div></div>
-                                <div class="custom-multiselect" id="pe-campusMultiSelect"><button class="ms-btn" data-action="toggle-multiselect" data-target="pe-campusMultiSelect"><span class="ms-label" id="pe-campusLabel">Все корпуса</span> ▼</button><div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="campus" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="campus" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-campusOptionsList"></div></div></div>
-                                <label class="filter-checkbox" style="color: #2563eb; background: #eff6ff; padding: 4px 8px; border-radius: 6px;"><input type="checkbox" id="pe-considerSchedule" checked> 🕒 Скрыть пары</label>
-                                <label class="filter-checkbox"><input type="checkbox" id="pe-onlyAvailable"> Только где есть места</label>
-                                <label class="filter-checkbox"><input type="checkbox" id="pe-onlyMySections"> ⭐ Мои записи</label>
-                                
+                        <div class="header-panel"><h2>Умный подбор физкультуры</h2>
+                            <div class="filters-group">
+                                <div class="select-wrap custom-multiselect" id="pe-sportMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-sportMultiSelect"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span></button><svg class="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg><div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="sport" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="sport" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-sportOptionsList"></div></div></div>
+                                <div class="select-wrap custom-multiselect" id="pe-campusMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-campusMultiSelect"><span class="ms-label" id="pe-campusLabel">Все корпуса</span></button><svg class="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg><div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="campus" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="campus" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-campusOptionsList"></div></div></div>
+                                <div class="toolbar-divider"></div>
+                                <button type="button" class="pill-check active" id="pe-considerSchedule">
+                                    <span class="check-box">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M20 6 9 17l-5-5"/>
+                                        </svg>
+                                    </span>
+                                    <span>Учитывать пары</span>
+                                </button>
+                                <button type="button" class="pill-check active" id="pe-onlyAvailable">
+                                    <span class="check-box">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M20 6 9 17l-5-5"/>
+                                        </svg>
+                                    </span>
+                                    <span>Только где есть места</span>
+                                </button>
+                                <button type="button" class="pill-check" id="pe-onlyMySections">
+                                    <span class="check-box">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M20 6 9 17l-5-5"/>
+                                        </svg>
+                                    </span>
+                                    <span>Мои записи</span>
+                                </button>
+                                <div class="toolbar-divider"></div>
                                 <div id="pe-friendWrapper" style="display: flex !important; align-items: center !important; background: #ffffff !important; border: 1px solid #cbd5e1 !important; border-radius: 6px !important; height: 32px !important; overflow: hidden !important; margin-left: auto !important; width: 260px !important; flex-shrink: 0 !important; box-sizing: border-box !important;">
                                     <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)..." style="border: none !important; outline: none !important; font-size: 12px !important; padding: 0 10px !important; background: transparent !important; color: #0f172a !important; height: 100% !important; margin: 0 !important; font-family: inherit !important; flex-grow: 1 !important; min-width: 0 !important; box-sizing: border-box !important;">
                                     <button id="pe-friendBtn" style="background: #f8fafc !important; color: #475569 !important; border: none !important; border-left: 1px solid #cbd5e1 !important; padding: 0 !important; cursor: pointer !important; font-size: 12px !important; font-weight: 600 !important; height: 100% !important; margin: 0 !important; width: 70px !important; flex-shrink: 0 !important; box-sizing: border-box !important; appearance: none !important; -webkit-appearance: none !important; border-radius: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important;">Поиск</button>
                                 </div>
+                                <button type="button" class="reset-btn" id="pe-reset-filters-btn" title="Сбросить все фильтры">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                                        <path d="M3 3v5h5"/>
+                                    </svg>
+                                    <span>Сбросить</span>
+                                </button>
                             </div></div>
                         <table><thead><tr><th>Пара</th><th>ПН</th><th>ВТ</th><th>СР</th><th>ЧТ</th><th>ПТ</th><th>СБ</th></tr></thead><tbody id="pe-tableBody"></tbody></table>
                     </div>
@@ -1017,9 +1058,16 @@ window.MSE_PE = (function () {
                 document.getElementById('pe-reset-filters-btn').addEventListener('click', function () {
                     MSE_PE.resetFilters();
                 });
-                document.getElementById('pe-considerSchedule').addEventListener('change', renderGrid);
-                document.getElementById('pe-onlyAvailable').addEventListener('change', renderGrid);
-                document.getElementById('pe-onlyMySections').addEventListener('change', renderGrid);
+                ['pe-considerSchedule', 'pe-onlyAvailable', 'pe-onlyMySections'].forEach(id => {
+                    const btn = document.getElementById(id);
+                    if (btn) {
+                        btn.addEventListener('click', () => {
+                            const isActive = !btn.classList.contains('active');
+                            setFilterActive(id, isActive);
+                            renderGrid();
+                        });
+                    }
+                });
 
                 const friendInput = document.getElementById('pe-friendInput');
                 if (friendInput) {
@@ -1075,9 +1123,9 @@ window.MSE_PE = (function () {
                     });
                 }
             }
-            document.getElementById('pe-onlyAvailable').checked = false;
-            document.getElementById('pe-onlyMySections').checked = false;
-            document.getElementById('pe-considerSchedule').checked = true;
+            setFilterActive('pe-onlyAvailable', true);
+            setFilterActive('pe-onlyMySections', false);
+            setFilterActive('pe-considerSchedule', true);
             window.MSE_PE_clearFriend();
             initMultiSelects();
             document.getElementById('mse-pe-overlay').style.display = 'block';
@@ -1087,10 +1135,9 @@ window.MSE_PE = (function () {
         resetFilters: function () {
             selectAllOptions('sport', true);
             selectAllOptions('campus', true);
-            const onlyAvail = document.getElementById('pe-onlyAvailable');
-            if (onlyAvail) onlyAvail.checked = false;
-            const onlyMine = document.getElementById('pe-onlyMySections');
-            if (onlyMine) onlyMine.checked = false;
+            setFilterActive('pe-onlyAvailable', true);
+            setFilterActive('pe-onlyMySections', false);
+            setFilterActive('pe-considerSchedule', true);
             collapsedRows.clear();
             renderGrid();
         }
