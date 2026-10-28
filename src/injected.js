@@ -457,7 +457,7 @@
     const CLASS_SHORT_CARD = 'mse-short-card';
     const CLASS_NATIVE_POPOVER_SHARED = 'mse-native-popover-shared';
     const SHORT_CARD_MAX_HEIGHT_PX = 54;
-    const BANNER_HEIGHT_PX = 17;
+    const BANNER_HEIGHT_PX = 19;
     const BANNER_SAFETY_MARGIN_PX = 2;
     const COMPACT_CHIP_MAX_WIDTH_PX = 110;
     const ID_SILENT_REFRESHER = 'mse-silent-refresher';
@@ -472,6 +472,17 @@
     const ID_SURVEY_POPUP = 'mse-survey-popup';
     const ID_FEEDBACK_FOOTER = 'mse-feedback-footer';
     const ID_OPEN_PE_BTN = 'mse-open-pe-btn';
+
+    // Векторные SVG-иконки Lucide для интерфейса.
+    // Иконки бейджей (12–13px) — для квадратиков рядом с именем студента.
+    // Иконки шапки (13px) — для кнопок заголовка боковой карточки.
+    const SVG_HEART = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-badge-friend-icon"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/></svg>';
+    const SVG_HEART_OUTLINE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-badge-friend-outline"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/></svg>';
+    const SVG_GRADUATION_CAP = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-badge-direction-icon"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg>';
+    const SVG_USER_ME = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-badge-me-icon"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+    const SVG_BAN = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><circle cx="12" cy="12" r="10"/><path d="M4.929 4.929 19.07 19.071"/></svg>';
+    const SVG_EXTERNAL_LINK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
+    const SVG_X_DRAWER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
     // Регулярные выражения
     const REGEX_BUILDING_CODE = /Корпус-(\d{2})/i;
@@ -1440,23 +1451,20 @@
 
                         if (isCurrentlyFriend) {
                             removeFriend(personId);
-                            e.target.innerHTML = '🤍';
-                            e.target.title = 'Добавить в друзья';
-                            e.target.style.color = '#000';
+                            btn.innerHTML = SVG_HEART_OUTLINE;
+                            btn.title = 'Добавить в друзья';
                         } else {
                             addFriend(personId, label);
-                            e.target.innerHTML = '❤️';
-                            e.target.title = 'Удалить из друзей';
-                            e.target.style.color = '';
+                            btn.innerHTML = SVG_HEART;
+                            btn.title = 'Удалить из друзей';
                         }
                     });
                 }
             }
 
             if (btn) {
-                btn.innerHTML = isFriend ? '❤️' : '🤍';
+                btn.innerHTML = isFriend ? SVG_HEART : SVG_HEART_OUTLINE;
                 btn.title = isFriend ? 'Удалить из друзей' : 'Добавить в друзья';
-                btn.style.color = isFriend ? '' : '#000';
             }
         }
     };
@@ -1521,6 +1529,10 @@
         if (dropdown && !dropdown.contains(e.target) && !isInsideDropdown) {
             const cont = qs('#selected-students-container');
             if (cont) cont.style.display = 'none';
+            const toggle = qs('#selected-students-toggle');
+            if (toggle) toggle.classList.remove('is-open');
+            const pill = qs('#selected-students-pill');
+            if (pill) pill.classList.remove('is-open');
         }
     };
 
@@ -1612,18 +1624,18 @@
         const isCurrentUser = Boolean(studentInfo.id && studentInfo.id === getMyPersonId());
 
         if (isCurrentUser) {
-            return '<span title="Это вы" style="cursor:help; margin-right:4px;">👤</span>';
+            return `<span title="Это вы" class="mse-attendee-badge mse-badge-me">${SVG_USER_ME}</span>`;
         }
 
         let badges = '';
         if (isFriend) {
-            badges += '<span title="Ваш друг" style="cursor:help; margin-right:4px;">❤️</span>';
+            badges += `<span title="Ваш друг" class="mse-attendee-badge mse-badge-friend">${SVG_HEART}</span>`;
         }
         if (isSameStudyDirection(studentInfo)) {
             const tooltipText = myProfile
                 ? `Обучается на вашем направлении и профиле (${myProfile})`
                 : 'Обучается на вашем направлении';
-            badges += `<span title="${escapeHtml(tooltipText)}" style="cursor:help; margin-right:4px;">🎓</span>`;
+            badges += `<span title="${escapeHtml(tooltipText)}" class="mse-attendee-badge mse-badge-direction">${SVG_GRADUATION_CAP}</span>`;
         }
         return badges;
     };
@@ -1642,11 +1654,9 @@
                 const isFriend = friendNames.has(nameOnPage);
                 const badges = renderAttendeeBadges(studentInfo, isFriend);
                 const isSelected = normalizedSelected.has(nameOnPage);
-                const customStyle = isSelected
-                    ? 'background: rgba(40, 167, 69, 0.3); border-radius: 3px; padding: 0 3px; font-weight: bold; color: #000;'
-                    : '';
+                const customStyle = isSelected ? 'background: rgba(40, 167, 69, 0.3); border-radius: 3px; font-weight: bold;' : '';
 
-                // Сборка: Иконки -> Имя -> Специальность с безопасным экранированием
+                // Сборка: Иконки -> Имя -> Специальность
                 p.innerHTML = `${badges}<span style="${customStyle}">${escapeHtml(studentInfo.fullName)}</span><span class="student-details">${escapeHtml(studentInfo.details)}</span>`;
                 p.setAttribute('data-enhanced', 'true');
             }
@@ -1717,43 +1727,46 @@
         return estimatedBannerTop >= titleRect.bottom + BANNER_SAFETY_MARGIN_PX;
     };
 
-    const formatSingleStudentCompact = (fullName, cardWidth) => {
-        if (cardWidth && cardWidth < COMPACT_CHIP_MAX_WIDTH_PX) {
-            return '👥 1 чел.';
-        }
-        return `👥 ${formatShortName(fullName)}`;
+    const SVG_USERS_BADGE = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+
+    const extractSurname = (fullName) => {
+        if (!fullName) return '';
+        const parts = fullName.trim().split(/\s+/);
+        return parts[0] || fullName;
     };
 
-    const formatCompressedBannerLabel = (matchedStudents, cardWidth) => {
-        return matchedStudents.length === 1
-            ? formatSingleStudentCompact(matchedStudents[0], cardWidth)
-            : `👥 ${matchedStudents.length} чел.`;
+    const formatShortBadgeHtml = (matchedStudents) => {
+        return `${SVG_USERS_BADGE}<span>${matchedStudents.length}</span>`;
     };
 
-    const formatExpandedBannerLabel = (matchedStudents) => {
+    const formatExpandedBadgeHtml = (matchedStudents) => {
         const count = matchedStudents.length;
-        const shortNames = matchedStudents.map(formatShortName).join(', ');
-        return count === 1
-            ? `👥 С вами: ${shortNames}`
-            : `👥 С вами (${count}): ${shortNames}`;
+        const surnames = matchedStudents.map(extractSurname).join(', ');
+        const text = count === 1 ? surnames : `${count} · ${surnames}`;
+        return `${SVG_USERS_BADGE}<span style="overflow: hidden; text-overflow: ellipsis;">${escapeHtml(text)}</span>`;
     };
 
     const updateCardLayout = (cardElement, matchedStudents) => {
         const banner = cardElement.querySelector('.mse-event-match-tooltip');
         if (!banner) return;
 
+        banner.removeAttribute('title');
+
         if (isShortCard(cardElement)) {
             cardElement.classList.add(CLASS_SHORT_CARD);
-            banner.textContent = formatCompressedBannerLabel(matchedStudents, cardElement.clientWidth);
+            banner.className = 'mse-event-match-tooltip mse-compact-capsule';
+            banner.innerHTML = formatShortBadgeHtml(matchedStudents);
             return;
         }
 
         cardElement.classList.remove(CLASS_SHORT_CARD);
 
         if (doesExpandedBannerFit(cardElement)) {
-            banner.textContent = formatExpandedBannerLabel(matchedStudents);
+            banner.className = 'mse-event-match-tooltip friends-line-badge';
+            banner.innerHTML = formatExpandedBadgeHtml(matchedStudents);
         } else {
-            banner.textContent = formatCompressedBannerLabel(matchedStudents, cardElement.clientWidth);
+            banner.className = 'mse-event-match-tooltip mse-compact-capsule';
+            banner.innerHTML = formatShortBadgeHtml(matchedStudents);
         }
     };
 
@@ -1764,13 +1777,13 @@
     const createSharedAttendeesSection = (matchedStudents) => {
         const count = matchedStudents.length;
         const headerTitle = count === 1
-            ? '👥 С вами на паре:'
-            : `👥 С вами на паре (${count}):`;
+            ? 'С вами на паре:'
+            : `С вами на паре (${count}):`;
 
         const section = document.createElement('div');
         section.className = CLASS_NATIVE_POPOVER_SHARED;
         section.innerHTML = `
-            <div class="mse-shared-header">${escapeHtml(headerTitle)}</div>
+            <div class="mse-shared-header">${SVG_USERS_BADGE} ${escapeHtml(headerTitle)}</div>
             <div class="mse-shared-list">${matchedStudents.map(renderSharedAttendeeItem).join('')}</div>
         `;
         return section;
@@ -1936,22 +1949,35 @@
         clearHighlight();
     };
 
+    const formatStudentDisplayNameHtml = (fullName) => {
+        return escapeHtml(fullName || '');
+    };
+
     const updateSelectedStudentsDisplay = () => {
         const wrapper = qs('#selected-students-dropdown-wrapper');
         const container = qs('#selected-students-container');
         const countSpan = qs('#selected-count');
+        const toggle = qs('#selected-students-toggle');
         if (!container || !wrapper) return;
 
         if (selectedStudents.size > 0) {
             wrapper.style.display = 'block';
             countSpan.textContent = selectedStudents.size;
             container.innerHTML = [...selectedStudents].map(name =>
-                `<div class="selected-student-tag">${escapeHtml(name)}<button class="remove-student-btn" data-name="${escapeHtml(name)}">×</button></div>`
+                `<div class="selected-item selected-student-tag">` +
+                    `<span class="selected-student-name" title="${escapeHtml(name)}">${formatStudentDisplayNameHtml(name)}</span>` +
+                    `<button class="selected-item-remove remove-student-btn" data-name="${escapeHtml(name)}" title="Убрать из поиска">` +
+                        `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
+                    `</button>` +
+                `</div>`
             ).join('');
         } else {
             wrapper.style.display = 'none';
             container.style.display = 'none';
             container.innerHTML = '';
+            if (toggle) toggle.classList.remove('is-open');
+            const pill = qs('#selected-students-pill');
+            if (pill) pill.classList.remove('is-open');
         }
     };
 
@@ -3238,19 +3264,26 @@
         container.id = ID_SEARCH_CONTAINER;
         container.innerHTML = `
             <span id="search-status" style="display: block;"></span>
-            <div id="search-controls" style="display: none;">
-                <button id="add-friends-to-search-btn" title="Добавить друзей в поиск общих пар">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1h8Zm-7.978-1A.261.261 0 0 1 7 12.996c.001-.264.167-1.03.76-1.72C8.312 10.629 9.282 10 11 10c1.717 0 2.687.63 3.24 1.276.593.69.758 1.457.76 1.72l-.008.002a.274.274 0 0 1-.014.002H7.022ZM11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm3-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM6.936 9.28a5.88 5.88 0 0 0-1.23-.247A7.35 7.35 0 0 0 5 9c-4 0-5 3-5 4 0 .667.333 1 1 1h4.216A2.238 2.238 0 0 1 5 13c0-1.01.377-2.042 1.09-2.904.243-.294.526-.569.846-.816ZM4.92 10A5.493 5.493 0 0 0 4 13H1c0-.26.164-1.03.76-1.724.545-.636 1.492-1.256 3.16-1.275ZM1.5 5.5a3 3 0 1 1 6 0 3 3 0 0 1-6 0Zm3-2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg>
+            <div id="search-controls" class="toolbar" style="display: none;">
+                <button id="add-friends-to-search-btn" class="icon-btn" title="Добавить друзей в поиск общих пар">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 </button>
-                <button id="refresh-data-btn" title="Обновить данные для поиска общих пар">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/><path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/></svg>
+                <button id="refresh-data-btn" class="icon-btn" title="Обновить данные для поиска общих пар">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
                 </button>
                 <div id="selected-students-dropdown-wrapper" style="display: none; position: relative;">
-                    <button id="selected-students-toggle">Выбрано: <span id="selected-count">0</span> <small style="margin-left:3px;">▼</small></button>
-                    <div id="selected-students-container"></div>
+                    <div id="selected-students-pill" class="split-btn">
+                        <button id="selected-students-toggle" class="split-main" title="Показать список выбранных">
+                            <span>Выбрано:&nbsp;<span id="selected-count">0</span></span>
+                            <svg class="selected-dropdown-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                        </button>
+                        <button id="selected-students-reset-btn" class="split-clear" title="Сбросить всех выбранных студентов">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                        </button>
+                    </div>
+                    <div id="selected-students-container" class="selected-dropdown"></div>
                 </div>
                 <input type="text" id="student-search-input" placeholder="Найти общие пары...">
-                <button id="search-clear-btn">✖</button>
             </div>
             <div id="search-suggestions"></div>`;
         toolbar.appendChild(container);
@@ -3266,11 +3299,16 @@
 
         qs('#selected-students-toggle').addEventListener('click', () => {
             const cont = qs('#selected-students-container');
-            cont.style.display = cont.style.display === 'flex' ? 'none' : 'flex';
+            const toggle = qs('#selected-students-toggle');
+            const pill = qs('#selected-students-pill');
+            const isOpening = cont.style.display !== 'flex';
+            cont.style.display = isOpening ? 'flex' : 'none';
+            if (toggle) toggle.classList.toggle('is-open', isOpening);
+            if (pill) pill.classList.toggle('is-open', isOpening);
         });
 
         qs('#selected-students-container').addEventListener('click', (e) => {
-            const removeBtn = e.target.closest('.remove-student-btn');
+            const removeBtn = e.target.closest('.remove-student-btn, .selected-item-remove');
             if (removeBtn) {
                 e.stopPropagation();
                 const name = removeBtn.getAttribute('data-name');
@@ -3287,7 +3325,7 @@
             loadAllData();
         });
         qs('#student-search-input').addEventListener('input', updateSuggestions);
-        qs('#search-clear-btn').addEventListener('click', clearSearch);
+        qs('#selected-students-reset-btn').addEventListener('click', clearSearch);
         qs('#search-suggestions').addEventListener('click', (e) => {
             const item = e.target.closest('.suggestion-item');
             if (item) {
@@ -4111,15 +4149,35 @@
                 qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
             }
 
-            const header = qs('.event-card-container__header');
-            if (header && !qs(`#${ID_STOP_BUTTON}`)) {
-                const stopButton = document.createElement('span');
-                stopButton.id = ID_STOP_BUTTON;
-                stopButton.innerHTML = `<i class="fa fa-ban" style="margin-right: 4px;"></i>Стоп-скрипт`;
-                stopButton.addEventListener('click', stopAndCleanUp);
-                header.insertBefore(stopButton, header.firstChild);
-            }
+            enhanceDrawerHeader();
         }, MUTATION_DEBOUNCE_DELAY_MS);
+    };
+
+    const enhanceDrawerHeader = () => {
+        const header = qs('.event-card-container__header');
+        if (!header) return;
+
+        if (!qs(`#${ID_STOP_BUTTON}`)) {
+            const stopButton = document.createElement('span');
+            stopButton.id = ID_STOP_BUTTON;
+            stopButton.innerHTML = `${SVG_BAN}Стоп-скрипт`;
+            stopButton.addEventListener('click', stopAndCleanUp);
+            header.insertBefore(stopButton, header.firstChild);
+        }
+
+        const exportIcon = header.querySelector('.mod-ico__export');
+        if (exportIcon && !exportIcon.hasAttribute('data-mse-enhanced')) {
+            exportIcon.setAttribute('data-mse-enhanced', 'true');
+            exportIcon.className = 'mse-header-icon';
+            exportIcon.innerHTML = SVG_EXTERNAL_LINK;
+        }
+
+        const crossIcon = header.querySelector('.mod-ico__cross');
+        if (crossIcon && !crossIcon.hasAttribute('data-mse-enhanced')) {
+            crossIcon.setAttribute('data-mse-enhanced', 'true');
+            crossIcon.className = 'mse-header-icon';
+            crossIcon.innerHTML = SVG_X_DRAWER;
+        }
     };
 
     const observer = new MutationObserver(debouncedMutationHandler);
