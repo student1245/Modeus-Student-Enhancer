@@ -503,6 +503,7 @@
     let uniqueStudents = new Map();
     let lastSearchResults = new Map();
     let selectedStudents = new Set();
+    let activeSuggestionIndex = -1;
     const attendeesMemoryCache = new Map();
     let lastActiveCalendarPersonId = null;
     let nativePopoverObserver = null;
@@ -1522,6 +1523,7 @@
         if (container && !container.contains(e.target)) {
             const suggestions = qs('#search-suggestions', container);
             if (suggestions) suggestions.style.display = 'none';
+            activeSuggestionIndex = -1;
         }
         const path = e.composedPath ? e.composedPath() : [];
         const isInsideDropdown = path.some(el => el && el.id === 'selected-students-dropdown-wrapper');
@@ -1999,7 +2001,60 @@
         }
     };
 
+    const selectStudentSuggestion = (studentName) => {
+        if (!studentName) return;
+        selectedStudents.add(studentName);
+        const searchInput = qs('#student-search-input');
+        if (searchInput) searchInput.value = '';
+        const suggestionsBox = qs('#search-suggestions');
+        if (suggestionsBox) {
+            suggestionsBox.style.display = 'none';
+            suggestionsBox.innerHTML = '';
+        }
+        activeSuggestionIndex = -1;
+        updateSelectedStudentsDisplay();
+        highlightEventsForStudents();
+    };
+
+    const updateActiveSuggestion = (items, index) => {
+        items.forEach((item, i) => {
+            const isActive = i === index;
+            item.classList.toggle('is-active', isActive);
+            if (isActive) {
+                item.scrollIntoView({ block: 'nearest' });
+            }
+        });
+    };
+
+    const handleSearchKeydown = (e) => {
+        const suggestionsBox = qs('#search-suggestions');
+        if (!suggestionsBox || suggestionsBox.style.display === 'none') return;
+
+        const items = qsa('.suggestion-item', suggestionsBox);
+        if (items.length === 0) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeSuggestionIndex = (activeSuggestionIndex + 1) % items.length;
+            updateActiveSuggestion(items, activeSuggestionIndex);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeSuggestionIndex = activeSuggestionIndex <= 0 ? items.length - 1 : activeSuggestionIndex - 1;
+            updateActiveSuggestion(items, activeSuggestionIndex);
+        } else if (e.key === 'Enter') {
+            const targetIndex = activeSuggestionIndex >= 0 ? activeSuggestionIndex : 0;
+            if (items[targetIndex]) {
+                e.preventDefault();
+                selectStudentSuggestion(items[targetIndex].getAttribute('data-name'));
+            }
+        } else if (e.key === 'Escape') {
+            suggestionsBox.style.display = 'none';
+            activeSuggestionIndex = -1;
+        }
+    };
+
     const updateSuggestions = (e) => {
+        activeSuggestionIndex = -1;
         const query = normalizeName(e.target.value.toLowerCase());
         const suggestionsBox = qs('#search-suggestions');
         suggestionsBox.innerHTML = '';
@@ -3343,15 +3398,23 @@
             loadAllData();
         });
         qs('#student-search-input').addEventListener('input', updateSuggestions);
+        qs('#student-search-input').addEventListener('keydown', handleSearchKeydown);
         qs('#selected-students-reset-btn').addEventListener('click', clearSearch);
         qs('#search-suggestions').addEventListener('click', (e) => {
             const item = e.target.closest('.suggestion-item');
             if (item) {
-                selectedStudents.add(item.getAttribute('data-name'));
-                qs('#student-search-input').value = '';
-                qs('#search-suggestions').style.display = 'none';
-                updateSelectedStudentsDisplay();
-                highlightEventsForStudents();
+                selectStudentSuggestion(item.getAttribute('data-name'));
+            }
+        });
+        qs('#search-suggestions').addEventListener('mousemove', (e) => {
+            const item = e.target.closest('.suggestion-item');
+            if (item) {
+                const items = qsa('.suggestion-item', qs('#search-suggestions'));
+                const idx = items.indexOf(item);
+                if (idx !== -1 && idx !== activeSuggestionIndex) {
+                    activeSuggestionIndex = idx;
+                    updateActiveSuggestion(items, activeSuggestionIndex);
+                }
             }
         });
 
