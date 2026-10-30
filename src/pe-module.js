@@ -492,12 +492,43 @@ window.MSE_PE = (function () {
         renderGrid();
     };
 
-    const CALENDAR_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>`;
+    const BUSY_CALENDAR_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`;
+    const BUSY_CHEVRON_SVG = `<svg class="busy-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
 
     function getSlotsStatusClass(available) {
         if (available >= 4) return 'slots-ok';
         if (available >= 1) return 'slots-low';
         return 'slots-zero';
+    }
+
+    function isBusyCardExpandable(disciplinesList) {
+        if (!disciplinesList || disciplinesList.length === 0) return false;
+        if (disciplinesList.length > 2) return true;
+        if (disciplinesList.length === 2) {
+            return disciplinesList.some(d => d.length > 26) || (disciplinesList[0].length + disciplinesList[1].length > 48);
+        }
+        return disciplinesList[0].length > 58;
+    }
+
+    function createBusyCardHtml(labelText, disciplinesList) {
+        const safeTitle = disciplinesList.map(escapeHtml).join('<br>+ ');
+        const isExpandable = isBusyCardExpandable(disciplinesList);
+        const cardClass = isExpandable ? 'busy-card is-expandable' : 'busy-card';
+        const onclickAttr = isExpandable ? ' onclick="this.classList.toggle(\'expanded\')"' : '';
+        const chevronHtml = isExpandable ? BUSY_CHEVRON_SVG : '';
+
+        return `
+            <div class="${cardClass}"${onclickAttr}>
+                <div class="busy-header">
+                    <span class="busy-header-left">
+                        ${BUSY_CALENDAR_SVG}
+                        <span>${labelText}</span>
+                    </span>
+                    ${chevronHtml}
+                </div>
+                <div class="busy-title">${safeTitle}</div>
+            </div>
+        `;
     }
 
     function renderBusySlotHtml(conflict, friendName) {
@@ -510,39 +541,16 @@ window.MSE_PE = (function () {
             userList.every((d, i) => d === friendList[i]);
 
         if (isSameDisciplines) {
-            return `
-                <div class="busy-card">
-                    <div class="busy-header">
-                        ${CALENDAR_ICON_SVG}
-                        <span>У обоих пары</span>
-                    </div>
-                    <div class="busy-title">${userList.map(escapeHtml).join('<br>+ ')}</div>
-                </div>
-            `;
+            return createBusyCardHtml('У обоих пары', userList);
         }
 
         let cardsHtml = '';
         if (conflict.user) {
-            cardsHtml += `
-                <div class="busy-card">
-                    <div class="busy-header">
-                        ${CALENDAR_ICON_SVG}
-                        <span>У вас пара</span>
-                    </div>
-                    <div class="busy-title">${userList.map(escapeHtml).join('<br>+ ')}</div>
-                </div>
-            `;
+            cardsHtml += createBusyCardHtml('У вас пара', userList);
         }
         if (conflict.friend) {
-            cardsHtml += `
-                <div class="busy-card">
-                    <div class="busy-header">
-                        ${CALENDAR_ICON_SVG}
-                        <span>У друга (${escapeHtml(friendName || 'друг')})</span>
-                    </div>
-                    <div class="busy-title">${friendList.map(escapeHtml).join('<br>+ ')}</div>
-                </div>
-            `;
+            const friendLabel = `У друга (${escapeHtml(friendName || 'друг')})`;
+            cardsHtml += createBusyCardHtml(friendLabel, friendList);
         }
         return cardsHtml;
     }
@@ -632,6 +640,26 @@ window.MSE_PE = (function () {
                 tr.appendChild(td);
             });
             tbody.appendChild(tr);
+        });
+        updateBusyCardsExpandability();
+    }
+
+    function updateBusyCardsExpandability() {
+        const overlay = document.getElementById('mse-pe-overlay');
+        if (!overlay) return;
+        overlay.querySelectorAll('.busy-card').forEach(card => {
+            const title = card.querySelector('.busy-title');
+            if (!title) return;
+            const isClamped = title.scrollHeight > title.clientHeight + 2;
+            const hasChevron = !!card.querySelector('.busy-chevron');
+            if (isClamped && !card.classList.contains('is-expandable')) {
+                card.classList.add('is-expandable');
+                card.setAttribute('onclick', "this.classList.toggle('expanded')");
+                const header = card.querySelector('.busy-header');
+                if (header && !hasChevron) {
+                    header.insertAdjacentHTML('beforeend', BUSY_CHEVRON_SVG);
+                }
+            }
         });
     }
 
