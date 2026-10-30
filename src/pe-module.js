@@ -492,6 +492,87 @@ window.MSE_PE = (function () {
         renderGrid();
     };
 
+    const CALENDAR_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>`;
+
+    function getSlotsStatusClass(available) {
+        if (available >= 4) return 'slots-ok';
+        if (available >= 1) return 'slots-low';
+        return 'slots-zero';
+    }
+
+    function renderBusySlotHtml(conflict, friendName) {
+        const parseDisciplines = str => (str || '').split('<br>+ ').map(s => s.trim()).filter(Boolean).sort();
+        const userList = parseDisciplines(conflict.user);
+        const friendList = parseDisciplines(conflict.friend);
+
+        const isSameDisciplines = userList.length > 0 &&
+            userList.length === friendList.length &&
+            userList.every((d, i) => d === friendList[i]);
+
+        if (isSameDisciplines) {
+            return `
+                <div class="busy-card">
+                    <div class="busy-header">
+                        ${CALENDAR_ICON_SVG}
+                        <span>У обоих пары</span>
+                    </div>
+                    <div class="busy-title">${userList.map(escapeHtml).join('<br>+ ')}</div>
+                </div>
+            `;
+        }
+
+        let cardsHtml = '';
+        if (conflict.user) {
+            cardsHtml += `
+                <div class="busy-card">
+                    <div class="busy-header">
+                        ${CALENDAR_ICON_SVG}
+                        <span>У вас пара</span>
+                    </div>
+                    <div class="busy-title">${userList.map(escapeHtml).join('<br>+ ')}</div>
+                </div>
+            `;
+        }
+        if (conflict.friend) {
+            cardsHtml += `
+                <div class="busy-card">
+                    <div class="busy-header">
+                        ${CALENDAR_ICON_SVG}
+                        <span>У друга (${escapeHtml(friendName || 'друг')})</span>
+                    </div>
+                    <div class="busy-title">${friendList.map(escapeHtml).join('<br>+ ')}</div>
+                </div>
+            `;
+        }
+        return cardsHtml;
+    }
+
+    function createSportCardElement(sportName, group, day, time, tIdx) {
+        const totalAvail = group.reduce((sum, i) => sum + i.avail, 0);
+        const totalSeats = group.reduce((sum, i) => sum + i.total, 0);
+        const locs = [...new Set(group.map(i => escapeHtml(i.campus)))].join(', ');
+        const safeSportName = escapeHtml(sportName);
+        const isEnrolled = group.some(i => i.enrolled);
+        const isFull = totalAvail <= 0;
+        const slotsClass = getSlotsStatusClass(totalAvail);
+
+        const card = document.createElement('div');
+        const classNames = ['sport-card'];
+        if (isFull) classNames.push('is-full');
+        if (isEnrolled) classNames.push('is-enrolled');
+        card.className = classNames.join(' ');
+
+        card.innerHTML = `
+            <div class="sc-top">
+                <span class="sc-name">${isEnrolled ? '⭐ ' : ''}${safeSportName} <span class="sc-count">· ${group.length}</span></span>
+                <span class="sc-slots ${slotsClass}">${totalAvail}/${totalSeats}</span>
+            </div>
+            <div class="sc-loc" title="${locs}">${locs}</div>
+        `;
+        card.addEventListener('click', () => openPeModal(sportName, day, time, group, tIdx));
+        return card;
+    }
+
     function renderGrid() {
         const tbody = document.getElementById('pe-tableBody');
         if (!tbody) return; tbody.innerHTML = '';
@@ -509,7 +590,7 @@ window.MSE_PE = (function () {
             const tr = document.createElement('tr'); const isCollapsed = collapsedRows.has(tIdx);
             if (isCollapsed) tr.className = 'row-collapsed';
             const timeTd = document.createElement('td'); timeTd.className = 'time-cell';
-            timeTd.innerHTML = `${time} <span class="time-sub">${tIdx + 1} пара ${isCollapsed ? '▼' : '▲'}</span>`;
+            timeTd.innerHTML = `${time}<span class="time-sub">${tIdx + 1} пара</span>`;
             timeTd.addEventListener('click', () => {
                 if (isCollapsed) {
                     collapsedRows.delete(tIdx);
@@ -522,7 +603,7 @@ window.MSE_PE = (function () {
 
             days.forEach(day => {
                 const td = document.createElement('td');
-                td.className = 'slot-cell';
+                td.className = 'slot-cell day-cell';
 
                 if (isCollapsed) {
                     tr.appendChild(td);
@@ -531,53 +612,20 @@ window.MSE_PE = (function () {
 
                 const conflict = getConflict(day, tIdx);
                 if (considerSchedule && conflict) {
-                    let html = '';
-
-                    // Разбираем списки дисциплин и сортируем, чтобы порядок из API не влиял на сравнение
-                    const parseDisciplines = str => (str || '').split('<br>+ ').map(s => s.trim()).filter(Boolean).sort();
-                    const userList = parseDisciplines(conflict.user);
-                    const friendList = parseDisciplines(conflict.friend);
-
-                    const isSameDisciplines = userList.length > 0 &&
-                        userList.length === friendList.length &&
-                        userList.every((d, i) => d === friendList[i]);
-
-                    if (isSameDisciplines) {
-                        html = `⛔ У обоих пары (${userList.length > 1 ? 'одинаковые предметы' : 'одинаковый предмет'}):<br><b>${userList.map(escapeHtml).join('<br>+ ')}</b>`;
-                    } else {
-                        if (conflict.user) html += `🎓 У вас пара:<br><b>${userList.map(escapeHtml).join('<br>+ ')}</b>`;
-                        if (conflict.friend) {
-                            if (html !== '') html += `<hr style="margin: 6px 0; border: 0; border-top: 1px dashed #cbd5e1;">`;
-                            html += `👥 У друга (${escapeHtml(friendNameForUI)}):<br><b>${friendList.map(escapeHtml).join('<br>+ ')}</b>`;
-                        }
-                    }
-
-                    td.innerHTML = `<div class="pe-conflict-slot">${html}</div>`;
+                    td.innerHTML = renderBusySlotHtml(conflict, friendNameForUI);
                     tr.appendChild(td);
                     return;
                 }
 
                 const cellWrapper = document.createElement('div');
-                cellWrapper.className = 'card-group';
+                cellWrapper.className = 'card-group day-cell';
 
                 const slotItems = filtered.filter(c => c.day === day && c.slotIdx === tIdx);
                 const clusters = {};
                 slotItems.forEach(i => { if (!clusters[i.sport]) clusters[i.sport] = []; clusters[i.sport].push(i); });
 
                 Object.keys(clusters).sort().forEach(sportName => {
-                    const group = clusters[sportName];
-                    const totalAvail = group.reduce((sum, i) => sum + i.avail, 0);
-                    const totalSeats = group.reduce((sum, i) => sum + i.total, 0);
-                    const locs = [...new Set(group.map(i => escapeHtml(i.campus)))].join(', ');
-                    const safeSportName = escapeHtml(sportName);
-                    const card = document.createElement('div');
-                    card.className = `s-card ${group.some(i => i.enrolled) ? 'is-enrolled' : ''}`;
-                    card.innerHTML = `
-                        <div class="card-row-1">
-                            <span class="sport-title">${group.some(i => i.enrolled) ? '⭐ ' : ''}${safeSportName} <span style="font-weight:normal; font-size:10px;">(${group.length})</span></span>
-                            <span class="seats-badge ${totalAvail > 0 ? 'has-seats' : ''}">${totalAvail}/${totalSeats}</span>
-                        </div><div class="card-row-2">📍 ${locs}</div>`;
-                    card.addEventListener('click', () => openPeModal(sportName, day, time, group, tIdx));
+                    const card = createSportCardElement(sportName, clusters[sportName], day, time, tIdx);
                     cellWrapper.appendChild(card);
                 });
                 td.appendChild(cellWrapper);
@@ -1005,7 +1053,12 @@ window.MSE_PE = (function () {
             if (!document.getElementById('mse-pe-overlay')) {
                 const overlay = document.createElement('div'); overlay.id = 'mse-pe-overlay';
 
-                overlay.innerHTML = `<button id="mse-pe-close" title="Закрыть">✕</button>
+                overlay.innerHTML = `
+                    <button type="button" class="modal-close-btn" id="mse-pe-close" title="Закрыть страницу">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                        </svg>
+                    </button>
                     <div class="container">
                         <div class="header-panel"><h2>Умный подбор физкультуры</h2>
                             <div class="filters-group">

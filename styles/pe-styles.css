@@ -9,34 +9,63 @@
     overflow-y: auto;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: #0f172a;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+}
+
+#mse-pe-overlay::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+#mse-pe-overlay::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#mse-pe-overlay::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 99px;
+}
+
+#mse-pe-overlay::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
 }
 
 #mse-pe-overlay * {
     box-sizing: border-box;
 }
 
-#mse-pe-close {
-    position: fixed;
-    top: 20px;
-    right: 25px;
-    background: transparent;
-    color: #64748b;
-    border: none;
-    font-size: 32px;
-    cursor: pointer;
-    line-height: 1;
-    z-index: 10001;
-    transition: color 0.15s;
-    padding: 0;
+.modal-close-btn {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 10001;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.15s ease;
+  outline: none;
 }
 
-#mse-pe-close:hover {
-    color: #0f172a;
+.modal-close-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #94a3b8;
+  transform: scale(1.05);
 }
 
 #mse-pe-overlay .container {
+    width: calc(100% - 130px);
     max-width: 1750px;
-    margin: 40px auto 40px;
+    margin: 40px auto;
     background: white;
     padding: 16px;
     border-radius: 12px;
@@ -44,14 +73,19 @@
 }
 
 #mse-pe-overlay .header-panel {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: #ffffff;
+    margin: -16px -16px 15px -16px;
+    padding: 16px 16px 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    border-radius: 12px 12px 0 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
     gap: 15px;
-    margin-bottom: 15px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid #e2e8f0;
 }
 
 #mse-pe-overlay .filters-group {
@@ -290,6 +324,11 @@
     font-weight: 600;
 }
 
+#mse-pe-overlay th:first-child {
+    width: 72px;
+    text-align: center;
+}
+
 #mse-pe-overlay td {
     border: 1px solid #e2e8f0;
     padding: 4px;
@@ -298,15 +337,17 @@
 }
 
 #mse-pe-overlay .time-cell {
-    width: 80px;
+    width: 72px;
     background: #f8fafc;
     text-align: center;
     font-weight: 700;
-    font-size: 12px;
+    font-size: 13px;
+    color: #0f172a;
     cursor: pointer;
     user-select: none;
     vertical-align: middle;
     transition: all 0.15s ease;
+    padding: 6px 4px;
 }
 
 #mse-pe-overlay .time-cell:hover {
@@ -315,7 +356,7 @@
 }
 
 #mse-pe-overlay .time-sub {
-    font-size: 10px;
+    font-size: 11px;
     color: #64748b;
     font-weight: normal;
     display: block;
@@ -342,7 +383,7 @@
 
 /* Ключевой фикс:
    скрываем не только .card-group,
-   но и pe-conflict-slot и любые другие элементы */
+   но и pe-conflict-slot, busy-card и любые другие элементы */
 #mse-pe-overlay tr.row-collapsed td.slot-cell>* {
     display: none !important;
 }
@@ -351,91 +392,162 @@
     height: 28px !important;
 }
 
+/* Скроллбары внутри ячеек дней недели */
+.day-cell,
+#mse-pe-overlay .day-cell,
+#mse-pe-overlay .card-group,
+#mse-pe-overlay .slot-cell {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.day-cell::-webkit-scrollbar,
+#mse-pe-overlay .day-cell::-webkit-scrollbar,
+#mse-pe-overlay .card-group::-webkit-scrollbar,
+#mse-pe-overlay .slot-cell::-webkit-scrollbar {
+  width: 4px;
+}
+
+.day-cell::-webkit-scrollbar-track,
+#mse-pe-overlay .day-cell::-webkit-scrollbar-track,
+#mse-pe-overlay .card-group::-webkit-scrollbar-track,
+#mse-pe-overlay .slot-cell::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.day-cell::-webkit-scrollbar-thumb,
+#mse-pe-overlay .day-cell::-webkit-scrollbar-thumb,
+#mse-pe-overlay .card-group::-webkit-scrollbar-thumb,
+#mse-pe-overlay .slot-cell::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 99px;
+}
+
 #mse-pe-overlay .card-group {
     display: flex;
     flex-direction: column;
-    gap: 4px;
     max-height: 380px;
     overflow-y: auto;
+    padding: 3px 2px;
 }
 
-#mse-pe-overlay .s-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-left: 3px solid #2563eb;
-    border-radius: 4px;
-    padding: 4px 6px;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    transition: transform 0.1s;
+/* Карточки видов спорта внутри ячеек */
+.sport-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 6px 9px;
+  margin-bottom: 5px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.12s ease;
 }
 
-#mse-pe-overlay .s-card:hover {
-    border-color: #cbd5e1;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+.sport-card:last-child {
+  margin-bottom: 0;
 }
 
-#mse-pe-overlay .s-card.is-enrolled {
-    border-color: #f59e0b;
-    border-left: 4px solid #f59e0b;
-    background: #fffbeb;
+.sport-card:hover {
+  border-color: #0284c7;
+  background: #f0f9ff;
+  box-shadow: 0 2px 5px rgba(2, 132, 199, 0.08);
 }
 
-#mse-pe-overlay .card-row-1 {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 11px;
-    font-weight: 600;
+.sport-card.is-enrolled {
+  border-color: #f59e0b;
+  border-left: 3px solid #f59e0b;
+  background: #fffbeb;
 }
 
-#mse-pe-overlay .sport-title {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 135px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
+.sc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
 }
 
-#mse-pe-overlay .seats-badge {
-    font-size: 10px;
-    color: #64748b;
+.sc-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#mse-pe-overlay .seats-badge.has-seats {
-    color: #16a34a;
-    font-weight: 600;
+.sc-count {
+  font-weight: 400;
+  color: #94a3b8;
+  font-size: 11.5px;
+  margin-left: 2px;
 }
 
-#mse-pe-overlay .card-row-2 {
-    font-size: 10px;
-    color: #64748b;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.sc-slots {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 99px;
+  flex-shrink: 0;
 }
 
-#mse-pe-overlay .pe-conflict-slot {
-    background: #f1f5f9;
-    color: #64748b;
-    text-align: center;
-    border-radius: 6px;
-    padding: 10px 4px;
-    font-size: 11px;
-    margin-top: 5px;
-    border: 1px dashed #cbd5e1;
+.slots-ok { background: #dcfce7; color: #15803d; }
+.slots-low { background: #fef3c7; color: #b45309; }
+.slots-zero { background: #f1f5f9; color: #94a3b8; font-weight: 500; }
+
+.sc-loc {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Разделитель внутри слота, если конфликты у обоих */
-#mse-pe-overlay .pe-conflict-slot hr {
-    margin: 6px 0;
-    border: 0;
-    border-top: 1px dashed #cbd5e1;
+.sport-card.is-full {
+  background: #f8fafc;
+  border-color: #f1f5f9;
+  opacity: 0.6;
+}
+
+.sport-card.is-full:hover {
+  opacity: 0.95;
+  border-color: #cbd5e1;
+  background: #ffffff;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Блок «У вас пара» (занятый слот в расписании) */
+.busy-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #475569;
+  text-align: left;
+}
+
+.busy-card + .busy-card {
+  margin-top: 4px;
+}
+
+.busy-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  background: #e2e8f0;
+  padding: 2px 7px;
+  border-radius: 5px;
+  margin-bottom: 6px;
+}
+
+.busy-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.35;
 }
 
 #mse-pe-modal-overlay {

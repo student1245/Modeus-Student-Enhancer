@@ -1543,3 +1543,166 @@ body.mse-active {
   border-color: #fecaca;
 }
 
+.modal-close-btn {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 10001;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.15s ease;
+  outline: none;
+}
+
+.modal-close-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #94a3b8;
+  transform: scale(1.05);
+}
+
+/* --- Сетка расписания, скроллбары и карточки секций Умного подбора физкультуры --- */
+.day-cell {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.day-cell::-webkit-scrollbar {
+  width: 4px;
+}
+
+.day-cell::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.day-cell::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 99px;
+}
+
+.sport-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 6px 9px;
+  margin-bottom: 5px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.sport-card:last-child {
+  margin-bottom: 0;
+}
+
+.sport-card:hover {
+  border-color: #0284c7;
+  background: #f0f9ff;
+  box-shadow: 0 2px 5px rgba(2, 132, 199, 0.08);
+}
+
+.sport-card.is-enrolled {
+  border-color: #f59e0b;
+  border-left: 3px solid #f59e0b;
+  background: #fffbeb;
+}
+
+.sc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.sc-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sc-count {
+  font-weight: 400;
+  color: #94a3b8;
+  font-size: 11.5px;
+  margin-left: 2px;
+}
+
+.sc-slots {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+.slots-ok { background: #dcfce7; color: #15803d; }
+.slots-low { background: #fef3c7; color: #b45309; }
+.slots-zero { background: #f1f5f9; color: #94a3b8; font-weight: 500; }
+
+.sc-loc {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sport-card.is-full {
+  background: #f8fafc;
+  border-color: #f1f5f9;
+  opacity: 0.6;
+}
+
+.sport-card.is-full:hover {
+  opacity: 0.95;
+  border-color: #cbd5e1;
+  background: #ffffff;
+  transform: none;
+  box-shadow: none;
+}
+
+.busy-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #475569;
+  text-align: left;
+}
+
+.busy-card + .busy-card {
+  margin-top: 4px;
+}
+
+.busy-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  background: #e2e8f0;
+  padding: 2px 7px;
+  border-radius: 5px;
+  margin-bottom: 6px;
+}
+
+.busy-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.35;
+}
+
