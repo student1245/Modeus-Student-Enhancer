@@ -1,4 +1,12 @@
 window.MSE_PE = (function () {
+    const getSvgIcon = (typeof window !== 'undefined' && window.getSvgIcon)
+        ? window.getSvgIcon
+        : (typeof require !== 'undefined' ? (function () {
+            try { return require('./icons.js').getSvgIcon; } catch (_) {
+                try { return require(require('path').resolve(process.cwd(), 'src/icons.js')).getSvgIcon; } catch (__) { return () => ''; }
+            }
+        })() : () => '');
+
     const STORAGE_KEY_FRIENDS = 'mse_friends_list';
     let courses = [];
     let sportsSet = new Set();
@@ -492,8 +500,8 @@ window.MSE_PE = (function () {
         renderGrid();
     };
 
-    const BUSY_CALENDAR_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`;
-    const BUSY_CHEVRON_SVG = `<svg class="busy-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
+    const BUSY_CALENDAR_SVG = getSvgIcon('calendar', { size: 11, strokeWidth: 2.2 });
+    const BUSY_CHEVRON_SVG = getSvgIcon('chevron-down', { size: 12, strokeWidth: 2.2, className: 'busy-chevron' });
 
     function getSlotsStatusClass(available) {
         if (available >= 4) return 'slots-ok';
@@ -1083,37 +1091,29 @@ window.MSE_PE = (function () {
 
                 overlay.innerHTML = `
                     <button type="button" class="modal-close-btn" id="mse-pe-close" title="Закрыть страницу">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-                        </svg>
+                        ${getSvgIcon('x', { size: 16, strokeWidth: 2 })}
                     </button>
                     <div class="container">
                         <div class="header-panel"><h2>Умный подбор физкультуры</h2>
                             <div class="filters-group">
-                                <div class="select-wrap custom-multiselect" id="pe-sportMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-sportMultiSelect"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span></button><svg class="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg><div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="sport" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="sport" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-sportOptionsList"></div></div></div>
-                                <div class="select-wrap custom-multiselect" id="pe-campusMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-campusMultiSelect"><span class="ms-label" id="pe-campusLabel">Все корпуса</span></button><svg class="select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg><div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="campus" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="campus" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-campusOptionsList"></div></div></div>
+                                <div class="select-wrap custom-multiselect" id="pe-sportMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-sportMultiSelect"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="sport" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="sport" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-sportOptionsList"></div></div></div>
+                                <div class="select-wrap custom-multiselect" id="pe-campusMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-campusMultiSelect"><span class="ms-label" id="pe-campusLabel">Все корпуса</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="campus" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="campus" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-campusOptionsList"></div></div></div>
                                 <div class="toolbar-divider"></div>
                                 <button type="button" class="pill-check active" id="pe-considerSchedule">
                                     <span class="check-box">
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M20 6 9 17l-5-5"/>
-                                        </svg>
+                                        ${getSvgIcon('check', { size: 11, strokeWidth: 3 })}
                                     </span>
                                     <span>Учитывать пары</span>
                                 </button>
                                 <button type="button" class="pill-check active" id="pe-onlyAvailable">
                                     <span class="check-box">
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M20 6 9 17l-5-5"/>
-                                        </svg>
+                                        ${getSvgIcon('check', { size: 11, strokeWidth: 3 })}
                                     </span>
                                     <span>Только где есть места</span>
                                 </button>
                                 <button type="button" class="pill-check" id="pe-onlyMySections">
                                     <span class="check-box">
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M20 6 9 17l-5-5"/>
-                                        </svg>
+                                        ${getSvgIcon('check', { size: 11, strokeWidth: 3 })}
                                     </span>
                                     <span>Мои записи</span>
                                 </button>
@@ -1123,10 +1123,7 @@ window.MSE_PE = (function () {
                                     <button id="pe-friendBtn" style="background: #f8fafc !important; color: #475569 !important; border: none !important; border-left: 1px solid #cbd5e1 !important; padding: 0 !important; cursor: pointer !important; font-size: 12px !important; font-weight: 600 !important; height: 100% !important; margin: 0 !important; width: 70px !important; flex-shrink: 0 !important; box-sizing: border-box !important; appearance: none !important; -webkit-appearance: none !important; border-radius: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important;">Поиск</button>
                                 </div>
                                 <button type="button" class="reset-btn" id="pe-reset-filters-btn" title="Сбросить все фильтры">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                                        <path d="M3 3v5h5"/>
-                                    </svg>
+                                    ${getSvgIcon('rotate-ccw', { size: 14, strokeWidth: 2 })}
                                     <span>Сбросить</span>
                                 </button>
                             </div></div>

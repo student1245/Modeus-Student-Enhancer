@@ -1,4 +1,12 @@
 (() => {
+    const getSvgIcon = (typeof window !== 'undefined' && window.getSvgIcon)
+        ? window.getSvgIcon
+        : (typeof require !== 'undefined' ? (function () {
+            try { return require('./icons.js').getSvgIcon; } catch (_) {
+                try { return require(require('path').resolve(process.cwd(), 'src/icons.js')).getSvgIcon; } catch (__) { return () => ''; }
+            }
+        })() : () => '');
+
     const META_VERSION = 'modeus-enhancer-version';
     const CURRENT_VERSION = document.querySelector(`meta[name="${META_VERSION}"]`)?.content || '0.0.0';
     const STORAGE_KEY_DEBUG = 'mse_debug'; // Флаг режима отладки (1 / true)
@@ -482,18 +490,18 @@
     // Векторные SVG-иконки Lucide для интерфейса.
     // Иконки бейджей (12–13px) — для квадратиков рядом с именем студента.
     // Иконки шапки (13px) — для кнопок заголовка боковой карточки.
-    const SVG_HEART = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-badge-friend-icon"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/></svg>';
-    const SVG_HEART_OUTLINE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-badge-friend-outline"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/></svg>';
-    const SVG_GRADUATION_CAP = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-badge-direction-icon"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg>';
-    const SVG_USER_ME = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-badge-me-icon"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
-    const SVG_BAN = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><circle cx="12" cy="12" r="10"/><path d="M4.929 4.929 19.07 19.071"/></svg>';
-    const SVG_EXTERNAL_LINK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
-    const SVG_X_DRAWER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mse-badge-icon mse-header-action-icon"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
-    const SVG_USER_GROUP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" class="mse-menu-icon-svg"><path d="M17 21v-1a2 2 0 00-2-2H9a2 2 0 00-2 2v1z"/><path d="M19 10h1a2 2 0 012 2v1z"/><path d="M5 10H4a2 2 0 00-2 2v1z"/><circle cx="12" cy="11" r="3"/><circle cx="18" cy="4" r="2"/><circle cx="6" cy="4" r="2"/></svg>';
-    const SVG_USER_MENU = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" class="mse-menu-icon-svg"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2z"/><circle cx="12" cy="7" r="4"/></svg>';
-    const SVG_USER_PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>';
-    const SVG_CALENDAR_SEARCH = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 2v3"/><path d="M21 10.69V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h7.25"/><path d="m22 21-1.875-1.875"/><path d="M3 9h18"/><path d="M8 2v3"/><circle cx="18" cy="17" r="3"/></svg>';
-    const SVG_MOVE_RIGHT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8L22 12L18 16"/><path d="M2 12H22"/></svg>';
+    const SVG_HEART = getSvgIcon('heart', { size: 12, fill: 'currentColor', strokeWidth: 1.5, className: 'mse-badge-icon mse-badge-friend-icon' });
+    const SVG_HEART_OUTLINE = getSvgIcon('heart', { size: 14, strokeWidth: 1.8, className: 'mse-badge-icon mse-badge-friend-outline' });
+    const SVG_GRADUATION_CAP = getSvgIcon('graduation-cap', { size: 13, strokeWidth: 1.8, className: 'mse-badge-icon mse-badge-direction-icon' });
+    const SVG_USER_ME = getSvgIcon('user', { size: 12, strokeWidth: 2, className: 'mse-badge-icon mse-badge-me-icon' });
+    const SVG_BAN = getSvgIcon('ban', { size: 13, strokeWidth: 2, className: 'mse-badge-icon mse-header-action-icon' });
+    const SVG_EXTERNAL_LINK = getSvgIcon('external-link', { size: 13, strokeWidth: 2, className: 'mse-badge-icon mse-header-action-icon' });
+    const SVG_X_DRAWER = getSvgIcon('x', { size: 13, strokeWidth: 2, className: 'mse-badge-icon mse-header-action-icon' });
+    const SVG_USER_GROUP = getSvgIcon('user-group', { size: 16, fill: 'currentColor', strokeWidth: 1.2, className: 'mse-menu-icon-svg' });
+    const SVG_USER_MENU = getSvgIcon('user', { size: 16, fill: 'currentColor', strokeWidth: 1.2, className: 'mse-menu-icon-svg' });
+    const SVG_USER_PLUS = getSvgIcon('user-plus', { size: 16, strokeWidth: 2.2 });
+    const SVG_CALENDAR_SEARCH = getSvgIcon('calendar-search', { size: 18, strokeWidth: 1.8 });
+    const SVG_MOVE_RIGHT = getSvgIcon('move-right', { size: 14, strokeWidth: 2.2 });
 
     // Регулярные выражения
     const REGEX_BUILDING_CODE = /Корпус-(\d{2})/i;
@@ -1998,7 +2006,7 @@
         return estimatedBannerTop >= titleRect.bottom + BANNER_SAFETY_MARGIN_PX;
     };
 
-    const SVG_USERS_BADGE = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+    const SVG_USERS_BADGE = getSvgIcon('users', { size: 11, strokeWidth: 2, style: 'flex-shrink: 0;' });
 
     const extractSurname = (fullName) => {
         if (!fullName) return '';
@@ -2241,7 +2249,7 @@
                 `<div class="selected-item selected-student-tag">` +
                 `<span class="selected-student-name" title="${escapeHtml(name)}">${formatStudentDisplayNameHtml(name)}</span>` +
                 `<button class="selected-item-remove remove-student-btn" data-name="${escapeHtml(name)}" title="Убрать из поиска">` +
-                `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>` +
+                getSvgIcon('x', { size: 14, strokeWidth: 2.2 }) +
                 `</button>` +
                 `</div>`
             ).join('');
@@ -3578,19 +3586,19 @@
             <span id="search-status" style="display: block;"></span>
             <div id="search-controls" class="toolbar" style="display: none;">
                 <button id="add-friends-to-search-btn" class="icon-btn" title="Добавить друзей в поиск общих пар">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    ${getSvgIcon('users', { size: 16, strokeWidth: 2 })}
                 </button>
                 <button id="refresh-data-btn" class="icon-btn" title="Обновить данные для поиска общих пар">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                    ${getSvgIcon('refresh-ccw', { size: 16, strokeWidth: 2 })}
                 </button>
                 <div id="selected-students-dropdown-wrapper" style="display: none; position: relative;">
                     <div id="selected-students-pill" class="split-btn">
                         <button id="selected-students-toggle" class="split-main" title="Показать список выбранных">
                             <span>Выбрано:&nbsp;<span id="selected-count">0</span></span>
-                            <svg class="selected-dropdown-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                            ${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'selected-dropdown-arrow' })}
                         </button>
                         <button id="selected-students-reset-btn" class="split-clear" title="Сбросить всех выбранных студентов">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                            ${getSvgIcon('x', { size: 14, strokeWidth: 2.2 })}
                         </button>
                     </div>
                     <div id="selected-students-container" class="selected-dropdown"></div>

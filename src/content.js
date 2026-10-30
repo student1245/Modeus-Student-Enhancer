@@ -247,6 +247,7 @@
 
   // 2. Мгновенная инъекция мета-версии и исполняемых скриптов ядра
   mountVersionMeta();
+  injectScript('src/icons.js');
   injectScript('src/pe-module.js');
   injectScript('src/injected.js');
 

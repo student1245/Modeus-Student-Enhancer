@@ -48,6 +48,7 @@
         "styles/pe-styles.css"
       ],
       "js": [
+        "src/icons.js",
         "src/pe-module.js",
         "src/content.js"
       ],
@@ -72,6 +73,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "src/icons.js",
         "src/injected.js",
         "src/pe-module.js",
         "buildings.json",
