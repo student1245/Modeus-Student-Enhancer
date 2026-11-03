@@ -2,7 +2,7 @@
 
 🇷🇺 Русский | [🇬🇧 English](README_EN.md)
 
-![Version](https://img.shields.io/badge/version-2.2.3-blue.svg)
+![Version](https://img.shields.io/badge/version-2.2.4-blue.svg)
 ![Chromium](https://img.shields.io/badge/Chromium-Chrome%20%7C%20Edge%20%7C%20Яндекс%20%7C%20Opera%20%7C%20Brave-4285F4?logo=googlechrome&logoColor=white) 
 ![Platform](https://img.shields.io/badge/platform-UTMN%20Modeus-orange.svg)
 ![Manifest](https://img.shields.io/badge/manifest-v3-green.svg)
@@ -82,4 +82,8 @@
 ---
 
 ## Для разработчиков
-Подробный технический разбор архитектуры доступен в файле [docs/architecture.md](docs/architecture.md).
+Подробный технический разбор архитектуры доступен в файле [docs/architecture.md](docs/architecture.md). Файл архитектуры постоянно доробатывается и измнениятся, в поисках лучше версии себя. ADR наполнена ии слопом и не точностями техническими, поэтому будет в будущем переработана или удалена.
+
+---
+
+Проект открыт к вашим PR!

@@ -2,7 +2,7 @@
 
 [🇷🇺 Русский](readme.md) | 🇬🇧 English
 
-![Version](https://img.shields.io/badge/version-2.2.3-blue.svg)
+![Version](https://img.shields.io/badge/version-2.2.4-blue.svg)
 ![Chromium](https://img.shields.io/badge/Chromium-Chrome%20%7C%20Edge%20%7C%20Yandex%20%7C%20Opera%20%7C%20Brave-4285F4?logo=googlechrome&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-UTMN%20Modeus-orange.svg)
 ![Manifest](https://img.shields.io/badge/manifest-v3-green.svg)
@@ -84,4 +84,8 @@ Can't install it, found a bug, or have a cool idea for a new feature?
 ---
 
 ## For developers
-A detailed technical breakdown of the architecture is available in [docs/architecture.md](docs/architecture.md).
+A detailed technical breakdown of the architecture is available in [docs/architecture.md](docs/architecture.md). The architecture file is constantly being worked out and modified, in search of a better version of itself. ADR is filled with AI slops and technical inaccuracies, so it will be redesigned or deleted in the future.
+
+---
+
+The project is open for уour PR!
