@@ -580,7 +580,7 @@ window.MSE_PE = (function () {
         card.innerHTML = `
             <div class="sc-top">
                 <span class="sc-name">${isEnrolled ? '⭐ ' : ''}${safeSportName} <span class="sc-count">· ${group.length}</span></span>
-                <span class="sc-slots ${slotsClass}">${totalAvail}/${totalSeats}</span>
+                <span class="sc-slots ${slotsClass}">${totalAvail}<span class="sc-slots-total">/${totalSeats}</span></span>
             </div>
             <div class="sc-loc" title="${locs}">${locs}</div>
         `;

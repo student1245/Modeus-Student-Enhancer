@@ -265,11 +265,48 @@ body.mse-active {
         width: 290px;
         margin-top: 4px;
         z-index: 1000;
-        scrollbar-width: thin;
-        scrollbar-color: #cbd5e1 transparent;
         flex-direction: column;
         gap: 2px;
         box-sizing: border-box;
+    }
+
+    .selected-dropdown::-webkit-scrollbar,
+    #selected-students-container::-webkit-scrollbar,
+    .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar,
+    .p-multiselect-items-wrapper::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+    }
+
+    .selected-dropdown::-webkit-scrollbar-button,
+    #selected-students-container::-webkit-scrollbar-button,
+    .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-button,
+    .p-multiselect-items-wrapper::-webkit-scrollbar-button {
+        display: none;
+        width: 0;
+        height: 0;
+    }
+
+    .selected-dropdown::-webkit-scrollbar-track,
+    #selected-students-container::-webkit-scrollbar-track,
+    .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-track,
+    .p-multiselect-items-wrapper::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .selected-dropdown::-webkit-scrollbar-thumb,
+    #selected-students-container::-webkit-scrollbar-thumb,
+    .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-thumb,
+    .p-multiselect-items-wrapper::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 99px;
+    }
+
+    .selected-dropdown::-webkit-scrollbar-thumb:hover,
+    #selected-students-container::-webkit-scrollbar-thumb:hover,
+    .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-thumb:hover,
+    .p-multiselect-items-wrapper::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
     }
 
     .selected-item,
@@ -1521,12 +1558,18 @@ body.mse-active {
   flex-shrink: 0;
 }
 
-/* Нажатое (активное) состояние */
+/* Нажатое (активное) состояние: спокойная рамка и текст, акцент только на квадратике с галочкой */
 .pill-check.active {
-  background: #eff6ff;
-  border-color: #2563eb;
-  color: #1e40af;
-  font-weight: 600;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #334155;
+  font-weight: 500;
+}
+
+.pill-check.active:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+  color: #0f172a;
 }
 
 .pill-check.active .check-box {
@@ -1587,22 +1630,33 @@ body.mse-active {
 }
 
 /* --- Сетка расписания, скроллбары и карточки секций Умного подбора физкультуры --- */
-.day-cell {
-  scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
-}
-
-.day-cell::-webkit-scrollbar {
+.day-cell::-webkit-scrollbar,
+.ms-list::-webkit-scrollbar {
   width: 4px;
+  height: 4px;
 }
 
-.day-cell::-webkit-scrollbar-track {
+.day-cell::-webkit-scrollbar-button,
+.ms-list::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.day-cell::-webkit-scrollbar-track,
+.ms-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.day-cell::-webkit-scrollbar-thumb {
+.day-cell::-webkit-scrollbar-thumb,
+.ms-list::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 99px;
+}
+
+.day-cell::-webkit-scrollbar-thumb:hover,
+.ms-list::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .sport-card {
@@ -1656,16 +1710,69 @@ body.mse-active {
 }
 
 .sc-slots {
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  line-height: 1.3;
+}
+
+.sc-slots.slots-ok {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: #15803d;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 99px;
+}
+
+.sc-slots.slots-ok::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #16a34a;
   flex-shrink: 0;
 }
 
-.slots-ok { background: #dcfce7; color: #15803d; }
-.slots-low { background: #fef3c7; color: #b45309; }
-.slots-zero { background: #f1f5f9; color: #94a3b8; font-weight: 500; }
+.sc-slots.slots-ok .sc-slots-total {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.sc-slots-total {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.sc-slots.slots-low {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.sc-slots.slots-low .sc-slots-total {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.sc-slots.slots-zero {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.sc-slots.slots-zero .sc-slots-total {
+  color: #94a3b8;
+  font-weight: 400;
+}
 
 .sc-loc {
   font-size: 11px;
