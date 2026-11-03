@@ -71,7 +71,6 @@ window.MSE_PE = (function () {
     const days = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ'];
 
     const dayFullNames = { 'ПН': 'Понедельник', 'ВТ': 'Вторник', 'СР': 'Среда', 'ЧТ': 'Четверг', 'ПТ': 'Пятница', 'СБ': 'Суббота' };
-    const sportEmojis = { 'Волейбол': '🏐', 'Баскетбол': '🏀', 'Мини-футбол': '⚽', 'Футбол': '⚽', 'Плавание': '🏊', 'Бокс': '🥊', 'Атлетизм': '🏋️', 'Фитнес': '🧘', 'Стретчинг': '🤸', 'Лыжные гонки': '⛷️', 'Н/теннис': '🏓', 'ОФП': '🏃', 'Гимнастика': '🤸', 'Аэробика': '🤸‍♀️', 'СМГ': '🫀' };
 
     const campusInfo = {
         "Эко-парк": {
@@ -671,6 +670,15 @@ window.MSE_PE = (function () {
         });
     }
 
+    function formatSectionsCount(count) {
+        const abs = Math.abs(count) % 100;
+        const rem = abs % 10;
+        if (abs > 10 && abs < 20) return `${count} секций`;
+        if (rem > 1 && rem < 5) return `${count} секции`;
+        if (rem === 1) return `${count} секция`;
+        return `${count} секций`;
+    }
+
     function openPeModal(sport, day, time, items, timeIdx) {
         currentModalGroup = items;
         currentModalItemIds = new Set(items.map(i => i.id));
@@ -678,99 +686,186 @@ window.MSE_PE = (function () {
         currentModalDay = day;
         currentModalTime = time;
         currentModalTimeIdx = timeIdx;
-        const emoji = sportEmojis[sport] || '🏅';
-        document.getElementById('mse-pe-mTitle').innerText = `${emoji} ${sport}`;
-        document.getElementById('mse-pe-mSubtitle').innerText = `${dayFullNames[day] || day} • ${time} • ${items.length} секций`;
+        const titleEl = document.getElementById('mse-pe-mTitle');
+        if (titleEl) titleEl.textContent = sport;
+        const subtitleEl = document.getElementById('mse-pe-mSubtitle');
+        if (subtitleEl) {
+            const dayName = dayFullNames[day] || day;
+            subtitleEl.textContent = `${dayName}, ${time} · ${formatSectionsCount(items.length)}`;
+        }
         renderModalBody();
-        document.getElementById('mse-pe-modal-overlay').style.display = 'flex';
+        const overlay = document.getElementById('mse-pe-modal-overlay');
+        if (overlay) {
+            overlay.style.display = 'flex';
+            overlay.style.alignItems = 'center';
+            overlay.style.justifyContent = 'center';
+        }
     }
 
-    window.closePeModal = function (e) { if (e && e.target !== e.currentTarget) return; document.getElementById('mse-pe-modal-overlay').style.display = 'none'; }
+    window.openPeModal = openPeModal;
+
+    window.closePeModal = function (e) {
+        if (e && e.target !== e.currentTarget) return;
+        const overlay = document.getElementById('mse-pe-modal-overlay');
+        if (overlay) overlay.style.display = 'none';
+    };
 
     function renderModalBody() {
         const body = document.getElementById('mse-pe-modal-body');
+        if (!body) return;
         body.innerHTML = '';
-        const emoji = sportEmojis[currentModalSport] || '🏅';
-
-        currentModalGroup.forEach((item, index) => {
-            const card = document.createElement('div');
-            card.className = `section-card ${item.enrolled ? 'enrolled-card' : ''}`;
-            let commuteStatus = '🟢 Успеваешь (перемена 20 мин)';
-            if (item.campus === "Эко-парк" && (currentModalTimeIdx === 1 || currentModalTimeIdx === 2)) commuteStatus = '🔴 Не успеваешь (нужно 35+ мин)';
-            if (item.campus === "Олимпия" && currentModalTimeIdx === 1) commuteStatus = '🟡 Впритык (перемена 15 мин)';
-            if (item.campus === "Аграрный уник" && (currentModalTimeIdx === 1 || currentModalTimeIdx === 2)) commuteStatus = '🔴 Не успеваешь (очень далеко)';
-
-            const rev = localTeacherReviews.get(item.prof);
-            const reviewHtml = rev ? `<div style="margin-left:22px; margin-top:2px; font-size:12px; color:#1e293b;"><b>Рейтинг:</b> ${escapeHtml(rev.emoji)} ${escapeHtml(rev.type)}</div><div class="review-box"><b>Отзывы:</b> ${escapeHtml(rev.review ? rev.review.replace(/<br\s*\/?>/gi, ' ') : '')}</div>` : `<div style="margin-left:22px; margin-top:2px; font-size:12px; color:var(--muted);">🤔 Нет отзывов о преподавателе</div>`;
-
-            let actionBtnHtml = '';
-            if (item.enrolled) {
-                actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-unenroll-lg" data-action="unenroll" data-team-id="${item.id}">🔴 ОТПИСАТЬСЯ</button>`;
-            } else if (item.avail <= 0) {
-                actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-disabled-lg" disabled title="В секции не осталось свободных мест">🔒 Нет мест</button>`;
-            } else {
-                const validModuleIds = teamToModulesMap.get(item.id);
-                const candidateModules = allModules.filter(mod => {
-                    const mId = mod.moduleElementId || mod.id;
-                    return validModuleIds && validModuleIds.has(mId);
-                });
-                const emptyModule = candidateModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
-
-                if (emptyModule) {
-                    actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-enroll-lg" data-action="enroll" data-team-id="${item.id}">🟢 ЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>`;
-                } else {
-                    const occupiedModule = candidateModules.find(mod => mod.selectedTeamIds && mod.selectedTeamIds.length > 0);
-                    const oldTeamId = occupiedModule ? occupiedModule.selectedTeamIds[0] : null;
-                    const targetModuleId = occupiedModule ? (occupiedModule.moduleElementId || occupiedModule.id) : null;
-
-                    if (occupiedModule && oldTeamId && targetModuleId) {
-                        let oldTeamName = '';
-                        const oldCourse = courses.find(c => c.id === oldTeamId);
-                        if (oldCourse) {
-                            oldTeamName = `${oldCourse.sport} (Секция №${oldCourse.secNum}, ${dayFullNames[oldCourse.day] || oldCourse.day} ${oldCourse.time})`;
-                        } else {
-                            let foundName = null;
-                            if (occupiedModule.cycles) {
-                                for (const cycle of occupiedModule.cycles) {
-                                    const t = (cycle.teams || []).find(team => team.id === oldTeamId);
-                                    if (t && t.name) {
-                                        foundName = t.name;
-                                        break;
-                                    }
-                                }
-                            }
-                            oldTeamName = foundName || 'текущая секция';
-                        }
-
-                        actionBtnHtml = `
-                            <button id="btn-team-${item.id}" class="btn-action btn-swap-lg" data-action="swap" data-team-id="${item.id}" data-old-team-id="${oldTeamId}" data-target-module-id="${targetModuleId}">🔄 ПЕРЕЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>
-                            <div class="swap-notice">⚠️ Заменит: <b>${escapeHtml(oldTeamName)}</b></div>
-                        `;
-                    } else {
-                        actionBtnHtml = `<button id="btn-team-${item.id}" class="btn-action btn-enroll-lg" data-action="enroll" data-team-id="${item.id}">🟢 ЗАПИСАТЬСЯ В ЭТУ СЕКЦИЮ</button>`;
-                    }
-                }
-            }
-
-            const safeSport = escapeHtml(item.sport);
-            const safeCampus = escapeHtml(item.campus);
-            const safeAddress = escapeHtml(item.address);
-            const safeProf = escapeHtml(item.prof);
-            const safeLoc = escapeHtml(item.loc);
-            const safeMapLink = escapeHtml(item.mapLink);
-
-            card.innerHTML = `
-                <div class="sec-header"><div>${emoji} ${safeSport} (Секция №${item.secNum})</div>${item.enrolled ? '<span style="color:#d97706; font-size:12px; font-weight:700;">⭐ Вы записаны</span>' : ''}</div>
-                <div class="info-block"><div class="info-title">📍 Локация: <span>${safeCampus}</span></div>
-                    <div class="info-sub">Адрес: ${safeAddress} <a href="${safeMapLink}" target="_blank" class="map-link">[Яндекс Карты ↗]</a></div>
-                    <div class="info-sub" style="color: #94a3b8; font-size: 11px;">(В Модеусе: ${safeLoc})</div></div>
-                <div class="info-block"><div class="info-title">⏰ Время: <span>${dayFullNames[item.day]}, ${item.time}</span></div><div class="info-sub">Дорога от пред. пары: <b>${commuteStatus}</b></div></div>
-                <div class="info-block"><div class="info-title">👤 Преподаватель: <span>${safeProf}</span></div>${reviewHtml}</div>
-                <div class="info-block"><div class="info-title">👥 Места: <span style="color:${item.avail > 0 ? '#16a34a' : '#dc2626'}">Осталось ${item.avail} из ${item.total}</span></div></div>
-                ${actionBtnHtml}
-            `;
-            body.appendChild(card);
+        currentModalGroup.forEach(item => {
+            body.appendChild(createSectionCardElement(item));
         });
+    }
+
+    function getSlotPillHtml(avail, total) {
+        if (avail >= 4) {
+            return `<span class="slot-pill slot-ok">${avail} из ${total} мест</span>`;
+        }
+        if (avail >= 1) {
+            return `<span class="slot-pill slot-low">${avail} из ${total} мест</span>`;
+        }
+        return `<span class="slot-pill slot-zero">0 из ${total} мест</span>`;
+    }
+
+    function formatLocationRowHtml(campus, address, mapLink) {
+        const safeCampus = escapeHtml(campus || '');
+        const safeAddress = escapeHtml(address || '');
+        const safeMapLink = escapeHtml(mapLink || '');
+        const mapBtn = safeMapLink
+            ? `<a href="${safeMapLink}" target="_blank" rel="noopener noreferrer" class="map-link" title="Открыть в Яндекс.Картах">${getSvgIcon('external-link', { size: 13, strokeWidth: 2 })}</a>`
+            : '';
+        const addressPart = safeAddress ? ` <span style="color:#64748b">· ${safeAddress}</span>` : '';
+        return `
+            <div class="info-row">
+                <div class="info-left">
+                    <span class="info-icon">${getSvgIcon('map-pin', { size: 15, strokeWidth: 2 })}</span>
+                    <span><b>${safeCampus}</b>${addressPart}</span>
+                </div>
+                ${mapBtn}
+            </div>
+        `;
+    }
+
+    function getTeacherRatingBadgeHtml(prof) {
+        const rev = localTeacherReviews.get(prof);
+        if (!rev) {
+            return '<span class="rating-none">Нет отзывов</span>';
+        }
+        const type = (rev.type || '').trim();
+        if (type === 'Положительная') {
+            return `<span class="rating-badge rating-pos">${getSvgIcon('thumbs-up', { size: 12, strokeWidth: 2.2 })} Положительная</span>`;
+        }
+        if (type === 'Отрицательная') {
+            return `<span class="rating-badge rating-neg">${getSvgIcon('thumbs-down', { size: 12, strokeWidth: 2.2 })} Отрицательная</span>`;
+        }
+        const label = type || 'Нейтральная';
+        return `<span class="rating-badge rating-neu">${getSvgIcon('circle-minus', { size: 12, strokeWidth: 2.2 })} ${escapeHtml(label)}</span>`;
+    }
+
+    function formatTeacherRowHtml(prof) {
+        const safeProf = escapeHtml(prof || 'Не указан');
+        const badgeHtml = getTeacherRatingBadgeHtml(prof);
+        return `
+            <div class="info-row">
+                <div class="info-left">
+                    <span class="info-icon">${getSvgIcon('user', { size: 15, strokeWidth: 2 })}</span>
+                    <span style="font-weight: 600;">${safeProf}</span>
+                </div>
+                ${badgeHtml}
+            </div>
+        `;
+    }
+
+    function formatTeacherReviewBoxHtml(prof) {
+        const rev = localTeacherReviews.get(prof);
+        if (!rev || !rev.review) return '';
+        const items = String(rev.review)
+            .split(/<br\s*\/?>|\n|•/g)
+            .map(s => s.trim().replace(/^[-–—*]\s*/, ''))
+            .filter(Boolean);
+        if (items.length === 0) return '';
+        const listItems = items.map(text => `<li>${escapeHtml(text)}</li>`).join('');
+        return `<div class="review-box"><ul class="review-list">${listItems}</ul></div>`;
+    }
+
+    function getOldTeamDisplayName(oldTeamId, occupiedModule) {
+        const oldCourse = courses.find(c => c.id === oldTeamId);
+        if (oldCourse) {
+            return `${oldCourse.sport} (Секция №${oldCourse.secNum}, ${dayFullNames[oldCourse.day] || oldCourse.day} ${oldCourse.time})`;
+        }
+        if (occupiedModule && occupiedModule.cycles) {
+            for (const cycle of occupiedModule.cycles) {
+                const team = (cycle.teams || []).find(t => t.id === oldTeamId);
+                if (team && team.name) return team.name;
+            }
+        }
+        return 'текущая секция';
+    }
+
+    function getSectionActionBtnHtml(item) {
+        if (item.enrolled) {
+            return `<button id="btn-team-${item.id}" class="btn-unenroll" data-action="unenroll" data-team-id="${item.id}">${getSvgIcon('x', { size: 14, strokeWidth: 2 })} Отменить запись</button>`;
+        }
+        if (item.avail <= 0) {
+            return `<button id="btn-team-${item.id}" class="btn-disabled" disabled title="В секции не осталось свободных мест">${getSvgIcon('lock', { size: 13, strokeWidth: 2 })} Нет свободных мест</button>`;
+        }
+
+        const validModuleIds = teamToModulesMap.get(item.id);
+        const candidateModules = allModules.filter(mod => {
+            const mId = mod.moduleElementId || mod.id;
+            return validModuleIds && validModuleIds.has(mId);
+        });
+        const emptyModule = candidateModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
+
+        if (emptyModule) {
+            return `<button id="btn-team-${item.id}" class="btn-enroll" data-action="enroll" data-team-id="${item.id}">${getSvgIcon('check', { size: 14, strokeWidth: 2.2 })} Записаться в секцию</button>`;
+        }
+
+        const occupiedModule = candidateModules.find(mod => mod.selectedTeamIds && mod.selectedTeamIds.length > 0);
+        const oldTeamId = occupiedModule ? occupiedModule.selectedTeamIds[0] : null;
+        const targetModuleId = occupiedModule ? (occupiedModule.moduleElementId || occupiedModule.id) : null;
+
+        if (occupiedModule && oldTeamId && targetModuleId) {
+            const oldTeamName = getOldTeamDisplayName(oldTeamId, occupiedModule);
+            return `
+                <button id="btn-team-${item.id}" class="btn-reenroll" data-action="swap" data-team-id="${item.id}" data-old-team-id="${oldTeamId}" data-target-module-id="${targetModuleId}">${getSvgIcon('refresh-ccw', { size: 14, strokeWidth: 2 })} Перезаписаться в секцию</button>
+                <div class="replace-hint">Заменит: <b>${escapeHtml(oldTeamName)}</b></div>
+            `;
+        }
+
+        return `<button id="btn-team-${item.id}" class="btn-enroll" data-action="enroll" data-team-id="${item.id}">${getSvgIcon('check', { size: 14, strokeWidth: 2.2 })} Записаться в секцию</button>`;
+    }
+
+    function createSectionCardElement(item) {
+        const card = document.createElement('div');
+        const cardClasses = ['sec-card'];
+        if (item.avail <= 0) cardClasses.push('is-full');
+        if (item.enrolled) cardClasses.push('enrolled-card');
+        card.className = cardClasses.join(' ');
+
+        const enrolledBadge = item.enrolled
+            ? `<span class="sec-enrolled-badge">${getSvgIcon('check', { size: 12, strokeWidth: 2.2 })} Вы записаны</span>`
+            : '';
+
+        const topHtml = `
+            <div class="sec-top">
+                <div class="sec-name">
+                    <span>Секция №${item.secNum}</span>
+                    ${enrolledBadge}
+                </div>
+                ${getSlotPillHtml(item.avail, item.total)}
+            </div>
+        `;
+
+        const locationHtml = formatLocationRowHtml(item.campus, item.address, item.mapLink);
+        const teacherHtml = formatTeacherRowHtml(item.prof);
+        const reviewBoxHtml = formatTeacherReviewBoxHtml(item.prof);
+        const actionBtnHtml = getSectionActionBtnHtml(item);
+
+        card.innerHTML = `${topHtml}${locationHtml}${teacherHtml}${reviewBoxHtml}${actionBtnHtml}`;
+        return card;
     }
 
     function syncAndRenderActiveViews() {
@@ -834,7 +929,7 @@ window.MSE_PE = (function () {
         const btn = document.getElementById(`btn-team-${teamId}`);
         if (btn) {
             btn.disabled = true;
-            btn.innerText = "⏳ Отправка запроса...";
+            btn.innerText = "Отправка запроса...";
         }
 
         const token = sessionStorage.getItem('id_token');
@@ -928,7 +1023,7 @@ window.MSE_PE = (function () {
         const btn = document.getElementById(`btn-team-${newTeamId}`);
         if (btn) {
             btn.disabled = true;
-            btn.innerText = "⏳ Перезапись (1/2: отписка)...";
+            btn.innerText = "Перезапись (1/2: отписка)...";
         }
 
         const token = sessionStorage.getItem('id_token');
@@ -1003,7 +1098,7 @@ window.MSE_PE = (function () {
 
             // ШАГ 2: Запись в новую секцию (POST)
             if (btn) {
-                btn.innerText = "⏳ Перезапись (2/2: запись)...";
+                btn.innerText = "Перезапись (2/2: запись)...";
             }
 
             console.log(
@@ -1129,7 +1224,7 @@ window.MSE_PE = (function () {
                             </div></div>
                         <table><thead><tr><th>Пара</th><th>ПН</th><th>ВТ</th><th>СР</th><th>ЧТ</th><th>ПТ</th><th>СБ</th></tr></thead><tbody id="pe-tableBody"></tbody></table>
                     </div>
-                    <div id="mse-pe-modal-overlay"><div id="mse-pe-modal"><div id="mse-pe-modal-header"><div><div id="mse-pe-mTitle" style="font-weight:700; font-size:16px;">Спорт</div><div id="mse-pe-mSubtitle" style="font-size:11px; color:#64748b;"></div></div><button id="mse-pe-modal-close-btn" style="border:none; background:none; font-size:22px; cursor:pointer; color:#64748b;">✕</button></div><div id="mse-pe-modal-body"></div></div></div>`;
+                    <div id="mse-pe-modal-overlay"><div id="mse-pe-modal"><div id="mse-pe-modal-header" class="m-header"><div><div id="mse-pe-mTitle">Спорт</div><div id="mse-pe-mSubtitle"></div></div><button id="mse-pe-modal-close-btn" class="sec-modal-close-btn" aria-label="Закрыть">${getSvgIcon('x', { size: 16, strokeWidth: 2 })}</button></div><div id="mse-pe-modal-body"></div></div></div>`;
                 document.body.appendChild(overlay);
 
                 document.getElementById('mse-pe-close').addEventListener('click', () => { overlay.style.display = 'none'; });

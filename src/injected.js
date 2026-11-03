@@ -567,6 +567,19 @@
             .replace(/'/g, '&#39;');
     };
 
+    const getToastIconHtml = (type) => {
+        if (type === 'success') {
+            return getSvgIcon('check', { size: 14, strokeWidth: 2.2 });
+        }
+        if (type === 'error') {
+            return getSvgIcon('ban', { size: 14, strokeWidth: 2.2 });
+        }
+        if (type === 'warning') {
+            return getSvgIcon('ban', { size: 14, strokeWidth: 2 });
+        }
+        return getSvgIcon('circle-minus', { size: 14, strokeWidth: 2 });
+    };
+
     // Неблокирующие всплывающие уведомления (Toast) вместо alert()
     const showToast = (message, type = 'info', durationMs = 4000) => {
         let container = qs(`#${ID_TOAST_CONTAINER}`);
@@ -576,19 +589,12 @@
             document.body.appendChild(container);
         }
 
-        const icons = {
-            info: 'ℹ️',
-            success: '✅',
-            warning: '⚠️',
-            error: '❌'
-        };
-
         const toast = document.createElement('div');
         toast.className = `mse-toast mse-toast-${type}`;
 
         const iconSpan = document.createElement('span');
         iconSpan.className = 'mse-toast-icon';
-        iconSpan.textContent = icons[type] || 'ℹ️';
+        iconSpan.innerHTML = getToastIconHtml(type);
 
         const textSpan = document.createElement('span');
         textSpan.className = 'mse-toast-message';
@@ -596,7 +602,7 @@
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'mse-toast-close';
-        closeBtn.innerHTML = '&times;';
+        closeBtn.innerHTML = getSvgIcon('x', { size: 14, strokeWidth: 2 });
         closeBtn.setAttribute('aria-label', 'Закрыть');
 
         toast.appendChild(iconSpan);
