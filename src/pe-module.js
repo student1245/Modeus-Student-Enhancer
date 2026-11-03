@@ -21,7 +21,7 @@ window.MSE_PE = (function () {
 
     let allModules = [];
     let enrolledTeamsMap = new Map();
-    let teamToModulesMap = new Map(); // teamId -> Set of moduleElementIds
+    let teamToModulesMap = new Map(); // teamId -> Set идентификаторов модулей (moduleElementId)
     let apiStudentId = '';
     let apiCampaignId = '';
     let localTeacherReviews = new Map();

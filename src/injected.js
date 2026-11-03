@@ -3455,7 +3455,7 @@
         }
 
         const state = {
-            screen: 'invite', // 'invite' | 'decline' | 'question' | 'completed'
+            screen: 'invite', // Состояния экрана: 'invite' | 'decline' | 'question' | 'completed'
             questionIndex: 0,
             answers: {},
             autoCloseTimer: null

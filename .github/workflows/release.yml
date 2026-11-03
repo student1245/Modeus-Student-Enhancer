@@ -18,6 +18,7 @@ jobs:
           zip -r Modeus-Student-Enhancer-${{ github.ref_name }}.zip . \
             -x "*.git*" \
             -x ".github/*" \
+            -x "tools-src/*" \
             -x "data/survey.json" \
             -x "*.md" \
             -x ".gitignore"
