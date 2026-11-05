@@ -357,7 +357,11 @@
         return null;
     };
     window.MSE_checkSurvey = () => (typeof checkSurvey === 'function' ? checkSurvey() : false);
-    window.MSE_simulateSurvey = (customConfig) => (typeof simulateSurvey === 'function' ? simulateSurvey(customConfig) : false);
+    window.MSE_simulateSurvey = (customConfig = null) => (typeof simulateSurvey === 'function' ? simulateSurvey(customConfig) : false);
+    // Предотвращает ReferenceError при буквальном копировании сигнатуры "window.MSE_simulateSurvey(customConfig)" в консоль
+    if (typeof window.customConfig === 'undefined') {
+        window.customConfig = undefined;
+    }
     window.MSE_getSurveyConfig = () => (typeof getSurveyConfig === 'function' ? getSurveyConfig() : null);
     window.MSE_setSurveyConfig = (config) => {
         if (typeof setSurveyConfig === 'function') return setSurveyConfig(config);
