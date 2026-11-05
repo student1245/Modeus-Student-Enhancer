@@ -1990,14 +1990,6 @@
         enhanceTeacherTooltips();
     };
 
-    const formatShortName = (fullName) => {
-        if (!fullName) return '';
-        const parts = fullName.trim().split(/\s+/);
-        if (parts.length >= 3) return `${parts[0]} ${parts[1][0]}. ${parts[2][0]}.`;
-        if (parts.length === 2) return `${parts[0]} ${parts[1][0]}.`;
-        return fullName;
-    };
-
     const getMatchedStudentNames = (matchedKeys, uniqueStudentsMap) => {
         return matchedKeys.map(key => uniqueStudentsMap.get(key)?.fullName || key);
     };
