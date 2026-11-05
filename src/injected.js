@@ -1973,7 +1973,7 @@
                     const safeReview = escapeHtml(review.review).replace(/&lt;br\s*\/?&gt;/gi, '<br>');
                     tooltip.innerHTML = `<div class="tooltip-header">${escapeHtml(review.emoji)} ${escapeHtml(review.type)}</div><div class="tooltip-body">${safeReview}</div>`;
                 } else {
-                    tooltip.innerHTML = `<div class="tooltip-header">🤔</div><div class="tooltip-body">Нет информации об этом преподавателе.</div>`;
+                    tooltip.innerHTML = `<div class="tooltip-empty">${getSvgIcon('circle-minus', { size: 14 })}<span>Отзывы об этом преподавателе отсутствуют</span></div>`;
                 }
                 const rect = e.target.getBoundingClientRect();
                 tooltip.style.left = `${window.scrollX + rect.left}px`;

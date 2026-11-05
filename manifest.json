@@ -60,6 +60,7 @@
         "https://auth.modeus.org/*"
       ],
       "js": [
+        "src/icons.js",
         "src/sso-autologin.js"
       ],
       "all_frames": true,

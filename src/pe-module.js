@@ -388,6 +388,14 @@ window.MSE_PE = (function () {
         return null;
     }
 
+    function ensureSpinKeyframes() {
+        if (typeof document === 'undefined' || document.getElementById('mse-spin-keyframes')) return;
+        const style = document.createElement('style');
+        style.id = 'mse-spin-keyframes';
+        style.textContent = '@keyframes mse-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}.mse-spinning-icon{display:inline-block!important;transform-origin:center!important;animation:mse-spin .9s linear infinite!important}';
+        (document.head || document.documentElement).appendChild(style);
+    }
+
     window.MSE_PE_loadFriend = async function () {
         const input = document.getElementById('pe-friendInput');
         const wrapper = document.getElementById('pe-friendWrapper');
@@ -400,14 +408,19 @@ window.MSE_PE = (function () {
             return;
         }
 
-        btn.innerText = "⏳...";
+        ensureSpinKeyframes();
+        btn.innerHTML = getSvgIcon('refresh-ccw', {
+            size: 14,
+            className: 'mse-spinning-icon',
+            style: 'display: inline-block; transform-origin: center; animation: mse-spin 0.9s linear infinite;'
+        });
         btn.disabled = true;
         input.disabled = true;
 
         try {
             const person = await getPersonIdByName(name);
             if (!person) {
-                showToast("Студент не найден. Проверьте ФИО или добавьте его в друзья в главном календаре (иконка ❤️).", 'warning');
+                showToast("Студент не найден. Проверьте ФИО или сначала добавьте его в друзья в главном календаре.", 'warning');
                 btn.innerText = "Поиск";
                 btn.disabled = false;
                 input.disabled = false;
@@ -454,7 +467,7 @@ window.MSE_PE = (function () {
             input.style.setProperty('background', '#f0fdf4', 'important');
             input.style.setProperty('color', '#16a34a', 'important');
             input.style.setProperty('font-weight', '600', 'important');
-            input.value = `✔ С вами: ${friendNameForUI}`;
+            input.value = `С вами: ${friendNameForUI}`;
             input.disabled = false;
             input.readOnly = true;
 
@@ -577,9 +590,13 @@ window.MSE_PE = (function () {
         if (isEnrolled) classNames.push('is-enrolled');
         card.className = classNames.join(' ');
 
+        const enrolledBadge = isEnrolled
+            ? `<span class="enrolled-dot-badge">${getSvgIcon('check', { size: 11, strokeWidth: 2.5 })}</span>`
+            : '';
+
         card.innerHTML = `
             <div class="sc-top">
-                <span class="sc-name">${isEnrolled ? '⭐ ' : ''}${safeSportName} <span class="sc-count">· ${group.length}</span></span>
+                <span class="sc-name">${enrolledBadge}${safeSportName} <span class="sc-count">· ${group.length}</span></span>
                 <span class="sc-slots ${slotsClass}">${totalAvail}<span class="sc-slots-total">/${totalSeats}</span></span>
             </div>
             <div class="sc-loc" title="${locs}">${locs}</div>

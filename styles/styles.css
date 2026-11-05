@@ -23,6 +23,21 @@
     }
 }
 
+@keyframes mse-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.mse-spinning-icon {
+    display: inline-block !important;
+    transform-origin: center !important;
+    animation: mse-spin 0.9s linear infinite !important;
+}
+
 /* ==========================================================================
    Компоненты интерфейса MSE (активны только при наличии body.mse-active)
    При вызове «Стоп-скрипт» класс mse-active снимается, и все стили мгновенно отключаются.
@@ -552,6 +567,16 @@ body.mse-active {
         margin-bottom: 5px;
         padding-bottom: 5px;
         border-bottom: 1px solid #555;
+    }
+
+    .tooltip-empty {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #94a3b8;
+        font-size: 12.5px;
+        line-height: 1.3;
+        white-space: nowrap;
     }
 
     .student-details {

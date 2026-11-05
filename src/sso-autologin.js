@@ -173,13 +173,21 @@
         input.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
+    function renderNoticeBadge(iconName, bg, color) {
+        const getSvg = typeof window !== 'undefined' && typeof window.getSvgIcon === 'function'
+            ? window.getSvgIcon
+            : null;
+        const inner = getSvg ? getSvg(iconName, { size: 11, strokeWidth: 2.5 }) : '!';
+        return `<span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; background: ${bg}; color: ${color}; margin-right: 6px; flex-shrink: 0; font-size: 11px; font-weight: 700; line-height: 1;">${inner}</span>`;
+    }
+
     function showCircuitBreakerNotice() {
         const noticeId = 'mse-circuit-breaker-notice';
         if (document.getElementById(noticeId)) return;
         const notice = document.createElement('div');
         notice.id = noticeId;
-        notice.style.cssText = 'background: #f8f9fa; border-left: 3px solid #ef4444; color: #b91c1c; padding: 8px 12px; font-family: "Segoe UI", "Segoe WP", Tahoma, Arial, sans-serif; font-size: 12px; margin-bottom: 15px; line-height: 1.4;';
-        notice.innerHTML = '⚠️ <strong>Автовход MSE отключен:</strong> сервер отклонил пароль. Введите актуальный пароль вручную.';
+        notice.style.cssText = 'background: #f8f9fa; border-left: 3px solid #ef4444; color: #b91c1c; padding: 8px 12px; font-family: "Segoe UI", "Segoe WP", Tahoma, Arial, sans-serif; font-size: 12px; margin-bottom: 15px; line-height: 1.4; display: flex; align-items: center;';
+        notice.innerHTML = `${renderNoticeBadge('lock', '#fee2e2', '#dc2626')}<div><strong>Автовход MSE отключен:</strong> сервер отклонил пароль. Введите актуальный пароль вручную.</div>`;
         const target = document.querySelector('#errorText') || loginForm;
         if (target?.parentNode) {
             target.parentNode.insertBefore(notice, target);
@@ -254,7 +262,7 @@
                 <span>Запомнить меня (бесконечная сессия)</span>
             </label>
             <div id="mse-remember-warning" style="display: ${isVaultSaved ? 'block' : 'none'}; margin-top: 8px; padding: 10px 12px; background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #dc2626; color: #374151; font-size: 12px; line-height: 1.45; border-radius: 4px;">
-                <div style="margin-bottom: 4px; color: #1f2937;">⚠️ <strong>Экспериментальная функция — ТОЛЬКО ДЛЯ ЛИЧНОГО ПК!</strong></div>
+                <div style="margin-bottom: 4px; color: #1f2937; display: flex; align-items: center;">${renderNoticeBadge('lock', '#fef3c7', '#b45309')}<strong>Экспериментальная функция — ТОЛЬКО ДЛЯ ЛИЧНОГО ПК!</strong></div>
                 <div style="color: #dc2626; margin-bottom: 4px;"><strong>Не включайте в компьютерных классах и на чужих устройствах</strong> — иначе следующий человек автоматически войдет в ваш аккаунт.</div>
                 <div style="color: #4b5563; font-size: 11.5px;">На личном устройстве данные шифруются локально (AES-GCM 256-bit) для поддержания сессии 24ч+, не покидают браузер и мгновенно удаляются при любой ошибке входа.</div>
             </div>

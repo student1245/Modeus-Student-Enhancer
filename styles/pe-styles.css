@@ -484,10 +484,30 @@
     box-shadow: 0 2px 5px rgba(2, 132, 199, 0.08);
 }
 
-.sport-card.is-enrolled {
-    border-color: #f59e0b;
-    border-left: 3px solid #f59e0b;
-    background: #fffbeb;
+.sport-card.is-enrolled,
+.sport-card.enrolled {
+    border: 1.5px solid #4ade80;
+    background: #f0fdf4;
+}
+
+.sport-card.is-enrolled:hover,
+.sport-card.enrolled:hover {
+    border-color: #22c55e;
+    background: #dcfce7;
+}
+
+.enrolled-dot-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 4px;
+    background: #16a34a;
+    color: #ffffff;
+    margin-right: 5px;
+    flex-shrink: 0;
+    vertical-align: -2px;
 }
 
 .sc-top {
@@ -517,11 +537,12 @@
 .sc-slots {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 0;
     font-size: 11.5px;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
     line-height: 1.3;
+    white-space: nowrap;
 }
 
 .sc-slots.slots-ok {
@@ -539,6 +560,7 @@
     border-radius: 50%;
     background: #16a34a;
     flex-shrink: 0;
+    margin-right: 5px;
 }
 
 .sc-slots.slots-ok .sc-slots-total {
@@ -723,6 +745,21 @@
         opacity: 1;
         transform: scale(1) translateY(0);
     }
+}
+
+@keyframes mse-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.mse-spinning-icon {
+    display: inline-block !important;
+    transform-origin: center !important;
+    animation: mse-spin 0.9s linear infinite !important;
 }
 
 #mse-pe-modal-header,
