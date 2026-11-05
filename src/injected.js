@@ -346,6 +346,12 @@
     window.MSE_simulateUpdate = (mockVersion = '9.9.9') => {
         if (typeof simulateUpdate === 'function') return simulateUpdate(mockVersion);
     };
+    window.MSE_clearUpdateCache = () => {
+        if (typeof clearUpdateCache === 'function') return clearUpdateCache();
+    };
+    window.MSE_resetUpdates = () => {
+        if (typeof clearUpdateCache === 'function') return clearUpdateCache();
+    };
     window.MSE_getEngagementStats = () => {
         if (typeof getEngagementStats === 'function') {
             const stats = getEngagementStats();
@@ -409,7 +415,10 @@
     const STORAGE_KEY_GRADES_PRIMARY = 'mse_grades_primary_cache';
     const STORAGE_KEY_LAST_UPDATE_CHECK = 'mse_last_update_check';
     const STORAGE_KEY_LATEST_RELEASE = 'mse_latest_release';
-    const STORAGE_KEY_DISMISSED_UPDATE_PREFIX = 'mse_dismissed_v';
+    const STORAGE_KEY_UPDATE_NOTICE = 'mse_update_notice';
+    const SESSION_KEY_UPDATE_AUTO_OPENED = 'mse_update_auto_opened';
+    const UPDATE_SNOOZE_DURATION_MS = 72 * 60 * 60 * 1000; // Порог напоминания об обновлении (72 часа / 3 суток)
+    const UPDATE_OUTSIDE_SNOOZE_DURATION_MS = 12 * 60 * 60 * 1000; // Пауза автопоказа при клике вне окна (12 часов)
     const STORAGE_KEY_INSTALL_DATE = 'mse_install_date';
     const STORAGE_KEY_TODAY_ACTIVE_SECONDS = 'mse_today_active_seconds';
     const STORAGE_KEY_TOTAL_ACTIVE_SECONDS = 'mse_total_active_seconds';
@@ -479,6 +488,7 @@
     const ID_TOAST_CONTAINER = 'mse-toast-container';
     const ID_FRIENDS_MENU = 'mse-friends-menu';
     const ID_RETURN_TO_ME_MENU = 'mse-return-to-me-menu';
+    const ID_UPDATE_ANCHOR = 'mse-update-anchor';
     const ID_UPDATE_BADGE = 'mse-update-badge';
     const ID_UPDATE_POPUP = 'mse-update-popup';
     const ID_SURVEY_POPUP = 'mse-survey-popup';
@@ -529,6 +539,7 @@
     let activeSuggestionIndex = -1;
     const attendeesMemoryCache = new Map();
     let lastActiveCalendarPersonId = null;
+    let latestKnownUpdate = null;
     let nativePopoverObserver = null;
     let hoveredHighlightedEventId = null;
     let calendarResizeObserver = null;
@@ -1848,8 +1859,7 @@
 
         // 3. Снятие глобальных обработчиков событий
         window.removeEventListener('popstate', processUrlChange);
-        window.removeEventListener('click', handleLogoutClick);
-        window.removeEventListener('beforeunload', handleBeforeUnloadLogoutCheck);
+        window.removeEventListener('click', handleLogoutClick, true);
         window.removeEventListener('storage', handleAuthStorageSync);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         if (handleEngagementVisibilityChange) {
@@ -1858,6 +1868,7 @@
         cleanupNativePopoverObserver();
         cleanupCalendarResizeObserver();
         document.removeEventListener('click', handleOutsideSearchClick);
+        document.removeEventListener('click', handleOutsideUpdateClick);
         document.removeEventListener('mse:databases-updated', handleDatabasesUpdated);
         document.removeEventListener('mse:autologin-updated', handleAutologinUpdated);
 
@@ -1871,6 +1882,7 @@
         qs(`#${ID_FRIENDS_MENU}`)?.remove();
         qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
         qs(`#${ID_SILENT_REFRESHER}`)?.remove();
+        qs(`#${ID_UPDATE_ANCHOR}`)?.remove();
         qs(`#${ID_UPDATE_BADGE}`)?.remove();
         qs(`#${ID_UPDATE_POPUP}`)?.remove();
         qs(`#${ID_SURVEY_POPUP}`)?.remove();
@@ -1883,6 +1895,7 @@
         uniqueStudents.clear();
         lastSearchResults.clear();
         lastActiveCalendarPersonId = null;
+        latestKnownUpdate = null;
         clearSearch();
         delete window.studentEnhancer;
         logger.debug('Скрипт полностью остановлен, нативные прототипы и таймеры очищены.');
@@ -2629,42 +2642,289 @@
         return { release, fromCache: false };
     };
 
-    const renderUpdateBadge = (latestVersion, releaseUrl) => {
-        const controls = qs('#search-controls');
-        if (!controls || qs(`#${ID_UPDATE_BADGE}`)) return;
-
-        const badge = document.createElement('a');
-        badge.id = ID_UPDATE_BADGE;
-        badge.href = releaseUrl;
-        badge.target = '_blank';
-        badge.title = 'Доступна новая версия расширения!';
-        badge.innerHTML = `<span>⚡ v${escapeHtml(latestVersion)}</span>`;
-        controls.insertBefore(badge, controls.firstChild);
+    const cleanMarkdownText = (raw) => {
+        return raw
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            .replace(/__([^_]+)__/g, '$1')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+            .trim();
     };
 
-    const renderUpdatePopup = (latestVersion, releaseUrl, { forceShow = false } = {}) => {
-        const isDismissed = localStorage.getItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + latestVersion) === '1';
-        if ((isDismissed && !forceShow) || qs(`#${ID_UPDATE_POPUP}`)) return;
+    const extractHighlightsSection = (body) => {
+        const pairedMatch = /<!--\s*highlights\b[^>]*-->([\s\S]*?)<!--\s*\/highlights\s*-->/i.exec(body);
+        if (pairedMatch) {
+            return { text: pairedMatch[1], isExplicit: true };
+        }
+        const commentMatch = /<!--\s*highlights\b([\s\S]*?)-->/i.exec(body);
+        if (commentMatch) {
+            return { text: commentMatch[1], isExplicit: true };
+        }
+        return { text: body, isExplicit: false };
+    };
 
-        const popup = document.createElement('div');
-        popup.id = ID_UPDATE_POPUP;
-        popup.innerHTML = `
-            <div class="mse-update-title">🚀 Доступно обновление Enhancer!</div>
-            <div class="mse-update-text">Вышла версия <b>v${escapeHtml(latestVersion)}</b> с новыми функциями и исправлениями. Перейдите по ссылке, чтобы узнать, что появилось нового!</div>
-            <div class="mse-update-actions">
-                <a href="${escapeHtml(releaseUrl)}" target="_blank" id="mse-update-btn">Посмотреть / Скачать</a>
-                <button id="mse-dismiss-btn">Позже</button>
+    const extractReleaseHighlights = (body) => {
+        if (!body || typeof body !== 'string') return [];
+
+        const { text, isExplicit } = extractHighlightsSection(body);
+        const lines = text.split(/\r?\n/);
+        const maxItems = isExplicit ? 4 : 3;
+        const items = [];
+
+        for (const line of lines) {
+            const bulletMatch = line.trim().match(/^[-*•]\s+(.+)$/);
+            if (bulletMatch) {
+                const cleaned = cleanMarkdownText(bulletMatch[1]);
+                if (cleaned) {
+                    items.push(cleaned);
+                    if (items.length >= maxItems) break;
+                }
+            }
+        }
+
+        return items;
+    };
+
+    const getUpdateNoticeState = () => {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY_UPDATE_NOTICE);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (typeof parsed === 'object' && parsed !== null) {
+                return {
+                    version: String(parsed.version || ''),
+                    dismissedAt: Number(parsed.dismissedAt || 0),
+                    dismissCount: Number(parsed.dismissCount || 0),
+                    snoozedUntil: Number(parsed.snoozedUntil || 0)
+                };
+            }
+        } catch {
+            // Подавление ошибок парсинга данных обновления
+        }
+        return null;
+    };
+
+    const saveUpdateNoticeState = (state) => {
+        try {
+            localStorage.setItem(STORAGE_KEY_UPDATE_NOTICE, JSON.stringify(state));
+        } catch {
+            // Подавление ошибок квоты или приватного режима
+        }
+    };
+
+    const recordUpdateDismiss = (version) => {
+        const current = getUpdateNoticeState();
+        const isSame = current && current.version === version;
+        const dismissCount = isSame ? current.dismissCount + 1 : 1;
+        const state = {
+            version,
+            dismissedAt: Date.now(),
+            dismissCount,
+            snoozedUntil: 0 // Сбрасываем 12-часовую паузу при явном действии на 72ч
+        };
+        saveUpdateNoticeState(state);
+        return state;
+    };
+
+    const recordUpdateOutsideClick = (version) => {
+        const current = getUpdateNoticeState();
+        const isSame = current && current.version === version;
+        const state = {
+            version,
+            dismissedAt: isSame ? current.dismissedAt : 0,
+            dismissCount: isSame ? current.dismissCount : 0,
+            snoozedUntil: Date.now() + UPDATE_OUTSIDE_SNOOZE_DURATION_MS
+        };
+        saveUpdateNoticeState(state);
+        return state;
+    };
+
+    const formatReminderDateTime = (timestamp) => {
+        const d = new Date(timestamp);
+        const pad = (n) => String(n).padStart(2, '0');
+        const day = pad(d.getDate());
+        const month = pad(d.getMonth() + 1);
+        const year = d.getFullYear();
+        const hours = pad(d.getHours());
+        const minutes = pad(d.getMinutes());
+        return `${day}.${month}.${year} в ${hours}:${minutes}`;
+    };
+
+    const logUpdateSnooze = (state) => {
+        const snoozeHours = Math.round(UPDATE_SNOOZE_DURATION_MS / (60 * 60 * 1000));
+        const nextReminderTimestamp = state.dismissedAt + UPDATE_SNOOZE_DURATION_MS;
+        const nextDateStr = formatReminderDateTime(nextReminderTimestamp);
+
+        const message = state.dismissCount === 1
+            ? `Показ обновления v${state.version} отложен на ${snoozeHours} ч. (3 суток). Следующее напоминание: ${nextDateStr}.`
+            : `Показ обновления v${state.version} отложен повторно (нажатий «Позже»: ${state.dismissCount}). Автоматический показ отключен. Обновление доступно по кнопке в шапке.`;
+
+        logger.update(message);
+        if (!isDebug()) {
+            console.log(`[MSE Update] ${message}`);
+        }
+    };
+
+    const logUpdateOutsideClick = (state) => {
+        const nextDateStr = formatReminderDateTime(state.snoozedUntil);
+        const message = `Поповер обновления закрыт кликом вне окна. Автопоказ приостановлен на 12 часов (до ${nextDateStr}, без переноса на 72 ч).`;
+        logger.update(message);
+        if (!isDebug()) {
+            console.log(`[MSE Update] ${message}`);
+        }
+    };
+
+    const markUpdateAutoOpened = () => {
+        try {
+            sessionStorage.setItem(SESSION_KEY_UPDATE_AUTO_OPENED, '1');
+        } catch {
+            // Подавление ошибок sessionStorage
+        }
+    };
+
+    const hasSessionAutoOpened = () => {
+        try {
+            return Boolean(sessionStorage.getItem(SESSION_KEY_UPDATE_AUTO_OPENED));
+        } catch {
+            return false;
+        }
+    };
+
+    const shouldAutoOpenUpdatePopover = (version) => {
+        if (hasSessionAutoOpened()) {
+            return false;
+        }
+
+        const state = getUpdateNoticeState();
+        if (!state || state.version !== version) {
+            return true;
+        }
+        if (state.snoozedUntil && Date.now() < state.snoozedUntil) {
+            return false;
+        }
+        if (state.dismissCount === 0) {
+            return true;
+        }
+        if (state.dismissCount === 1) {
+            return Date.now() - state.dismissedAt > UPDATE_SNOOZE_DURATION_MS;
+        }
+        return false;
+    };
+
+    const formatVersionTag = (version) => {
+        const clean = String(version || '').trim();
+        return clean.startsWith('v') ? clean : `v${clean}`;
+    };
+
+    const buildUpdateHighlightsHtml = (releaseBody) => {
+        const highlights = extractReleaseHighlights(releaseBody);
+        if (highlights.length === 0) {
+            return '<div class="vp-fallback">Вышла новая версия с улучшениями стабильности и интерфейса.</div>';
+        }
+        const itemsHtml = highlights.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+        return `<ul class="vp-list">${itemsHtml}</ul>`;
+    };
+
+    const buildUpdateAnchorHtml = (versionTag, releaseUrl, releaseBody) => {
+        const highlightsHtml = buildUpdateHighlightsHtml(releaseBody);
+        const externalIcon = getSvgIcon('external-link', { size: 12, strokeWidth: 2 });
+        return `
+            <button type="button" class="ver-pill-btn" title="Доступно обновление расширения">
+                <span class="amber-dot"></span>
+                <span class="ver-pill-text">${escapeHtml(versionTag)}</span>
+            </button>
+            <div class="ver-popover hidden">
+                <div class="vp-head">
+                    <span class="vp-title">Доступно обновление</span>
+                    <span class="vp-badge">${escapeHtml(versionTag)}</span>
+                </div>
+                ${highlightsHtml}
+                <div class="vp-actions">
+                    <a href="${escapeHtml(releaseUrl)}" target="_blank" rel="noopener" class="vp-btn-download">
+                        <span>Скачать обновление</span>
+                        ${externalIcon}
+                    </a>
+                    <button type="button" class="vp-btn-later">Позже</button>
+                </div>
             </div>
         `;
-        document.body.appendChild(popup);
+    };
 
-        qs('#mse-dismiss-btn', popup)?.addEventListener('click', () => {
-            localStorage.setItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + latestVersion, '1');
-            popup.remove();
+    const handleOutsideUpdateClick = (event) => {
+        const anchor = qs(`#${ID_UPDATE_ANCHOR}`);
+        if (!anchor || anchor.contains(event.target)) return;
+
+        const popover = qs('.ver-popover', anchor);
+        if (popover && !popover.classList.contains('hidden')) {
+            popover.classList.add('hidden');
+            markUpdateAutoOpened();
+            const currentVersion = latestKnownUpdate?.version || CURRENT_VERSION;
+            const state = recordUpdateOutsideClick(currentVersion);
+            logUpdateOutsideClick(state);
+        }
+    };
+
+    const bindUpdateAnchorEvents = (anchor, latestVersion) => {
+        const pillBtn = qs('.ver-pill-btn', anchor);
+        const popover = qs('.ver-popover', anchor);
+        const laterBtn = qs('.vp-btn-later', anchor);
+        const downloadBtn = qs('.vp-btn-download', anchor);
+
+        pillBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            popover?.classList.toggle('hidden');
         });
-        qs('#mse-update-btn', popup)?.addEventListener('click', () => {
-            popup.remove();
+
+        laterBtn?.addEventListener('click', () => {
+            popover?.classList.add('hidden');
+            const state = recordUpdateDismiss(latestVersion);
+            markUpdateAutoOpened();
+            logUpdateSnooze(state);
         });
+
+        downloadBtn?.addEventListener('click', () => {
+            popover?.classList.add('hidden');
+            recordUpdateDismiss(latestVersion);
+            markUpdateAutoOpened();
+            const message = `Переход к загрузке обновления v${latestVersion}. Поповер скрыт.`;
+            logger.update(message);
+            if (!isDebug()) {
+                console.log(`[MSE Update] ${message}`);
+            }
+        });
+
+        document.removeEventListener('click', handleOutsideUpdateClick);
+        document.addEventListener('click', handleOutsideUpdateClick);
+    };
+
+    const renderUpdateUI = (latestVersion, releaseUrl, releaseBody = '', { forceShow = false } = {}) => {
+        const controls = qs('#search-controls');
+        if (!controls) return;
+
+        qs(`#${ID_UPDATE_ANCHOR}`)?.remove();
+        qs(`#${ID_UPDATE_BADGE}`)?.remove();
+        qs(`#${ID_UPDATE_POPUP}`)?.remove();
+
+        const versionTag = formatVersionTag(latestVersion);
+        const anchor = document.createElement('div');
+        anchor.id = ID_UPDATE_ANCHOR;
+        anchor.className = 'ver-anchor';
+        anchor.innerHTML = buildUpdateAnchorHtml(versionTag, releaseUrl, releaseBody);
+
+        const friendsBtn = qs('#add-friends-to-search-btn', controls);
+        if (friendsBtn) {
+            controls.insertBefore(anchor, friendsBtn);
+        } else {
+            controls.insertBefore(anchor, controls.firstChild);
+        }
+
+        bindUpdateAnchorEvents(anchor, latestVersion);
+
+        const popover = qs('.ver-popover', anchor);
+        if (popover && (forceShow || shouldAutoOpenUpdatePopover(latestVersion))) {
+            popover.classList.remove('hidden');
+            markUpdateAutoOpened();
+        }
     };
 
     const checkExtensionUpdate = async ({ force = false, manual = false } = {}) => {
@@ -2694,27 +2954,70 @@
             : `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases`;
 
         if (isVersionGreater(latestVersion, CURRENT_VERSION)) {
-            logger.update(`🔥 Найдено обновление! Текущая: v${CURRENT_VERSION} -> Доступна: v${latestVersion}. Отображаем баннер.`);
-            renderUpdateBadge(latestVersion, safeReleaseUrl);
-            renderUpdatePopup(latestVersion, safeReleaseUrl);
+            logger.update(`Найдено обновление: текущая v${CURRENT_VERSION} -> доступна v${latestVersion}. Отображаем баннер.`);
+            latestKnownUpdate = {
+                version: latestVersion,
+                url: safeReleaseUrl,
+                body: releaseData.body || ''
+            };
+            renderUpdateUI(latestVersion, safeReleaseUrl, releaseData.body || '');
         } else if (isManual || !fromCache) {
-            logger.update(`✅ У вас установлена актуальная версия v${CURRENT_VERSION} (на GitHub: v${latestVersion}). Обновлений нет.`);
+            logger.update(`У вас установлена актуальная версия v${CURRENT_VERSION} (на GitHub: v${latestVersion}). Обновлений нет.`);
         }
     };
 
-    const simulateUpdate = (mockVersion = '9.9.9') => {
-        logger.update(`🧪 Симуляция обновления: запуск тестирования интерфейса для версии v${mockVersion} (текущая: v${CURRENT_VERSION})`);
-        const fallbackUrl = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases`;
-        try {
-            localStorage.removeItem(STORAGE_KEY_DISMISSED_UPDATE_PREFIX + mockVersion);
-        } catch {
-            // Подавляем исключение: доступ к localStorage может быть заблокирован политиками безопасности или приватным режимом
+    const simulateUpdate = (mockVersion = '9.9.9', mockBody = null) => {
+        logger.update(`Симуляция обновления: запуск тестирования интерфейса для версии v${mockVersion} (текущая: v${CURRENT_VERSION})`);
+        if (!isDebug()) {
+            console.log(`[MSE Update] Симуляция обновления: запуск тестирования интерфейса для версии v${mockVersion} (текущая: v${CURRENT_VERSION})`);
         }
+        const fallbackUrl = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases`;
+        const body = mockBody || `<!-- highlights\r\n- Умный подбор физкультуры с фильтрами\r\n- Компактный интерфейс расписания\r\n- Улучшенная синхронизация с календарём\r\n-->\r\n### Технические изменения\r\n- Рефакторинг сетевых запросов`;
+
+        try {
+            localStorage.removeItem(STORAGE_KEY_UPDATE_NOTICE);
+            sessionStorage.removeItem(SESSION_KEY_UPDATE_AUTO_OPENED);
+        } catch {
+            // Подавление ошибок хранилища браузера
+        }
+
+        const controls = qs('#search-controls');
+        if (controls && controls.style.display === 'none') {
+            controls.style.display = 'flex';
+        }
+
+        latestKnownUpdate = {
+            version: mockVersion,
+            url: fallbackUrl,
+            body
+        };
+        renderUpdateUI(mockVersion, fallbackUrl, body, { forceShow: true });
+        logger.update('Элементы интерфейса обновления (.ver-anchor и .ver-popover) успешно отрисованы.');
+        if (!isDebug()) {
+            console.log('[MSE Update] Элементы интерфейса обновления (.ver-anchor и .ver-popover) успешно отрисованы.');
+        }
+    };
+
+    const clearUpdateCache = () => {
+        try {
+            localStorage.removeItem(STORAGE_KEY_UPDATE_NOTICE);
+            localStorage.removeItem(STORAGE_KEY_LAST_UPDATE_CHECK);
+            localStorage.removeItem(STORAGE_KEY_LATEST_RELEASE);
+            sessionStorage.removeItem(SESSION_KEY_UPDATE_AUTO_OPENED);
+        } catch {
+            // Подавление ошибок хранилища браузера
+        }
+        latestKnownUpdate = null;
+        qs(`#${ID_UPDATE_ANCHOR}`)?.remove();
         qs(`#${ID_UPDATE_BADGE}`)?.remove();
         qs(`#${ID_UPDATE_POPUP}`)?.remove();
-        renderUpdateBadge(mockVersion, fallbackUrl);
-        renderUpdatePopup(mockVersion, fallbackUrl, { forceShow: true });
-        logger.update(`🧪 Элементы интерфейса обновления (бейдж и модальное окно) успешно отрисованы.`);
+
+        const message = 'Кэш проверок обновлений и история откладываний («Позже») полностью очищены. Состояние сброшено к первичному запуску.';
+        logger.update(message);
+        if (!isDebug()) {
+            console.log(`[MSE Update] ${message}`);
+        }
+        return true;
     };
 
     const printUpdateStatus = () => {
@@ -3679,6 +3982,10 @@
         document.addEventListener('click', handleOutsideSearchClick);
         setupNativePopoverObserver();
         setupCalendarResizeObserver();
+
+        if (latestKnownUpdate) {
+            renderUpdateUI(latestKnownUpdate.version, latestKnownUpdate.url, latestKnownUpdate.body);
+        }
 
         loadAllData();
     };

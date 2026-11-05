@@ -953,86 +953,201 @@ body.mse-active {
         width: 325px !important;
     }
 
-    /* 7. Бейдж и всплывающее предложение обновиться */
-    #mse-update-badge {
-        background: #ff9800;
-        color: #fff;
-        font-size: 11px;
-        font-weight: bold;
-        padding: 4px 8px;
-        border-radius: 4px;
-        text-decoration: none;
+    /* 7. Уведомление о новой версии расширения */
+    .ver-anchor {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .ver-pill-btn {
+        height: 34px;
+        padding: 0 10px;
+        border-radius: 6px;
+        background: #fffbeb;
+        border: 1.5px solid #f59e0b;
+        color: #b45309;
+        font-size: 12.5px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.15s ease;
+        outline: none;
+        white-space: nowrap;
+    }
+
+    .ver-pill-btn:hover {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .amber-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #f59e0b;
+        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
+        flex-shrink: 0;
+        animation: mseAmberDotPulse 2s infinite ease-in-out;
+    }
+
+    @keyframes mseAmberDotPulse {
+        0%, 100% {
+            box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+            transform: scale(0.95);
+        }
+        50% {
+            box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);
+            transform: scale(1.05);
+        }
+    }
+
+    .ver-popover {
+        position: absolute;
+        top: 44px;
+        right: 0;
+        width: 320px;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        padding: 14px 16px;
+        box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.18);
+        z-index: 1000;
+        transform-origin: top right;
+        transition: opacity 0.16s ease, transform 0.16s ease;
+    }
+
+    .ver-popover.hidden {
+        opacity: 0;
+        transform: translateY(-6px) scale(0.96);
+        pointer-events: none;
+    }
+
+    .ver-popover::before {
+        content: "";
+        position: absolute;
+        top: -6px;
+        right: 22px;
+        width: 10px;
+        height: 10px;
+        background: #ffffff;
+        border-left: 1px solid #cbd5e1;
+        border-top: 1px solid #cbd5e1;
+        transform: rotate(45deg);
+    }
+
+    .vp-head {
         display: flex;
         align-items: center;
-        cursor: pointer;
-        transition: background 0.2s;
+        justify-content: space-between;
+        margin-bottom: 8px;
     }
 
-    #mse-update-badge:hover {
-        background: #f57c00;
+    .vp-title {
+        font-size: 13.5px;
+        font-weight: 700;
+        color: #0f172a;
     }
 
-    #mse-update-popup {
-        position: fixed;
-        bottom: 25px;
-        right: 25px;
-        z-index: 10000;
-        background: #ffffff;
-        border: 1px solid #ced4da;
+    .vp-badge {
+        font-size: 11px;
+        font-weight: 700;
+        background: #fffbeb;
+        color: #b45309;
+        border: 1px solid #fde68a;
+        padding: 1px 7px;
+        border-radius: 5px;
+    }
+
+    .vp-list {
+        margin: 0 0 12px 0;
+        padding: 8px 10px;
+        list-style: none;
+        background: #f8fafc;
+        border: 1px solid #f1f5f9;
         border-radius: 8px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-        padding: 15px;
-        width: 290px;
-        font-family: Roboto, sans-serif;
-        animation: mseSlideUp 0.3s ease-out;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
     }
 
-    .mse-update-title {
-        font-weight: bold;
-        font-size: 14px;
-        color: #212529;
-        margin-bottom: 6px;
-    }
-
-    .mse-update-text {
+    .vp-list li {
+        position: relative;
+        padding-left: 12px;
         font-size: 12px;
-        color: #495057;
+        color: #334155;
+        line-height: 1.35;
+        text-align: left;
+    }
+
+    .vp-list li::before {
+        content: "";
+        position: absolute;
+        left: 1px;
+        top: 6px;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #f59e0b;
+    }
+
+    .vp-fallback {
+        font-size: 12px;
+        color: #475569;
         line-height: 1.4;
         margin-bottom: 12px;
+        text-align: left;
     }
 
-    .mse-update-actions {
+    .vp-actions {
         display: flex;
-        gap: 8px;
-        justify-content: flex-end;
+        align-items: center;
+        gap: 6px;
     }
 
-    #mse-update-btn {
-        background: #28a745;
-        color: white;
-        text-decoration: none;
+    .vp-btn-download {
+        flex: 1;
+        height: 32px;
+        border-radius: 7px;
+        background: #fffbeb;
+        border: 1px solid #fcd34d;
+        color: #b45309;
         font-size: 12px;
-        padding: 5px 12px;
-        border-radius: 4px;
-        font-weight: 500;
-    }
-
-    #mse-update-btn:hover {
-        background: #218838;
-    }
-
-    #mse-dismiss-btn {
-        background: #e9ecef;
-        border: none;
-        color: #495057;
-        font-size: 12px;
-        padding: 5px 10px;
-        border-radius: 4px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
         cursor: pointer;
+        text-decoration: none;
+        transition: all 0.15s ease;
     }
 
-    #mse-dismiss-btn:hover {
-        background: #dee2e6;
+    .vp-btn-download:hover {
+        background: #fef3c7;
+        border-color: #f59e0b;
+        color: #92400e;
+    }
+
+    .vp-btn-later {
+        height: 32px;
+        padding: 0 11px;
+        border-radius: 7px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .vp-btn-later:hover {
+        background: #f1f5f9;
+        color: #0f172a;
     }
 
     /* 7.1. Всплывающий опрос */
