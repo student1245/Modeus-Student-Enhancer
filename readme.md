@@ -2,7 +2,7 @@
 
 🇷🇺 Русский | [🇬🇧 English](README_EN.md)
 
-![Version](https://img.shields.io/badge/version-2.2.4-blue.svg)
+![Version](https://img.shields.io/badge/version-2.2.5-blue.svg)
 ![Chromium](https://img.shields.io/badge/Chromium-Chrome%20%7C%20Edge%20%7C%20Яндекс%20%7C%20Opera%20%7C%20Brave-4285F4?logo=googlechrome&logoColor=white) 
 ![Platform](https://img.shields.io/badge/platform-UTMN%20Modeus-orange.svg)
 ![Manifest](https://img.shields.io/badge/manifest-v3-green.svg)
