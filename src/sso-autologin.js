@@ -173,21 +173,126 @@
         input.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    function renderNoticeBadge(iconName, bg, color) {
-        const getSvg = typeof window !== 'undefined' && typeof window.getSvgIcon === 'function'
-            ? window.getSvgIcon
-            : null;
-        const inner = getSvg ? getSvg(iconName, { size: 11, strokeWidth: 2.5 }) : '!';
-        return `<span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; background: ${bg}; color: ${color}; margin-right: 6px; flex-shrink: 0; font-size: 11px; font-weight: 700; line-height: 1;">${inner}</span>`;
+    function ensureSsoStyles() {
+        if (typeof document === 'undefined' || document.getElementById('mse-sso-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'mse-sso-styles';
+        style.textContent = `
+.mse-sso-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 7px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #78350f;
+  text-align: left;
+}
+.mse-sso-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  color: #b45309;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.mse-sso-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.mse-sso-badge {
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1.5px 6px;
+  border-radius: 4px;
+}
+.mse-sso-main {
+  color: #92400e;
+  margin-bottom: 4px;
+}
+.mse-sso-main b {
+  color: #b91c1c;
+  font-weight: 600;
+}
+.mse-sso-sub {
+  font-size: 11px;
+  color: #92400e;
+  opacity: 0.8;
+  line-height: 1.35;
+}
+.mse-sso-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  padding: 10px 12px;
+  margin-bottom: 15px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #991b1b;
+  text-align: left;
+  font-family: "Segoe UI", "Segoe WP", Tahoma, Arial, sans-serif;
+}
+.mse-sso-icon-danger {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #dc2626;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.mse-sso-notice-body {
+  flex-grow: 1;
+}
+`;
+        (document.head || document.documentElement).appendChild(style);
+    }
+
+    function getSsoSvgIcon(name, size = 14) {
+        if (typeof window !== 'undefined' && typeof window.getSvgIcon === 'function') {
+            return window.getSvgIcon(name, { size, strokeWidth: 2 });
+        }
+        return '';
     }
 
     function showCircuitBreakerNotice() {
         const noticeId = 'mse-circuit-breaker-notice';
         if (document.getElementById(noticeId)) return;
+        ensureSsoStyles();
         const notice = document.createElement('div');
         notice.id = noticeId;
-        notice.style.cssText = 'background: #f8f9fa; border-left: 3px solid #ef4444; color: #b91c1c; padding: 8px 12px; font-family: "Segoe UI", "Segoe WP", Tahoma, Arial, sans-serif; font-size: 12px; margin-bottom: 15px; line-height: 1.4; display: flex; align-items: center;';
-        notice.innerHTML = `${renderNoticeBadge('lock', '#fee2e2', '#dc2626')}<div><strong>Автовход MSE отключен:</strong> сервер отклонил пароль. Введите актуальный пароль вручную.</div>`;
+        notice.className = 'mse-sso-notice';
+        notice.innerHTML = `
+            <span class="mse-sso-icon-danger">
+                ${getSsoSvgIcon('ban', 14)}
+            </span>
+            <div class="mse-sso-notice-body">
+                <strong>Автовход MSE отключен:</strong> сервер отклонил пароль. Введите актуальный пароль вручную.
+            </div>
+        `;
         const target = document.querySelector('#errorText') || loginForm;
         if (target?.parentNode) {
             target.parentNode.insertBefore(notice, target);
@@ -251,6 +356,7 @@
     // Шаг 3: Монтирование UI чекбокса «Запомнить меня» в основном окне
     function mountRememberMeUI(isVaultSaved) {
         if (document.getElementById('mse-remember-container')) return;
+        ensureSsoStyles();
 
         const container = document.createElement('div');
         container.id = 'mse-remember-container';
@@ -261,10 +367,21 @@
                 <input type="checkbox" id="mse-remember-checkbox" style="cursor: pointer; width: 15px; height: 15px; accent-color: #0067b8; margin: 0;" ${isVaultSaved ? 'checked' : ''}>
                 <span>Запомнить меня (бесконечная сессия)</span>
             </label>
-            <div id="mse-remember-warning" style="display: ${isVaultSaved ? 'block' : 'none'}; margin-top: 8px; padding: 10px 12px; background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #dc2626; color: #374151; font-size: 12px; line-height: 1.45; border-radius: 4px;">
-                <div style="margin-bottom: 4px; color: #1f2937; display: flex; align-items: center;">${renderNoticeBadge('lock', '#fef3c7', '#b45309')}<strong>Экспериментальная функция — ТОЛЬКО ДЛЯ ЛИЧНОГО ПК!</strong></div>
-                <div style="color: #dc2626; margin-bottom: 4px;"><strong>Не включайте в компьютерных классах и на чужих устройствах</strong> — иначе следующий человек автоматически войдет в ваш аккаунт.</div>
-                <div style="color: #4b5563; font-size: 11.5px;">На личном устройстве данные шифруются локально (AES-GCM 256-bit) для поддержания сессии 24ч+, не покидают браузер и мгновенно удаляются при любой ошибке входа.</div>
+            <div class="mse-sso-warn" id="mse-remember-warning" style="display: ${isVaultSaved ? 'flex' : 'none'};">
+                <span class="mse-sso-icon">
+                    ${getSsoSvgIcon('lock', 14)}
+                </span>
+                <div>
+                    <div class="mse-sso-head">
+                        <span class="mse-sso-badge">Только личный ПК</span>
+                    </div>
+                    <div class="mse-sso-main">
+                        <b>Не включайте в компьютерных классах и на чужих устройствах</b> — иначе следующий человек войдёт в ваш аккаунт.
+                    </div>
+                    <div class="mse-sso-sub">
+                        Данные шифруются локально (AES-256), не покидают браузер и сбрасываются при ошибке входа.
+                    </div>
+                </div>
             </div>
         `;
 
@@ -323,7 +440,7 @@
         }
 
         checkbox.addEventListener('change', () => {
-            warning.style.display = checkbox.checked ? 'block' : 'none';
+            warning.style.display = checkbox.checked ? 'flex' : 'none';
             if (checkbox.checked) {
                 triggerReactiveSave(0);
             } else {
