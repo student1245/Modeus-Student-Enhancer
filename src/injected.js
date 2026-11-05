@@ -3391,26 +3391,48 @@
     };
 
     /**
+     * Создаёт заголовок опросника с векторной иконкой, текстом и кнопкой закрытия.
+     * @param {string} titleText
+     * @param {Object} [options]
+     * @param {string} [options.badgeHtml]
+     * @param {string} [options.closeTitle]
+     * @param {string} [options.iconName]
+     * @returns {string}
+     */
+    const buildSurveyHeaderHtml = (titleText, { badgeHtml = '', closeTitle = 'Отложить опрос', iconName = 'message-square' } = {}) => `
+        <div class="sc-head">
+            <div class="sc-head-left">
+                <div class="sc-icon">${getSvgIcon(iconName, { size: 14 })}</div>
+                <span class="sc-h-text">${escapeHtml(titleText)}</span>
+                ${badgeHtml}
+            </div>
+            <button type="button" class="sc-close" title="${escapeHtml(closeTitle)}">
+                ${getSvgIcon('x', { size: 14 })}
+            </button>
+        </div>
+    `;
+
+    /**
      * Экран 1: Приглашение к опросу.
      */
     const renderSurveyInviteScreen = (container, config, state, onTransition, onClose) => {
-        const titleText = escapeHtml(config.title || 'Помогите улучшить Modeus Enhancer');
+        const titleText = config.title || 'Помогите улучшить Modeus Enhancer';
         const descText = escapeHtml(config.description || 'Ответьте на пару коротких вопросов, чтобы следующие обновления были полезны именно вам.');
 
         container.innerHTML = `
-            <div class="mse-survey-header">
-                <div class="mse-survey-title">💬 ${titleText}</div>
-                <button type="button" class="mse-survey-close-btn" title="Отложить опрос">×</button>
-            </div>
-            <div class="mse-survey-text">${descText}</div>
-            <div class="mse-survey-actions">
-                <button type="button" class="mse-survey-btn mse-survey-btn-primary" id="mse-survey-btn-start">Ответить</button>
-                <button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-snooze">Позже</button>
-                <button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-decline-menu">Нет ▾</button>
+            ${buildSurveyHeaderHtml(titleText)}
+            <div class="sc-desc">${descText}</div>
+            <div class="sc-actions">
+                <button type="button" class="btn-main" id="mse-survey-btn-start">Ответить</button>
+                <button type="button" class="btn-secondary" id="mse-survey-btn-snooze">Позже</button>
+                <button type="button" class="btn-secondary" id="mse-survey-btn-decline-menu">
+                    <span>Нет</span>
+                    ${getSvgIcon('chevron-down', { size: 12 })}
+                </button>
             </div>
         `;
 
-        qs('.mse-survey-close-btn', container)?.addEventListener('click', () => {
+        qs('.sc-close', container)?.addEventListener('click', () => {
             snoozeSurvey();
             onClose();
         });
@@ -3433,28 +3455,25 @@
      * Экран 1.1: Подменю отказа.
      */
     const renderSurveyDeclineScreen = (container, config, state, onTransition, onClose) => {
-        const titleText = escapeHtml(config.title || 'Помогите улучшить Modeus Enhancer');
+        const titleText = config.title || 'Помогите улучшить Modeus Enhancer';
 
         container.innerHTML = `
-            <div class="mse-survey-header">
-                <div class="mse-survey-title">💬 ${titleText}</div>
-                <button type="button" class="mse-survey-close-btn" title="Отложить опрос">×</button>
-            </div>
-            <div class="mse-survey-text">Выберите вариант:</div>
-            <div class="mse-survey-options">
-                <button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-dismiss-one" style="text-align: left; padding: 8px 10px;">
-                    • <b>Не этот опрос</b> — пропустить текущий опрос
+            ${buildSurveyHeaderHtml(titleText)}
+            <div class="sc-desc">Выберите вариант:</div>
+            <div class="opt-reject-list">
+                <button type="button" class="reject-item" id="mse-survey-btn-dismiss-one">
+                    <b>Не этот опрос</b> — пропустить текущий опрос
                 </button>
-                <button type="button" class="mse-survey-btn mse-survey-btn-danger" id="mse-survey-btn-disable-all" style="text-align: left; padding: 8px 10px;">
-                    • <b>Никогда не спрашивать</b> — отключить навсегда опросы
+                <button type="button" class="reject-item danger" id="mse-survey-btn-disable-all">
+                    <b>Никогда не спрашивать</b> — отключить навсегда опросы
                 </button>
             </div>
-            <div class="mse-survey-actions">
-                <button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-back">◂ Назад</button>
+            <div class="sc-actions">
+                <button type="button" class="btn-secondary" id="mse-survey-btn-back">Назад</button>
             </div>
         `;
 
-        qs('.mse-survey-close-btn', container)?.addEventListener('click', () => {
+        qs('.sc-close', container)?.addEventListener('click', () => {
             snoozeSurvey();
             onClose();
         });
@@ -3505,49 +3524,59 @@
     };
 
     /**
-     * Формирует HTML-разметку вариантов ответов (радиокнопки/чекбоксы и поле «Свой вариант»).
-     * @param {Object} question
-     * @param {Set<string>} selectedOptions
-     * @param {string} customText
-     * @returns {string}
+     * Рендерит один пункт варианта ответа с кастомным чекбоксом .q-box.
      */
-    const buildQuestionOptionsHtml = (question, selectedOptions, customText) => {
-        const isMultiple = question.type === 'multiple';
-        const inputType = isMultiple ? 'checkbox' : 'radio';
-        const options = question.options || [];
+    const buildQuestionOptionItemHtml = (optionText, inputType, isChecked) => {
+        const safeText = escapeHtml(optionText);
+        const selectedClass = isChecked ? ' selected' : '';
+        const checkedAttr = isChecked ? ' checked' : '';
+        return `
+            <label class="q-opt${selectedClass}">
+                <input type="${inputType}" name="mse_survey_choice" value="${safeText}" ${checkedAttr} class="q-input-hidden" />
+                <span class="q-box">${getSvgIcon('check', { size: 11, strokeWidth: 2.5 })}</span>
+                <span>${safeText}</span>
+            </label>
+        `;
+    };
 
-        const optionsHtml = options.map((optionText) => {
-            const isChecked = selectedOptions.has(optionText);
-            const safeText = escapeHtml(optionText);
-            const selectedClass = isChecked ? ' selected' : '';
-            return `
-                <label class="mse-survey-option${selectedClass}">
-                    <input type="${inputType}" name="mse_survey_choice" value="${safeText}" ${isChecked ? 'checked' : ''} />
-                    <span>${safeText}</span>
-                </label>
-            `;
-        }).join('');
-
-        if (!question.allowCustom) {
-            return optionsHtml;
-        }
-
-        const isCustomChecked = selectedOptions.has(CUSTOM_OPTION_VALUE);
+    /**
+     * Рендерит пункт «Свой вариант» с текстовым полем ввода.
+     */
+    const buildQuestionCustomOptionHtml = (inputType, isCustomChecked, customText) => {
         const customSelectedClass = isCustomChecked ? ' selected' : '';
+        const checkedAttr = isCustomChecked ? ' checked' : '';
         const safeCustomText = escapeHtml(customText);
         const customDisplay = isCustomChecked ? 'block' : 'none';
-
-        const customOptionHtml = `
-            <label class="mse-survey-option${customSelectedClass}">
-                <input type="${inputType}" name="mse_survey_choice" value="${CUSTOM_OPTION_VALUE}" ${isCustomChecked ? 'checked' : ''} />
+        return `
+            <label class="q-opt${customSelectedClass}">
+                <input type="${inputType}" name="mse_survey_choice" value="${CUSTOM_OPTION_VALUE}" ${checkedAttr} class="q-input-hidden" />
+                <span class="q-box">${getSvgIcon('check', { size: 11, strokeWidth: 2.5 })}</span>
                 <span>Свой вариант</span>
             </label>
             <div class="mse-survey-custom-wrap" id="mse-survey-custom-container" style="display: ${customDisplay};">
                 <input type="text" class="mse-survey-custom-input" id="mse-survey-custom-input" placeholder="Напишите свой вариант..." value="${safeCustomText}" />
             </div>
         `;
+    };
 
-        return optionsHtml + customOptionHtml;
+    /**
+     * Формирует HTML-разметку всех вариантов ответов на вопрос.
+     */
+    const buildQuestionOptionsHtml = (question, selectedOptions, customText) => {
+        const isMultiple = question.type === 'multiple';
+        const inputType = isMultiple ? 'checkbox' : 'radio';
+        const options = question.options || [];
+
+        const optionsHtml = options.map(opt =>
+            buildQuestionOptionItemHtml(opt, inputType, selectedOptions.has(opt))
+        ).join('');
+
+        if (!question.allowCustom) {
+            return optionsHtml;
+        }
+
+        const isCustomChecked = selectedOptions.has(CUSTOM_OPTION_VALUE);
+        return optionsHtml + buildQuestionCustomOptionHtml(inputType, isCustomChecked, customText);
     };
 
     /**
@@ -3584,6 +3613,130 @@
     };
 
     /**
+     * Проверяет валидность ответа на текущий вопрос.
+     */
+    const isQuestionAnswerValid = (isMultiple, selectedOptions, customText) => {
+        const hasStandard = Array.from(selectedOptions).some(opt => opt !== CUSTOM_OPTION_VALUE);
+        const isCustomSelected = selectedOptions.has(CUSTOM_OPTION_VALUE);
+        const hasCustomText = isCustomSelected && customText.trim().length > 0;
+        return isMultiple
+            ? (hasStandard || hasCustomText)
+            : (isCustomSelected ? hasCustomText : hasStandard);
+    };
+
+    /**
+     * Обрабатывает изменение выбора опции ответа.
+     */
+    const handleQuestionOptionChange = (e, isMultiple, selectedOptions, container, customContainer, customInput, onValidate) => {
+        const target = e.target;
+        if (target.name !== 'mse_survey_choice') return;
+
+        const val = target.value;
+        if (isMultiple) {
+            if (target.checked) selectedOptions.add(val);
+            else selectedOptions.delete(val);
+        } else {
+            selectedOptions.clear();
+            if (target.checked) selectedOptions.add(val);
+        }
+
+        qsa('.q-opt', container).forEach(lbl => {
+            const inp = qs('input', lbl);
+            lbl.classList.toggle('selected', inp?.checked || false);
+        });
+
+        if (customContainer) {
+            const showCustom = selectedOptions.has(CUSTOM_OPTION_VALUE);
+            customContainer.style.display = showCustom ? 'block' : 'none';
+            if (showCustom && customInput) customInput.focus();
+        }
+
+        onValidate();
+    };
+
+    /**
+     * Обрабатывает переход к следующему вопросу или отправку опроса.
+     */
+    const handleQuestionNextSubmit = (config, state, question, isLastQuestion, isMultiple, selectedOptions, customText, onTransition) => {
+        const finalAnswer = buildFinalQuestionAnswer(isMultiple, selectedOptions, customText);
+        if (!finalAnswer) return;
+
+        state.answers[question.id] = finalAnswer;
+
+        if (isLastQuestion) {
+            dismissSurvey(config.id);
+            sendSurveyMetric('completed', state.answers);
+            state.screen = 'completed';
+            onTransition();
+        } else {
+            state.questionIndex++;
+            onTransition();
+        }
+    };
+
+    /**
+     * Привязывает события к элементам экрана вопроса.
+     */
+    const bindQuestionScreenEvents = ({
+        container,
+        config,
+        state,
+        question,
+        isLastQuestion,
+        isMultiple,
+        selectedOptions,
+        getCustomText,
+        setCustomText,
+        onClose,
+        onTransition
+    }) => {
+        const nextBtn = qs('#mse-survey-btn-next', container);
+        const customContainer = qs('#mse-survey-custom-container', container);
+        const customInput = qs('#mse-survey-custom-input', container);
+        const optionsContainer = qs('.q-options', container);
+
+        const updateValidation = () => {
+            if (nextBtn) {
+                nextBtn.disabled = !isQuestionAnswerValid(isMultiple, selectedOptions, getCustomText());
+            }
+        };
+
+        updateValidation();
+
+        qs('.sc-close', container)?.addEventListener('click', () => {
+            snoozeSurvey();
+            onClose();
+        });
+
+        qs('#mse-survey-btn-prev', container)?.addEventListener('click', () => {
+            if (state.questionIndex > 0) {
+                state.questionIndex--;
+                onTransition();
+            }
+        });
+
+        optionsContainer?.addEventListener('change', (e) => {
+            handleQuestionOptionChange(e, isMultiple, selectedOptions, container, customContainer, customInput, updateValidation);
+        });
+
+        customInput?.addEventListener('input', (e) => {
+            setCustomText(e.target.value);
+            updateValidation();
+        });
+
+        customInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && nextBtn && !nextBtn.disabled) {
+                e.preventDefault();
+                nextBtn.click();
+            }
+        });
+
+        nextBtn?.addEventListener('click', () => {
+            handleQuestionNextSubmit(config, state, question, isLastQuestion, isMultiple, selectedOptions, getCustomText(), onTransition);
+        });
+    };
+
+    /**
      * Экран 2: Интерактивный опрос с радиокнопками, чекбоксами и кастомным ответом.
      */
     const renderSurveyQuestionScreen = (container, config, state, onTransition, onClose) => {
@@ -3604,121 +3757,37 @@
 
         const optionsHtml = buildQuestionOptionsHtml(question, selectedOptions, customText);
         const backButtonHtml = state.questionIndex > 0
-            ? '<button type="button" class="mse-survey-btn mse-survey-btn-secondary" id="mse-survey-btn-prev">◂ Назад</button>'
+            ? '<button type="button" class="btn-secondary" id="mse-survey-btn-prev">Назад</button>'
             : '';
-        const nextButtonText = isLastQuestion ? 'Отправить ✓' : 'Далее ➔';
+        const nextButtonLabel = isLastQuestion ? 'Отправить' : 'Далее';
+        const progressPercent = Math.round((currentNumber / totalQuestions) * 100);
+        const badgeHtml = `<span class="step-pill">${progressPercent}%</span>`;
 
         container.innerHTML = `
-            <div class="mse-survey-header">
-                <div class="mse-survey-title">
-                    <span>💬 Вопрос ${currentNumber} из ${totalQuestions}</span>
-                    <span class="mse-survey-badge">${Math.round((currentNumber / totalQuestions) * 100)}%</span>
-                </div>
-                <button type="button" class="mse-survey-close-btn" title="Отложить опрос">×</button>
-            </div>
-            <div class="mse-survey-text"><b>${escapeHtml(question.text)}</b></div>
-            <div class="mse-survey-options">${optionsHtml}</div>
-            <div class="mse-survey-actions mse-survey-actions-between">
+            ${buildSurveyHeaderHtml(`Вопрос ${currentNumber} из ${totalQuestions}`, { badgeHtml })}
+            <div class="sc-q-title">${escapeHtml(question.text)}</div>
+            <div class="q-options">${optionsHtml}</div>
+            <div class="sc-actions between">
                 <div>${backButtonHtml}</div>
-                <button type="button" class="mse-survey-btn mse-survey-btn-primary" id="mse-survey-btn-next" disabled>
-                    ${nextButtonText}
+                <button type="button" class="btn-main" id="mse-survey-btn-next" disabled>
+                    <span>${nextButtonLabel}</span>
+                    ${getSvgIcon('move-right', { size: 13 })}
                 </button>
             </div>
         `;
 
-        const nextBtn = qs('#mse-survey-btn-next', container);
-        const customContainer = qs('#mse-survey-custom-container', container);
-        const customInput = qs('#mse-survey-custom-input', container);
-        const optionsContainer = qs('.mse-survey-options', container);
-
-        const updateValidation = () => {
-            const hasStandard = Array.from(selectedOptions).some(opt => opt !== CUSTOM_OPTION_VALUE);
-            const isCustomSelected = selectedOptions.has(CUSTOM_OPTION_VALUE);
-            const hasCustomText = isCustomSelected && customText.trim().length > 0;
-            const isValid = isMultiple
-                ? (hasStandard || hasCustomText)
-                : (isCustomSelected ? hasCustomText : hasStandard);
-
-            if (nextBtn) {
-                nextBtn.disabled = !isValid;
-            }
-        };
-
-        updateValidation();
-
-        qs('.mse-survey-close-btn', container)?.addEventListener('click', () => {
-            snoozeSurvey();
-            onClose();
-        });
-
-        qs('#mse-survey-btn-prev', container)?.addEventListener('click', () => {
-            if (state.questionIndex > 0) {
-                state.questionIndex--;
-                onTransition();
-            }
-        });
-
-        optionsContainer?.addEventListener('change', (e) => {
-            const target = e.target;
-            if (target.name !== 'mse_survey_choice') return;
-
-            const val = target.value;
-            if (isMultiple) {
-                if (target.checked) {
-                    selectedOptions.add(val);
-                } else {
-                    selectedOptions.delete(val);
-                }
-            } else {
-                selectedOptions.clear();
-                if (target.checked) {
-                    selectedOptions.add(val);
-                }
-            }
-
-            qsa('.mse-survey-option', container).forEach(lbl => {
-                const inp = qs('input', lbl);
-                lbl.classList.toggle('selected', inp?.checked || false);
-            });
-
-            if (customContainer) {
-                const showCustom = selectedOptions.has(CUSTOM_OPTION_VALUE);
-                customContainer.style.display = showCustom ? 'block' : 'none';
-                if (showCustom && customInput) {
-                    customInput.focus();
-                }
-            }
-
-            updateValidation();
-        });
-
-        customInput?.addEventListener('input', (e) => {
-            customText = e.target.value;
-            updateValidation();
-        });
-
-        customInput?.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && nextBtn && !nextBtn.disabled) {
-                e.preventDefault();
-                nextBtn.click();
-            }
-        });
-
-        nextBtn?.addEventListener('click', () => {
-            const finalAnswer = buildFinalQuestionAnswer(isMultiple, selectedOptions, customText);
-            if (!finalAnswer) return;
-
-            state.answers[question.id] = finalAnswer;
-
-            if (isLastQuestion) {
-                dismissSurvey(config.id);
-                sendSurveyMetric('completed', state.answers);
-                state.screen = 'completed';
-                onTransition();
-            } else {
-                state.questionIndex++;
-                onTransition();
-            }
+        bindQuestionScreenEvents({
+            container,
+            config,
+            state,
+            question,
+            isLastQuestion,
+            isMultiple,
+            selectedOptions,
+            getCustomText: () => customText,
+            setCustomText: (v) => { customText = v; },
+            onClose,
+            onTransition
         });
     };
 
@@ -3727,16 +3796,13 @@
      */
     const renderSurveyCompletedScreen = (container, config, state, onClose) => {
         container.innerHTML = `
-            <div class="mse-survey-header">
-                <div class="mse-survey-title" style="color: #16a34a;">✓ Спасибо за участие!</div>
-                <button type="button" class="mse-survey-close-btn" title="Закрыть">×</button>
-            </div>
-            <div class="mse-survey-text">
+            ${buildSurveyHeaderHtml('Спасибо за участие!', { closeTitle: 'Закрыть' })}
+            <div class="sc-desc">
                 Ваши ответы сохранены и помогут сделать расширение лучше.
             </div>
         `;
 
-        qs('.mse-survey-close-btn', container)?.addEventListener('click', () => {
+        qs('.sc-close', container)?.addEventListener('click', () => {
             onClose();
         });
 
@@ -3760,6 +3826,7 @@
             container.id = ID_SURVEY_POPUP;
             document.body.appendChild(container);
         }
+        container.className = 'survey-card';
 
         const state = {
             screen: 'invite', // Состояния экрана: 'invite' | 'decline' | 'question' | 'completed'
