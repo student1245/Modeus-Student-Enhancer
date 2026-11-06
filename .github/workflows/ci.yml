@@ -1,0 +1,38 @@
+name: CI Tests
+
+# Автоматический прогон всех 3 шагов системы автотестов Modeus Student Enhancer
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    name: Run Automated Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Шаг 3 требует запущенного браузера с открытым портом отладки DevTools Protocol (CDP)
+      - name: Start Headless Chrome for CDP Layout Tests
+        run: |
+          google-chrome --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --window-size=1280,800 --remote-debugging-port=9222 about:blank &
+          for i in {1..20}; do
+            curl -s http://127.0.0.1:9222/json/version >/dev/null && break
+            sleep 0.2
+          done
+
+      # Прогон всех трёх тестовых наборов:
+      # 1. 1-static-contracts.test.js (архитектура, манифест, SVG, мёртвый код/CSS)
+      # 2. 2-unit-and-dom.test.js (модульная и DOM-логика, сессии, криптография, баллы, таргетинг)
+      # 3. 3-live-chrome-layout.test.js (живые визуальные и геометрические тесты разметки)
+      - name: Run All Test Suites
+        run: node --test tools-src/*.test.js
