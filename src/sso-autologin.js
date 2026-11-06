@@ -142,22 +142,26 @@
 
     async function decryptCredentials(vault) {
         if (!vault?.ciphertextBase64 || !vault?.ivBase64 || !vault?.keyJwk) return null;
-        const key = await crypto.subtle.importKey(
-            'jwk',
-            vault.keyJwk,
-            { name: 'AES-GCM', length: 256 },
-            false,
-            ['decrypt']
-        );
-        const iv = base64ToBuffer(vault.ivBase64);
-        const ciphertext = base64ToBuffer(vault.ciphertextBase64);
-        const decryptedBuffer = await crypto.subtle.decrypt(
-            { name: 'AES-GCM', iv },
-            key,
-            ciphertext
-        );
-        const decryptedText = new TextDecoder().decode(decryptedBuffer);
-        return JSON.parse(decryptedText);
+        try {
+            const key = await crypto.subtle.importKey(
+                'jwk',
+                vault.keyJwk,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['decrypt']
+            );
+            const iv = base64ToBuffer(vault.ivBase64);
+            const ciphertext = base64ToBuffer(vault.ciphertextBase64);
+            const decryptedBuffer = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv },
+                key,
+                ciphertext
+            );
+            const decryptedText = new TextDecoder().decode(decryptedBuffer);
+            return JSON.parse(decryptedText);
+        } catch {
+            return null;
+        }
     }
 
     // Безопасная эмуляция пользовательского ввода (React/Angular/Vanilla friendly)

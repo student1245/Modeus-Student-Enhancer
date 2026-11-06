@@ -17,8 +17,9 @@
     function parseJwtPayload(token) {
         if (!token || typeof token !== 'string') return null;
         try {
-            const payload = token.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
+            let payload = token.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
             if (!payload) return null;
+            while (payload.length % 4) payload += '=';
             const binary = atob(payload);
             const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
             return JSON.parse(new TextDecoder('utf-8').decode(bytes));

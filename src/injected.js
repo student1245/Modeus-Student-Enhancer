@@ -114,8 +114,9 @@
     const parseJwt = (token) => {
         try {
             if (!token || typeof token !== 'string') return {};
-            const payload = token.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
+            let payload = token.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
             if (!payload) return {};
+            while (payload.length % 4) payload += '=';
             return JSON.parse(decodeBase64Utf8(payload));
         } catch (e) {
             logger.warn('Ошибка парсинга JWT:', e);
