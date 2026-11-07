@@ -387,14 +387,28 @@ body.mse-active {
         color: #dc2626;
     }
 
-    /* 3. Сетка календаря и подсветка пар */
-    .fc-time-grid-event {
-        transition: opacity 0.3s ease, border 0.3s ease, box-shadow 0.2s ease;
+    body.mse-search-filtering-active .fc-time-grid-event:not(.search-highlight) {
+        opacity: 0.35 !important;
+        transition: none !important;
     }
 
-    .search-highlight {
+    .fc-time-grid-event.search-highlight,
+    .mse-event-match-tooltip {
+        transition: none !important;
+        animation: none !important;
+    }
+
+    /* 3. Сетка календаря и подсветка пар */
+    .fc-time-grid-event {
+        transition: none !important;
+    }
+
+    .search-highlight,
+    .fc-time-grid-event.search-highlight {
         border: 2.5px solid #16a34a !important;
         z-index: 2 !important;
+        transition: none !important;
+        animation: none !important;
     }
 
     /* Зелёное свечение вместо синего для общих пар при нажатии и наведении */
@@ -414,6 +428,8 @@ body.mse-active {
 
     .search-fade {
         opacity: 0.25 !important;
+        transition: none !important;
+        animation: none !important;
     }
 
     /* Блочная раскладка: сохраняет естественный поток FullCalendar, заголовок пары не сжимается флексбоксом */
@@ -475,6 +491,8 @@ body.mse-active {
         pointer-events: none;
         box-sizing: border-box;
         z-index: 2;
+        transition: none !important;
+        animation: none !important;
     }
 
     .fc-time-grid-event.search-highlight.mse-short-card .mse-event-match-tooltip {
@@ -511,6 +529,8 @@ body.mse-active {
         pointer-events: none;
         box-sizing: border-box;
         z-index: 2;
+        transition: none !important;
+        animation: none !important;
     }
 
     .friends-line-badge span,

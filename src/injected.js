@@ -476,6 +476,7 @@
 
     // Классы и идентификаторы элементов DOM
     const CLASS_MSE_ACTIVE = 'mse-active';
+    const CLASS_MSE_SEARCH_FILTERING_ACTIVE = 'mse-search-filtering-active';
     const CLASS_SHORT_CARD = 'mse-short-card';
     const CLASS_NATIVE_POPOVER_SHARED = 'mse-native-popover-shared';
     const SHORT_CARD_MAX_HEIGHT_PX = 54;
@@ -556,6 +557,7 @@
 
     // Служебные переменные и таймеры
     let debounceTimer = null;
+    let isRestoringHighlights = false;
     let checkReadyTimer = null;
     let sessionHealthInterval = null;
     let updateCheckInterval = null;
@@ -1842,6 +1844,7 @@
         if (checkReadyTimer) clearInterval(checkReadyTimer);
         if (smartWaitTimer) clearTimeout(smartWaitTimer);
         if (debounceTimer) clearTimeout(debounceTimer);
+        isRestoringHighlights = false;
         if (engagementIntervalId) {
             clearInterval(engagementIntervalId);
             engagementIntervalId = null;
@@ -1876,6 +1879,7 @@
         // 4. Очистка внедрённых DOM-элементов и деактивация стилей
         dismissAddFriendGuide();
         document.body.classList.remove(CLASS_MSE_ACTIVE);
+        document.body.classList.remove(CLASS_MSE_SEARCH_FILTERING_ACTIVE);
         qs(`#${ID_SEARCH_CONTAINER}`)?.remove();
         qs(`#${ID_TEACHER_TOOLTIP}`)?.remove();
         qs(`#${ID_STOP_BUTTON}`)?.remove();
@@ -2048,21 +2052,32 @@
 
         banner.removeAttribute('title');
 
-        if (isShortCard(cardElement)) {
+        const short = isShortCard(cardElement);
+        if (short) {
             cardElement.classList.add(CLASS_SHORT_CARD);
-            banner.className = 'mse-event-match-tooltip mse-compact-capsule';
-            banner.innerHTML = formatShortBadgeHtml(matchedStudents);
+        } else {
+            cardElement.classList.remove(CLASS_SHORT_CARD);
+        }
+
+        const isCompact = short || !doesExpandedBannerFit(cardElement);
+        const renderKey = `${isCompact ? 'c' : 'e'}:${matchedStudents.join('|')}`;
+        const currentRenderKey = banner.dataset?.mseRenderKey || banner.getAttribute('data-mse-render-key');
+
+        if (currentRenderKey === renderKey) {
             return;
         }
 
-        cardElement.classList.remove(CLASS_SHORT_CARD);
+        if (banner.dataset) {
+            banner.dataset.mseRenderKey = renderKey;
+        }
+        banner.setAttribute('data-mse-render-key', renderKey);
 
-        if (doesExpandedBannerFit(cardElement)) {
-            banner.className = 'mse-event-match-tooltip friends-line-badge';
-            banner.innerHTML = formatExpandedBadgeHtml(matchedStudents);
-        } else {
+        if (isCompact) {
             banner.className = 'mse-event-match-tooltip mse-compact-capsule';
             banner.innerHTML = formatShortBadgeHtml(matchedStudents);
+        } else {
+            banner.className = 'mse-event-match-tooltip friends-line-badge';
+            banner.innerHTML = formatExpandedBadgeHtml(matchedStudents);
         }
     };
 
@@ -2166,21 +2181,32 @@
     };
 
     const highlightSingleCard = (card, normalizedSelected) => {
-        clearCardHighlight(card);
-
         const eventId = card.getAttribute('data-event-id');
         const matchedStudents = getMatchedStudentsForEvent(eventId, normalizedSelected);
+
         if (matchedStudents.length === 0) {
+            const isAlreadyFaded = card.classList.contains('search-fade') &&
+                !card.classList.contains('search-highlight') &&
+                !card.querySelector('.mse-event-match-tooltip');
+            if (isAlreadyFaded) return;
+
+            clearCardHighlight(card);
             card.classList.add('search-fade');
             return;
         }
 
+        card.classList.remove('search-fade');
         card.classList.add('search-highlight');
-        const banner = document.createElement('div');
-        banner.className = 'mse-event-match-tooltip';
-        const container = card.querySelector('.fc-content') || card;
-        container.appendChild(banner);
 
+        let banner = card.querySelector('.mse-event-match-tooltip');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.className = 'mse-event-match-tooltip';
+            const container = card.querySelector('.fc-content') || card;
+            container.appendChild(banner);
+        }
+
+        // Всегда вызываем updateCardLayout для адаптации геометрии (например, при сужении сетки)
         updateCardLayout(card, matchedStudents);
     };
 
@@ -2223,8 +2249,10 @@
     };
 
     const highlightEventsForStudents = () => {
+        const isFilteringActive = selectedStudents.size > 0;
+        document.body.classList.toggle(CLASS_MSE_SEARCH_FILTERING_ACTIVE, isFilteringActive);
         updateAttendeeSelectionHighlights();
-        if (selectedStudents.size === 0) {
+        if (!isFilteringActive) {
             clearHighlight();
             return;
         }
@@ -2233,6 +2261,7 @@
     };
 
     const clearHighlight = () => {
+        document.body.classList.remove(CLASS_MSE_SEARCH_FILTERING_ACTIVE);
         qsa('.fc-time-grid-event').forEach(clearCardHighlight);
         updateAttendeeSelectionHighlights();
     };
@@ -2243,6 +2272,7 @@
         const suggestions = qs('#search-suggestions');
         if (suggestions) suggestions.style.display = 'none';
         selectedStudents.clear();
+        document.body.classList.remove(CLASS_MSE_SEARCH_FILTERING_ACTIVE);
         updateSelectedStudentsDisplay();
         clearHighlight();
         updateAttendeeSelectionHighlights();
@@ -4995,7 +5025,44 @@
         }
     };
 
-    const observer = new MutationObserver(debouncedMutationHandler);
+    const hasUnmarkedCalendarEvents = (mutations) => {
+        if (!mutations) return false;
+        for (let i = 0; i < mutations.length; i++) {
+            const added = mutations[i].addedNodes;
+            if (!added || added.length === 0) continue;
+            for (let j = 0; j < added.length; j++) {
+                const node = added[j];
+                if (!node || node.nodeType !== Node.ELEMENT_NODE) continue;
+                if (node.classList?.contains('fc-time-grid-event')) {
+                    if (!node.classList.contains('search-highlight') && !node.classList.contains('search-fade')) {
+                        return true;
+                    }
+                } else if (typeof node.querySelector === 'function') {
+                    if (node.querySelector('.fc-time-grid-event:not(.search-highlight):not(.search-fade)')) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    };
+
+    const handleMainDomMutations = (mutations) => {
+        // Синхронное восстановление разметки при перерисовке сетки FullCalendar строго до Paint-фазы браузера
+        if (!isRestoringHighlights && selectedStudents.size > 0 && eventCache.size > 0 && hasUnmarkedCalendarEvents(mutations)) {
+            try {
+                isRestoringHighlights = true;
+                linkDomEventsToCache();
+                highlightEventsForStudents();
+            } finally {
+                isRestoringHighlights = false;
+            }
+        }
+
+        debouncedMutationHandler();
+    };
+
+    const observer = new MutationObserver(handleMainDomMutations);
     observer.observe(document.body, { childList: true, subtree: true });
 
     history.pushState = function (...args) {

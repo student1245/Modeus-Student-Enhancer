@@ -258,6 +258,17 @@ class MockElement {
         }
         return null;
     }
+
+    getBoundingClientRect() {
+        return {
+            top: 0,
+            left: 0,
+            bottom: this.clientHeight || 50,
+            right: this.clientWidth || 100,
+            width: this.clientWidth || 100,
+            height: this.clientHeight || 50
+        };
+    }
 }
 
 class MockStorage {
@@ -725,9 +736,17 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     getFriends,
                     addFriend,
                     removeFriend,
+                    highlightEventsForStudents,
                     selectedStudents,
+                    eventCache,
+                    uniqueStudents,
                     clearSearch,
-                    processUrlChange
+                    processUrlChange,
+                    updateCardLayout,
+                    highlightSingleCard,
+                    hasUnmarkedCalendarEvents,
+                    handleMainDomMutations,
+                    CLASS_MSE_SEARCH_FILTERING_ACTIVE
                 };
             }`;
             executeScriptWithHook('src/injected.js', hook, env);
@@ -798,6 +817,119 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             env.window.location.href = 'https://utmn.modeus.org/schedule-calendar/my?calendar=2026-W45&eventsFilter=%7B%22attendee%22%3A%5B%7B%22key%22%3A%22friend-id%22%7D%5D%7D';
             hooks.processUrlChange();
             assert.strictEqual(hooks.selectedStudents.size, 0, 'Поиск должен очиститься при смене владельца календаря');
+        });
+
+        test('highlightSingleCard: не пересоздает существующий узел бейджа в DOM, но всегда вызывает updateCardLayout', () => {
+            const card = env.document.createElement('div');
+            card.className = 'fc-time-grid-event';
+            card.setAttribute('data-event-id', 'ev-test-1');
+            const content = env.document.createElement('div');
+            content.className = 'fc-content';
+            const title = env.document.createElement('div');
+            title.className = 'fc-title';
+            title.textContent = 'Математический анализ';
+            content.appendChild(title);
+            card.appendChild(content);
+            env.document.body.appendChild(card);
+
+            hooks.uniqueStudents.set('Иванов Иван', { id: 'p-1', fullName: 'Иванов Иван' });
+            hooks.eventCache.set('ev-test-1', {
+                name: 'Математический анализ',
+                fullDisplayName: 'Математический анализ',
+                startsAtLocal: '10:15',
+                attendees: new Set(['Иванов Иван'])
+            });
+
+            // 1. Первое монтирование подсветки
+            const normalizedSelected = new Set(['Иванов Иван']);
+            hooks.highlightSingleCard(card, normalizedSelected);
+
+            const bannerBefore = card.querySelector('.mse-event-match-tooltip');
+            assert.ok(bannerBefore, 'Бейдж должен быть смонтирован в DOM');
+            assert.strictEqual(card.classList.contains('search-highlight'), true);
+
+            // 2. Повторный вызов: узел бейджа в DOM не должен пересоздаваться
+            hooks.highlightSingleCard(card, normalizedSelected);
+            const bannerAfter = card.querySelector('.mse-event-match-tooltip');
+            assert.strictEqual(bannerBefore, bannerAfter, 'Существующий DOM-узел бейджа должен оставаться без удаления');
+        });
+
+        test('updateCardLayout: предотвращает повторную перезапись innerHTML при неизменном renderKey', () => {
+            const card = env.document.createElement('div');
+            card.className = 'fc-time-grid-event';
+            card.clientHeight = 50; // Короткая карточка
+            const content = env.document.createElement('div');
+            content.className = 'fc-content';
+            const banner = env.document.createElement('div');
+            banner.className = 'mse-event-match-tooltip';
+            content.appendChild(banner);
+            card.appendChild(content);
+
+            hooks.updateCardLayout(card, ['Иванов Иван']);
+            const htmlFirst = banner.innerHTML;
+            const renderKeyFirst = banner.dataset.mseRenderKey;
+            assert.ok(renderKeyFirst.startsWith('c:'), 'Для короткой карточки должен установиться compact режим');
+
+            // Симулируем метку на DOM-узле
+            banner.__customMarker = 123;
+            hooks.updateCardLayout(card, ['Иванов Иван']);
+
+            assert.strictEqual(banner.dataset.mseRenderKey, renderKeyFirst);
+            assert.strictEqual(banner.__customMarker, 123, 'Свойства узла не должны сбрасываться при неизменном renderKey');
+            assert.strictEqual(banner.innerHTML, htmlFirst);
+        });
+
+        test('hasUnmarkedCalendarEvents: корректно определяет появление карточек без разметки подсветки', () => {
+            const unmarkedCard = env.document.createElement('div');
+            unmarkedCard.className = 'fc-time-grid-event';
+
+            const markedCard = env.document.createElement('div');
+            markedCard.className = 'fc-time-grid-event search-fade';
+
+            assert.strictEqual(hooks.hasUnmarkedCalendarEvents([{ addedNodes: [unmarkedCard] }]), true);
+            assert.strictEqual(hooks.hasUnmarkedCalendarEvents([{ addedNodes: [markedCard] }]), false);
+            assert.strictEqual(hooks.hasUnmarkedCalendarEvents([{ addedNodes: [] }]), false);
+        });
+
+        test('mse-search-filtering-active: выставляется на document.body при активном поиске и снимается при очистке', () => {
+            assert.strictEqual(env.document.body.classList.contains(hooks.CLASS_MSE_SEARCH_FILTERING_ACTIVE), false);
+
+            hooks.selectedStudents.add('Иванов Иван');
+            hooks.highlightEventsForStudents();
+            assert.strictEqual(env.document.body.classList.contains(hooks.CLASS_MSE_SEARCH_FILTERING_ACTIVE), true);
+
+            hooks.clearSearch();
+            assert.strictEqual(env.document.body.classList.contains(hooks.CLASS_MSE_SEARCH_FILTERING_ACTIVE), false);
+        });
+
+        test('handleMainDomMutations: синхронно восстанавливает классы подсветки до отрисовки кадра', () => {
+            const card = env.document.createElement('div');
+            card.className = 'fc-time-grid-event';
+            card.setAttribute('data-event-id', 'ev-sync-1');
+            const content = env.document.createElement('div');
+            content.className = 'fc-content';
+            const title = env.document.createElement('div');
+            title.className = 'fc-title';
+            title.textContent = 'Физика';
+            content.appendChild(title);
+            card.appendChild(content);
+            env.document.body.appendChild(card);
+
+            hooks.uniqueStudents.set('Иванов Иван', { id: 'p-1', fullName: 'Иванов Иван' });
+            hooks.eventCache.set('ev-sync-1', {
+                name: 'Физика',
+                fullDisplayName: 'Физика',
+                startsAtLocal: '12:00',
+                attendees: new Set(['Иванов Иван'])
+            });
+            hooks.selectedStudents.add('Иванов Иван');
+
+            // Симулируем появление неразмеченной карточки в мутации
+            hooks.handleMainDomMutations([{ addedNodes: [card] }]);
+
+            // Проверяем, что подсветка восстановилась СИНХРОННО (без ожидания таймеров)
+            assert.strictEqual(card.classList.contains('search-highlight'), true, 'Класс search-highlight должен выставиться синхронно');
+            assert.ok(card.querySelector('.mse-event-match-tooltip'), 'Бейдж должен смонтироваться синхронно');
         });
     });
 
