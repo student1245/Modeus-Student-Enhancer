@@ -1896,6 +1896,7 @@
         uniqueStudents.clear();
         lastSearchResults.clear();
         lastActiveCalendarPersonId = null;
+        lastCalendarParam = null;
         latestKnownUpdate = null;
         clearSearch();
         delete window.studentEnhancer;
@@ -3896,7 +3897,6 @@
     };
 
     let lastCalendarParam = null;
-    let lastFilterParam = null;
     const processUrlChange = () => {
         const currentUrl = window.location.href;
         const urlObj = new URL(currentUrl);
@@ -3919,22 +3919,27 @@
         // 2. Отслеживание смены пользователя или недели в URL
         if (currentUrl.includes('/schedule-calendar/')) {
             const calendarParam = urlObj.searchParams.get('calendar');
-            const filterParam = urlObj.searchParams.get('eventsFilter');
+            const activePersonId = getActiveCalendarPersonId(getMyPersonId());
 
-            // Если сменился владелец календаря (перешли к другу или вернулись к себе)
-            if (lastFilterParam !== filterParam) {
-                lastFilterParam = filterParam;
+            // Очищаем поиск и перезагружаем данные только если реально сменился владелец календаря (перешли к другу или к себе)
+            if (lastActiveCalendarPersonId !== null && activePersonId && lastActiveCalendarPersonId !== activePersonId) {
+                lastActiveCalendarPersonId = activePersonId;
                 clearSearch();
                 updateReturnToMeButton();
                 setTimeout(() => { loadAllData(); }, 300);
             } else if (lastCalendarParam && lastCalendarParam !== calendarParam) {
-                // Если просто переключили неделю
+                // Если переключили неделю расписания
                 lastCalendarParam = calendarParam;
                 setTimeout(() => {
                     loadAllData();
                 }, 400);
-            } else if (!lastCalendarParam) {
-                lastCalendarParam = calendarParam;
+            } else {
+                if (activePersonId && lastActiveCalendarPersonId === null) {
+                    lastActiveCalendarPersonId = activePersonId;
+                }
+                if (!lastCalendarParam) {
+                    lastCalendarParam = calendarParam;
+                }
             }
         }
 

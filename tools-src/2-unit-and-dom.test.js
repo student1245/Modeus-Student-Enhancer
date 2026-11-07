@@ -724,7 +724,10 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     calculateSpotlightCardPosition,
                     getFriends,
                     addFriend,
-                    removeFriend
+                    removeFriend,
+                    selectedStudents,
+                    clearSearch,
+                    processUrlChange
                 };
             }`;
             executeScriptWithHook('src/injected.js', hook, env);
@@ -772,6 +775,29 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
 
             hooks.removeFriend('id-1');
             assertDeepEqual(hooks.getFriends(), []);
+        });
+
+        test('processUrlChange: клик по паре (?selectedEvent) или смена фильтров не сбрасывает поиск общих пар', () => {
+            env.window.location.href = 'https://utmn.modeus.org/schedule-calendar/my?calendar=2026-W45';
+            hooks.selectedStudents.add('Иванов Иван');
+            hooks.processUrlChange();
+            assert.strictEqual(hooks.selectedStudents.size, 1);
+
+            // 1. Клик по паре (открытие боковой панели selectedEvent с добавлением eventsFilter)
+            env.window.location.href = 'https://utmn.modeus.org/schedule-calendar/my?selectedEvent=%7B%22eventId%22%3A%22ev-1%22%7D&calendar=2026-W45&eventsFilter=%7B%22attendee%22%3A%5B%7B%22key%22%3A%22my-id%22%7D%5D%7D';
+            hooks.processUrlChange();
+            assert.strictEqual(hooks.selectedStudents.size, 1, 'Поиск не должен сбрасываться при клике на пару');
+            assert.ok(hooks.selectedStudents.has('Иванов Иван'));
+
+            // 2. Переключение фильтра в URL в рамках того же календаря
+            env.window.location.href = 'https://utmn.modeus.org/schedule-calendar/my?selectedEvent=%7B%22eventId%22%3A%22ev-1%22%7D&calendar=2026-W45&eventsFilter=%7B%22attendee%22%3A%5B%7B%22key%22%3A%22my-id%22%7D%5D%2C%22eventFormat%22%3A%5B%22offline%22%5D%7D';
+            hooks.processUrlChange();
+            assert.strictEqual(hooks.selectedStudents.size, 1, 'Поиск не должен сбрасываться при переключении фильтров для того же студента');
+
+            // 3. Переход в расписание друга (реальная смена владельца календаря)
+            env.window.location.href = 'https://utmn.modeus.org/schedule-calendar/my?calendar=2026-W45&eventsFilter=%7B%22attendee%22%3A%5B%7B%22key%22%3A%22friend-id%22%7D%5D%7D';
+            hooks.processUrlChange();
+            assert.strictEqual(hooks.selectedStudents.size, 0, 'Поиск должен очиститься при смене владельца календаря');
         });
     });
 
