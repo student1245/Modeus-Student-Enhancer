@@ -1781,6 +1781,11 @@
             }
         });
 
+        // Помечаем обработанные карточки расписания, чтобы не выполнять повторные проверки
+        qsa('.fc-time-grid-event:not([data-mse-buildings-enhanced="1"])').forEach(card => {
+            card.setAttribute('data-mse-buildings-enhanced', '1');
+        });
+
         qsa('ngb-popover-window p:not([data-enhanced-building])').forEach(el => {
             if (el.textContent.includes('Корпус-')) {
                 const match = el.textContent.match(REGEX_BUILDING_CODE);
@@ -5025,6 +5030,28 @@
         }
     };
 
+    const hasUnenhancedBuildingEvents = (mutations) => {
+        if (!mutations) return false;
+        for (let i = 0; i < mutations.length; i++) {
+            const added = mutations[i].addedNodes;
+            if (!added || added.length === 0) continue;
+            for (let j = 0; j < added.length; j++) {
+                const node = added[j];
+                if (!node || node.nodeType !== Node.ELEMENT_NODE) continue;
+                if (node.classList?.contains('fc-time-grid-event')) {
+                    if (node.getAttribute('data-mse-buildings-enhanced') !== '1') {
+                        return true;
+                    }
+                } else if (typeof node.querySelector === 'function') {
+                    if (node.querySelector('.fc-time-grid-event:not([data-mse-buildings-enhanced="1"])')) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    };
+
     const hasUnmarkedCalendarEvents = (mutations) => {
         if (!mutations) return false;
         for (let i = 0; i < mutations.length; i++) {
@@ -5048,14 +5075,22 @@
     };
 
     const handleMainDomMutations = (mutations) => {
-        // Синхронное восстановление разметки при перерисовке сетки FullCalendar строго до Paint-фазы браузера
-        if (!isRestoringHighlights && selectedStudents.size > 0 && eventCache.size > 0 && hasUnmarkedCalendarEvents(mutations)) {
-            try {
-                isRestoringHighlights = true;
-                linkDomEventsToCache();
-                highlightEventsForStudents();
-            } finally {
-                isRestoringHighlights = false;
+        // Синхронная подмена названий корпусов и восстановление подсветки пар строго до Paint-фазы браузера
+        if (!isRestoringHighlights) {
+            const hasNewBuildings = hasUnenhancedBuildingEvents(mutations);
+            const hasNewSearch = selectedStudents.size > 0 && eventCache.size > 0 && hasUnmarkedCalendarEvents(mutations);
+
+            if (hasNewBuildings || hasNewSearch) {
+                try {
+                    isRestoringHighlights = true;
+                    enhanceBuildingNames();
+                    if (selectedStudents.size > 0 && eventCache.size > 0) {
+                        linkDomEventsToCache();
+                        highlightEventsForStudents();
+                    }
+                } finally {
+                    isRestoringHighlights = false;
+                }
             }
         }
 

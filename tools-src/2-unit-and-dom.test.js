@@ -223,23 +223,77 @@ class MockElement {
     }
     querySelectorAll(selector) {
         const results = [];
-        const clean = selector.trim();
+        const parts = selector.trim().split(/\s+/);
 
-        const match = (el) => {
-            if (clean.startsWith('#') && el.id === clean.slice(1)) return true;
-            if (clean.startsWith('.') && el.classList.contains(clean.slice(1))) return true;
-            if (clean.toUpperCase() === el.tagName) return true;
-            if (clean.startsWith('[data-action="') && clean.endsWith('"]')) {
-                const act = clean.slice(14, -2);
-                return el.dataset.action === act;
+        const matchesSingle = (el, sel) => {
+            if (!el || el.nodeType !== 1) return false;
+            let s = sel.trim();
+
+            const notMatches = s.match(/:not\(([^)]+)\)/g);
+            if (notMatches) {
+                for (const nm of notMatches) {
+                    const inner = nm.slice(5, -1).trim();
+                    if (matchesSingle(el, inner)) return false;
+                    s = s.replace(nm, '');
+                }
             }
-            if (clean.startsWith('[data-action]')) return Boolean(el.dataset.action);
-            return false;
+
+            const attrMatches = s.match(/\[([a-zA-Z0-9_-]+)(?:=(?:["']([^"']*)["']|([^\]]+)))?\]/g);
+            if (attrMatches) {
+                for (const am of attrMatches) {
+                    const parsed = am.match(/\[([a-zA-Z0-9_-]+)(?:=(?:["']([^"']*)["']|([^\]]+)))?\]/);
+                    if (parsed) {
+                        const attrName = parsed[1].toLowerCase();
+                        const expectedVal = parsed[2] !== undefined ? parsed[2] : parsed[3];
+                        if (!el.hasAttribute(attrName)) return false;
+                        if (expectedVal !== undefined && el.getAttribute(attrName) !== expectedVal) return false;
+                    }
+                    s = s.replace(am, '');
+                }
+            }
+
+            const idMatches = s.match(/#([a-zA-Z0-9_-]+)/g);
+            if (idMatches) {
+                for (const im of idMatches) {
+                    if (el.id !== im.slice(1)) return false;
+                    s = s.replace(im, '');
+                }
+            }
+
+            const classMatches = s.match(/\.([a-zA-Z0-9_-]+)/g);
+            if (classMatches) {
+                for (const cm of classMatches) {
+                    const hasCls = el.classList?.contains ? el.classList.contains(cm.slice(1)) : el.classList?.has?.(cm.slice(1));
+                    if (!hasCls) return false;
+                    s = s.replace(cm, '');
+                }
+            }
+
+            s = s.trim();
+            if (s && s !== '*') {
+                if (el.tagName !== s.toUpperCase()) return false;
+            }
+            return true;
         };
 
         const traverse = (el) => {
             for (const child of el.children) {
-                if (match(child)) results.push(child);
+                if (parts.length === 1) {
+                    if (matchesSingle(child, parts[0])) results.push(child);
+                } else {
+                    if (matchesSingle(child, parts[parts.length - 1])) {
+                        let ancestor = child.parentElement;
+                        let matched = false;
+                        while (ancestor && ancestor !== el.parentElement) {
+                            if (matchesSingle(ancestor, parts[0])) {
+                                matched = true;
+                                break;
+                            }
+                            ancestor = ancestor.parentElement;
+                        }
+                        if (matched) results.push(child);
+                    }
+                }
                 traverse(child);
             }
         };
@@ -745,6 +799,9 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     updateCardLayout,
                     highlightSingleCard,
                     hasUnmarkedCalendarEvents,
+                    hasUnenhancedBuildingEvents,
+                    enhanceBuildingNames,
+                    setBuildingMap: (map) => { buildingMap = map; },
                     handleMainDomMutations,
                     CLASS_MSE_SEARCH_FILTERING_ACTIVE
                 };
@@ -930,6 +987,65 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             // Проверяем, что подсветка восстановилась СИНХРОННО (без ожидания таймеров)
             assert.strictEqual(card.classList.contains('search-highlight'), true, 'Класс search-highlight должен выставиться синхронно');
             assert.ok(card.querySelector('.mse-event-match-tooltip'), 'Бейдж должен смонтироваться синхронно');
+        });
+
+        test('hasUnenhancedBuildingEvents: определяет появление карточек без атрибута data-mse-buildings-enhanced="1"', () => {
+            const unmarkedCard = env.document.createElement('div');
+            unmarkedCard.className = 'fc-time-grid-event';
+
+            const markedCard = env.document.createElement('div');
+            markedCard.className = 'fc-time-grid-event';
+            markedCard.setAttribute('data-mse-buildings-enhanced', '1');
+
+            assert.strictEqual(hooks.hasUnenhancedBuildingEvents([{ addedNodes: [unmarkedCard] }]), true);
+            assert.strictEqual(hooks.hasUnenhancedBuildingEvents([{ addedNodes: [markedCard] }]), false);
+            assert.strictEqual(hooks.hasUnenhancedBuildingEvents([{ addedNodes: [] }]), false);
+        });
+
+        test('enhanceBuildingNames: подменяет коды корпусов на понятные названия и маркирует карточки атрибутом data-mse-buildings-enhanced="1"', () => {
+            hooks.setBuildingMap({ '05': 'ул. Перекопская, 15а' });
+
+            const card = env.document.createElement('div');
+            card.className = 'fc-time-grid-event';
+
+            const timeDiv = env.document.createElement('div');
+            timeDiv.className = 'fc-time';
+
+            const buildingSmall = env.document.createElement('small');
+            buildingSmall.className = 'text-muted';
+            buildingSmall.textContent = 'Корпус-05, Ауд. 302';
+            timeDiv.appendChild(buildingSmall);
+            card.appendChild(timeDiv);
+            env.document.body.appendChild(card);
+
+            hooks.enhanceBuildingNames();
+
+            assert.strictEqual(buildingSmall.textContent, 'ул. Перекопская, 15а, Ауд. 302');
+            assert.strictEqual(buildingSmall.getAttribute('data-enhanced-building'), 'true');
+            assert.strictEqual(card.getAttribute('data-mse-buildings-enhanced'), '1');
+        });
+
+        test('handleMainDomMutations: синхронно подменяет названия корпусов при добавлении карточек даже без выбранных друзей (selectedStudents.size === 0)', () => {
+            hooks.setBuildingMap({ '01': 'ул. Ленина, 16' });
+            hooks.selectedStudents.clear();
+
+            const card = env.document.createElement('div');
+            card.className = 'fc-time-grid-event';
+
+            const timeDiv = env.document.createElement('div');
+            timeDiv.className = 'fc-time';
+
+            const buildingSmall = env.document.createElement('small');
+            buildingSmall.className = 'text-muted';
+            buildingSmall.textContent = 'Корпус-01';
+            timeDiv.appendChild(buildingSmall);
+            card.appendChild(timeDiv);
+            env.document.body.appendChild(card);
+
+            hooks.handleMainDomMutations([{ addedNodes: [card] }]);
+
+            assert.strictEqual(buildingSmall.textContent, 'ул. Ленина, 16', 'Название корпуса должно быть подменено синхронно');
+            assert.strictEqual(card.getAttribute('data-mse-buildings-enhanced'), '1', 'Карточка должна быть промаркирована как обработанная');
         });
     });
 
