@@ -473,11 +473,14 @@
     const SEARCH_SUGGESTIONS_LIMIT = 7;                   // Максимум подсказок студентов в поиске
     const PE_SCHEDULE_DAYS = 21;                          // Горизонт дней для расписания физкультуры
     const CALENDAR_ATTENDEES_CONCURRENCY = 5;             // Максимум параллельных запросов участников занятий
+    const CALENDAR_CACHE_TTL_MS = 20 * 60 * 1000;         // TTL кэша расписания недели (20 минут)
+    const CALENDAR_CACHE_MAX_ENTRIES = 100;               // Лимит записей кэша расписания (защита от утечек в Session Keeper)
 
     // Классы и идентификаторы элементов DOM
     const CLASS_MSE_ACTIVE = 'mse-active';
     const CLASS_MSE_SEARCH_FILTERING_ACTIVE = 'mse-search-filtering-active';
     const CLASS_SHORT_CARD = 'mse-short-card';
+    const CLASS_TITLE_CLIPPED = 'mse-title-clipped';
     const CLASS_NATIVE_POPOVER_SHARED = 'mse-native-popover-shared';
     const SHORT_CARD_MAX_HEIGHT_PX = 54;
     const BANNER_HEIGHT_PX = 19;
@@ -540,6 +543,7 @@
     let selectedStudents = new Set();
     let activeSuggestionIndex = -1;
     const attendeesMemoryCache = new Map();
+    const weekEventsCache = new Map();
     let lastActiveCalendarPersonId = null;
     let latestKnownUpdate = null;
     let nativePopoverObserver = null;
@@ -1901,6 +1905,7 @@
         qs(`#${ID_SMART_PICKER_BANNER}`)?.remove();
 
         attendeesMemoryCache.clear();
+        weekEventsCache.clear();
         eventCache.clear();
         uniqueStudents.clear();
         lastSearchResults.clear();
@@ -2032,6 +2037,19 @@
         return estimatedBannerTop >= titleRect.bottom + BANNER_SAFETY_MARGIN_PX;
     };
 
+    const isTitleOverlappingWithBanner = (cardElement, isCompact, isShort) => {
+        if (!isCompact || !cardElement) return false;
+        const title = cardElement.querySelector('.fc-title');
+        if (!title) return false;
+
+        const titleRect = title.getBoundingClientRect();
+        const cardRect = cardElement.getBoundingClientRect();
+        const safetyMargin = isShort ? 1 : BANNER_SAFETY_MARGIN_PX;
+        const estimatedBannerTop = cardRect.bottom - BANNER_HEIGHT_PX - safetyMargin;
+
+        return estimatedBannerTop < titleRect.bottom - 4;
+    };
+
     const SVG_USERS_BADGE = getSvgIcon('users', { size: 11, strokeWidth: 2, style: 'flex-shrink: 0;' });
 
     const extractSurname = (fullName) => {
@@ -2065,7 +2083,15 @@
         }
 
         const isCompact = short || !doesExpandedBannerFit(cardElement);
-        const renderKey = `${isCompact ? 'c' : 'e'}:${matchedStudents.join('|')}`;
+        const isTitleOverlapping = isTitleOverlappingWithBanner(cardElement, isCompact, short);
+
+        if (isTitleOverlapping) {
+            cardElement.classList.add(CLASS_TITLE_CLIPPED);
+        } else {
+            cardElement.classList.remove(CLASS_TITLE_CLIPPED);
+        }
+
+        const renderKey = `${isCompact ? (isTitleOverlapping ? 'c:o' : 'c') : 'e'}:${matchedStudents.join('|')}`;
         const currentRenderKey = banner.dataset?.mseRenderKey || banner.getAttribute('data-mse-render-key');
 
         if (currentRenderKey === renderKey) {
@@ -2180,7 +2206,7 @@
     };
 
     const clearCardHighlight = (card) => {
-        card.classList.remove('search-highlight', 'search-fade', CLASS_SHORT_CARD);
+        card.classList.remove('search-highlight', 'search-fade', CLASS_SHORT_CARD, CLASS_TITLE_CLIPPED);
         card.removeAttribute('title');
         card.querySelectorAll('.mse-event-match-tooltip').forEach(el => el.remove());
     };
@@ -2461,6 +2487,98 @@
         return null;
     }
 
+    const saveWeekEventsToCache = (cacheKey, eventsData) => {
+        if (!cacheKey || !eventsData) return;
+        if (weekEventsCache.has(cacheKey)) {
+            weekEventsCache.delete(cacheKey);
+        } else if (weekEventsCache.size >= CALENDAR_CACHE_MAX_ENTRIES) {
+            const oldestKey = weekEventsCache.keys().next().value;
+            weekEventsCache.delete(oldestKey);
+        }
+        weekEventsCache.set(cacheKey, { eventsData, timestamp: Date.now() });
+    };
+
+    const getWeekEventsFromCache = (cacheKey) => {
+        if (!cacheKey) return null;
+        const entry = weekEventsCache.get(cacheKey);
+        if (!entry) return null;
+        if (Date.now() - entry.timestamp > CALENDAR_CACHE_TTL_MS) {
+            weekEventsCache.delete(cacheKey);
+            return null;
+        }
+        weekEventsCache.delete(cacheKey);
+        weekEventsCache.set(cacheKey, entry);
+        return entry.eventsData;
+    };
+
+    const parseWeekRangeFromDateString = (dateStr) => {
+        if (typeof dateStr !== 'string') return null;
+        const parts = dateStr.trim().split('-');
+        if (parts.length !== 3) return null;
+        const year = Number(parts[0]);
+        const month = Number(parts[1]);
+        const day = Number(parts[2]);
+        if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+        const targetDate = new Date(Date.UTC(year, month - 1, day));
+        if (isNaN(targetDate.getTime())) return null;
+
+        const dayOfWeek = targetDate.getUTCDay();
+        const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+
+        const mondayDate = new Date(targetDate);
+        mondayDate.setUTCDate(targetDate.getUTCDate() + diffToMonday);
+
+        const sundayDate = new Date(mondayDate);
+        sundayDate.setUTCDate(mondayDate.getUTCDate() + 6);
+
+        const formatUtcYmd = (d) => {
+            const y = d.getUTCFullYear();
+            const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+            const dayNum = String(d.getUTCDate()).padStart(2, '0');
+            return `${y}-${m}-${dayNum}`;
+        };
+
+        const mondayYmd = formatUtcYmd(mondayDate);
+        const sundayYmd = formatUtcYmd(sundayDate);
+
+        return {
+            timeMin: `${mondayYmd}T00:00:00Z`,
+            timeMax: `${sundayYmd}T23:59:59Z`,
+            mondayYmd,
+            sundayYmd
+        };
+    };
+
+    const getWeekTimeRange = (calendarParam) => {
+        if (calendarParam) {
+            try {
+                const parsed = JSON.parse(calendarParam);
+                if (parsed && typeof parsed.date === 'string') {
+                    const range = parseWeekRangeFromDateString(parsed.date);
+                    if (range) return range;
+                }
+            } catch (e) {
+                // Игнорируем ошибку парсинга, используем фолбэк на DOM
+            }
+        }
+
+        const dateHeaders = qsa('.fc-day-header[data-date]');
+        if (dateHeaders.length >= 1) {
+            const mondayYmd = dateHeaders[0].getAttribute('data-date');
+            const sundayYmd = dateHeaders[dateHeaders.length - 1].getAttribute('data-date');
+            return {
+                timeMin: `${mondayYmd}T00:00:00Z`,
+                timeMax: `${sundayYmd}T23:59:59Z`,
+                mondayYmd,
+                sundayYmd
+            };
+        }
+
+        return null;
+    };
+
     const loadAllData = async () => {
         const statusEl = qs('#search-status');
         const controlsEl = qs('#search-controls');
@@ -2478,32 +2596,42 @@
             const activePersonId = getActiveCalendarPersonId(myJwtPersonId);
             if (activePersonId !== lastActiveCalendarPersonId) {
                 attendeesMemoryCache.clear();
+                weekEventsCache.clear();
                 lastActiveCalendarPersonId = activePersonId;
             }
 
-            const dateHeaders = qsa('.fc-day-header[data-date]');
-            if (dateHeaders.length < 1) {
+            const calendarParam = new URL(window.location.href).searchParams.get('calendar');
+            const weekRange = getWeekTimeRange(calendarParam);
+            if (!weekRange) {
                 if (statusEl) statusEl.textContent = 'Календарь не загружен.';
                 if (controlsEl) controlsEl.style.display = 'flex';
                 return;
             }
 
-            const timeMin = `${dateHeaders[0].getAttribute('data-date')}T00:00:00Z`;
-            const timeMax = `${dateHeaders[dateHeaders.length - 1].getAttribute('data-date')}T23:59:59Z`;
+            const { timeMin, timeMax, mondayYmd } = weekRange;
+            const weekCacheKey = `${activePersonId}_${mondayYmd}`;
+            let eventsData = getWeekEventsFromCache(weekCacheKey);
+            let fromWeekCache = false;
 
-            if (statusEl) statusEl.textContent = '1/2: Загрузка событий...';
+            if (eventsData) {
+                fromWeekCache = true;
+            } else {
+                if (statusEl) statusEl.textContent = '1/2: Загрузка событий...';
 
-            // Запрашиваем события именно того человека, чей календарь открыт на экране!
-            const eventsResponse = await fetch(API_CALENDAR_SEARCH, {
-                method: "POST",
-                headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
-                body: JSON.stringify({ size: 500, timeMin, timeMax, attendeePersonId: [activePersonId] })
-            });
+                // Запрашиваем события именно того человека, чей календарь открыт на экране!
+                const eventsResponse = await fetch(API_CALENDAR_SEARCH, {
+                    method: "POST",
+                    headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
+                    body: JSON.stringify({ size: 500, timeMin, timeMax, attendeePersonId: [activePersonId] })
+                });
 
-            if (!eventsResponse.ok) throw new Error(`Ошибка API (события): ${eventsResponse.status}`);
-            const eventsData = await eventsResponse.json();
+                if (!eventsResponse.ok) throw new Error(`Ошибка API (события): ${eventsResponse.status}`);
+                eventsData = await eventsResponse.json();
+                saveWeekEventsToCache(weekCacheKey, eventsData);
+            }
+
             const events = eventsData._embedded?.events || [];
-            logger.calendar(`Этап 1: загружено ${events.length} событий на неделю (${timeMin.slice(0, 10)} — ${timeMax.slice(0, 10)})`);
+            logger.calendar(`Этап 1: загружено ${events.length} событий на неделю (${timeMin.slice(0, 10)} — ${timeMax.slice(0, 10)})${fromWeekCache ? ' (из памяти)' : ''}`);
 
             if (events.length === 0) {
                 if (statusEl) statusEl.textContent = 'Событий на неделе нет.';
@@ -2515,7 +2643,7 @@
 
             const courseUnits = eventsData._embedded?.['course-unit-realizations'] || [];
             const courseUnitMap = new Map(courseUnits.map(courseUnit => [courseUnit.id, courseUnit.nameShort]));
-            if (statusEl) statusEl.textContent = `2/2: Загрузка студентов (0/${events.length})`;
+            if (statusEl && !fromWeekCache) statusEl.textContent = `2/2: Загрузка студентов (0/${events.length})`;
 
             eventCache.clear();
             uniqueStudents.clear();
@@ -2541,7 +2669,7 @@
                 }
             });
 
-            if (statusEl && loadedCount > 0) statusEl.textContent = `2/2: Загрузка студентов (${loadedCount}/${events.length})`;
+            if (statusEl && loadedCount > 0 && !fromWeekCache) statusEl.textContent = `2/2: Загрузка студентов (${loadedCount}/${events.length})`;
 
             const fetchedResults = await runWithConcurrency(fetchTasks, CALENDAR_ATTENDEES_CONCURRENCY);
             const allResults = [...cachedResults, ...fetchedResults];
@@ -3965,9 +4093,7 @@
             } else if (lastCalendarParam && lastCalendarParam !== calendarParam) {
                 // Если переключили неделю расписания
                 lastCalendarParam = calendarParam;
-                setTimeout(() => {
-                    loadAllData();
-                }, 400);
+                loadAllData();
             } else {
                 if (activePersonId && lastActiveCalendarPersonId === null) {
                     lastActiveCalendarPersonId = activePersonId;
@@ -4055,6 +4181,7 @@
 
         qs('#refresh-data-btn').addEventListener('click', () => {
             attendeesMemoryCache.clear();
+            weekEventsCache.clear();
             loadAllData();
         });
         qs('#student-search-input').addEventListener('input', updateSuggestions);
@@ -5102,7 +5229,7 @@
 
     history.pushState = function (...args) {
         nativePushState.apply(history, args);
-        setTimeout(processUrlChange, 100);
+        processUrlChange();
     };
     window.addEventListener('popstate', processUrlChange);
     processUrlChange();

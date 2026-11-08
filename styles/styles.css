@@ -453,7 +453,17 @@ body.mse-active {
         text-overflow: ellipsis !important;
         font-size: 12.5px !important;
         line-height: 16.25px !important;
-        min-height: 32.5px !important;
+        min-height: 16px !important;
+    }
+
+    /* Однострочное обрезание с троеточием перед компактной капсулой при физической коллизии по Y */
+    .fc-time-grid-event.search-highlight.mse-title-clipped .fc-title {
+        padding-right: 38px !important;
+        -webkit-line-clamp: 1 !important;
+        line-clamp: 1 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }
 
     /* Оптимизация коротких карточек и компактный чип-бейдж (для слотов ≤ 54px: 8-я пара LXP, узкие карточки) */
