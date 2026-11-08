@@ -24,10 +24,10 @@ jobs:
       # Шаг 3 требует запущенного браузера с открытым портом отладки DevTools Protocol (CDP)
       - name: Start Headless Chrome for CDP Layout Tests
         run: |
-          google-chrome --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --user-data-dir=/tmp/chrome-debug --remote-allow-origins=* --remote-debugging-address=127.0.0.1 --window-size=1280,800 --remote-debugging-port=9222 about:blank >/tmp/chrome.log 2>&1 &
-          for i in {1..30}; do
+          DBUS_SESSION_BUS_ADDRESS=/dev/null google-chrome --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run --no-default-browser-check --disable-background-networking --disable-sync --user-data-dir=/tmp/chrome-debug --remote-allow-origins=* --remote-debugging-address=127.0.0.1 --window-size=1280,800 --remote-debugging-port=9222 about:blank >/tmp/chrome.log 2>&1 &
+          for i in {1..60}; do
             curl -sf http://127.0.0.1:9222/json/version && break
-            sleep 0.2
+            sleep 0.25
           done
 
       # Прогон всех трёх тестовых наборов:
