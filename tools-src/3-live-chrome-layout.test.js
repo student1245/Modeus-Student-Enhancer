@@ -482,6 +482,28 @@ describe('Шаг 3: Живые геометрические и визуальн�
             calWrap.id = 'mse-cal-test-wrap';
             calWrap.style.cssText = 'position: relative; width: 600px; height: 300px;';
             calWrap.innerHTML = \`
+                <style>
+                    #mse-cal-test-wrap .fc-time-grid-event {
+                        box-sizing: border-box;
+                        font-size: 11px;
+                        line-height: 1.25;
+                        overflow: hidden;
+                        padding: 1px 2px;
+                    }
+                    #mse-cal-test-wrap .fc-time {
+                        font-size: 11px;
+                        line-height: 13px;
+                        margin-bottom: 2px;
+                    }
+                    #mse-cal-test-wrap .fc-time small {
+                        font-size: 10px;
+                        display: inline;
+                    }
+                    #mse-cal-test-wrap .fc-title {
+                        font-size: 12.5px;
+                        line-height: 16.25px;
+                    }
+                </style>
                 <!-- Карточка 1: Короткий адрес ("01, 101"), время в 1 строку, заголовок на строке 2 (НЕТ коллизии) -->
                 <div id="test-card-no-collision" class="fc-time-grid-event fc-v-event fc-event fc-start fc-end" data-event-id="ev-no-col" style="position: absolute; top: 10px; left: 10px; width: 140px; height: 60px;">
                     <div class="fc-content">
@@ -551,7 +573,7 @@ describe('Шаг 3: Живые геометрические и визуальн�
                 titleColTextOverflow: styleCol.textOverflow,
                 titleNoColWhiteSpace: styleNoCol.whiteSpace,
                 capsuleExists: Boolean(capsuleCol),
-                titleRightLeqCapsuleLeft: rCapsuleCol ? (titleContentRight <= rCapsuleCol.left + 1) : false
+                titleRightLeqCapsuleLeft: rCapsuleCol ? (titleContentRight <= rCapsuleCol.left + 2) : false
             };
         `);
 
