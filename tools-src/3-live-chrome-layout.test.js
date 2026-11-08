@@ -134,7 +134,13 @@ function prepareInjectedWithHooks() {
     const raw = readProjectFile('src/injected.js');
     const hook = `
     if (typeof window !== 'undefined') {
-        window.__MSE_INJECTED_DEV__ = { setupUI };
+        window.__MSE_INJECTED_DEV__ = {
+            setupUI,
+            highlightEventsForStudents,
+            selectedStudents,
+            eventCache,
+            uniqueStudents
+        };
     }`;
     return raw.replace(/\}\)\(\);\s*$/, `\n${hook}\n})();`);
 }
@@ -462,5 +468,105 @@ describe('Шаг 3: Живые геометрические и визуальн�
 
         // На странице не произошло ни одной runtime-ошибки
         assert.deepStrictEqual(metrics.runtimeErrors, [], 'В консоли браузера не должно быть runtime-ошибок');
+    });
+
+    test('7. Карточки календаря: динамическая детекция коллизии заголовка и компактной капсулы (.mse-title-clipped)', async (t) => {
+        if (!chromeOnline) {
+            t.skip('Debug Chrome недоступен на порту 9222. Тест пропущен.');
+            return;
+        }
+
+        const metrics = await cdp.evaluateExpression(`
+            // Монтируем реальный фрагмент календаря FullCalendar
+            const calWrap = document.createElement('div');
+            calWrap.id = 'mse-cal-test-wrap';
+            calWrap.style.cssText = 'position: relative; width: 600px; height: 300px;';
+            calWrap.innerHTML = \`
+                <!-- Карточка 1: Короткий адрес ("01, 101"), время в 1 строку, заголовок на строке 2 (НЕТ коллизии) -->
+                <div id="test-card-no-collision" class="fc-time-grid-event fc-v-event fc-event fc-start fc-end" data-event-id="ev-no-col" style="position: absolute; top: 10px; left: 10px; width: 140px; height: 60px;">
+                    <div class="fc-content">
+                        <div class="fc-time">
+                            <span>10:15 - 11:45</span>
+                            <small class="text-muted">01, 101</small>
+                        </div>
+                        <div class="fc-title">АЯ-Intl / Практика</div>
+                    </div>
+                </div>
+
+                <!-- Карточка 2: Длинный адрес ("ул. Перекопская, 15а, Ауд. 302"), время переносится на 2 строки, выталкивая заголовок на строку 3 на уровень капсулы (ЕСТЬ коллизия) -->
+                <div id="test-card-collision" class="fc-time-grid-event fc-v-event fc-event fc-start fc-end" data-event-id="ev-col" style="position: absolute; top: 10px; left: 180px; width: 140px; height: 60px;">
+                    <div class="fc-content">
+                        <div class="fc-time">
+                            <span>10:15 - 11:45</span>
+                            <small class="text-muted">ул. Перекопская, 15а, Ауд. 302</small>
+                        </div>
+                        <div class="fc-title">АЦУиОС / Лабораторная работа</div>
+                    </div>
+                </div>
+            \`;
+            document.body.appendChild(calWrap);
+
+            // Настраиваем кэш и данные участников
+            const dev = window.__MSE_INJECTED_DEV__;
+            dev.uniqueStudents.set('Иванов Иван', { id: 'p-ivan', fullName: 'Иванов Иван' });
+            dev.eventCache.set('ev-no-col', {
+                name: 'АЯ-Intl / Практика',
+                fullDisplayName: 'АЯ-Intl / Практика',
+                startsAtLocal: '10:15',
+                attendees: new Set(['Иванов Иван'])
+            });
+            dev.eventCache.set('ev-col', {
+                name: 'АЦУиОС / Лабораторная работа',
+                fullDisplayName: 'АЦУиОС / Лабораторная работа',
+                startsAtLocal: '10:15',
+                attendees: new Set(['Иванов Иван'])
+            });
+
+            dev.selectedStudents.clear();
+            dev.selectedStudents.add('Иванов Иван');
+
+            // Запускаем реальный пайплайн подсветки событий расширения
+            dev.highlightEventsForStudents();
+
+            const cardNoCol = document.getElementById('test-card-no-collision');
+            const cardCol = document.getElementById('test-card-collision');
+
+            const titleNoCol = cardNoCol.querySelector('.fc-title');
+            const titleCol = cardCol.querySelector('.fc-title');
+            const capsuleCol = cardCol.querySelector('.mse-compact-capsule');
+
+            const styleCol = getComputedStyle(titleCol);
+            const styleNoCol = getComputedStyle(titleNoCol);
+
+            const rCardCol = cardCol.getBoundingClientRect();
+            const rTitleCol = titleCol.getBoundingClientRect();
+            const rCapsuleCol = capsuleCol ? capsuleCol.getBoundingClientRect() : null;
+            const titleContentRight = rTitleCol.right - parseFloat(styleCol.paddingRight || '0');
+
+            return {
+                cardNoColHasClass: cardNoCol.classList.contains('mse-title-clipped'),
+                cardColHasClass: cardCol.classList.contains('mse-title-clipped'),
+                titleColPaddingRight: styleCol.paddingRight,
+                titleColWhiteSpace: styleCol.whiteSpace,
+                titleColTextOverflow: styleCol.textOverflow,
+                titleNoColWhiteSpace: styleNoCol.whiteSpace,
+                capsuleExists: Boolean(capsuleCol),
+                titleRightLeqCapsuleLeft: rCapsuleCol ? (titleContentRight <= rCapsuleCol.left + 1) : false
+            };
+        `);
+
+        // 1. На карточке с коллизией (АЦУиОС) выставился класс mse-title-clipped
+        assert.strictEqual(metrics.cardColHasClass, true, 'Карточка с вытесненным заголовком должна получить класс mse-title-clipped');
+        assert.strictEqual(metrics.titleColPaddingRight, '38px', 'Заголовок должен иметь padding-right 38px');
+        assert.strictEqual(metrics.titleColWhiteSpace, 'nowrap', 'Заголовок должен обрезаться в одну строку (white-space: nowrap)');
+        assert.strictEqual(metrics.titleColTextOverflow, 'ellipsis', 'Текст заголовка должен оканчиваться троеточием');
+
+        // 2. На карточке без коллизии (АЯ-Intl) класс mse-title-clipped НЕ выставляется
+        assert.strictEqual(metrics.cardNoColHasClass, false, 'Карточка со свободным заголовком не должна иметь mse-title-clipped');
+        assert.notStrictEqual(metrics.titleNoColWhiteSpace, 'nowrap', 'Свободный заголовок не должен принудительно обрезаться в одну строку');
+
+        // 3. Реальный геометрический инвариант движка Blink: текст заголовка не перекрывает капсулу
+        assert.strictEqual(metrics.capsuleExists, true, 'Компактная капсула должна быть смонтирована');
+        assert.strictEqual(metrics.titleRightLeqCapsuleLeft, true, 'Текст заголовка не должен пересекаться с капсулой по горизонтали');
     });
 });

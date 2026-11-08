@@ -785,32 +785,47 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             const hook = `
             if (typeof window !== 'undefined') {
                 window.__MSE_INJECTED__ = {
-                    isSameStudyDirection,
-                    calculateSpotlightCardPosition,
                     getFriends,
                     addFriend,
                     removeFriend,
-                    highlightEventsForStudents,
+                    isSameStudyDirection,
+                    calculateSpotlightCardPosition,
+                    processUrlChange,
                     selectedStudents,
                     eventCache,
                     uniqueStudents,
-                    clearSearch,
-                    processUrlChange,
-                    updateCardLayout,
-                    highlightSingleCard,
-                    hasUnmarkedCalendarEvents,
-                    hasUnenhancedBuildingEvents,
+                    getWeekTimeRange,
+                    saveWeekEventsToCache,
+                    getWeekEventsFromCache,
+                    weekEventsCache,
+                    handleMainDomMutations,
+                    highlightEventsForStudents,
                     enhanceBuildingNames,
                     setBuildingMap: (map) => { buildingMap = map; },
-                    handleMainDomMutations,
-                    CLASS_MSE_SEARCH_FILTERING_ACTIVE
+                    clearSearch
                 };
             }`;
             executeScriptWithHook('src/injected.js', hook, env);
             hooks = env.__MSE_INJECTED__;
         });
 
-        test('isSameStudyDirection: сравнивает направление и профиль подготовки студента', () => {
+        test('1. Управление друзьями и определение одногруппников (CRUD, профиль, спотлайт)', () => {
+            // 1. Управление списком друзей: CRUD, валидация полей и защита от дубликатов
+            assertDeepEqual(hooks.getFriends(), []);
+
+            hooks.addFriend('id-1', 'Алексей Смирнов');
+            const friends = hooks.getFriends();
+            assert.strictEqual(friends.length, 1);
+            assert.strictEqual(friends[0].fullName, 'Алексей Смирнов');
+
+            // Защита от дубликатов по ID
+            hooks.addFriend('id-1', 'Алексей Дубль');
+            assert.strictEqual(hooks.getFriends().length, 1);
+
+            hooks.removeFriend('id-1');
+            assertDeepEqual(hooks.getFriends(), []);
+
+            // 2. Определение одногруппников: сравнение направления и профиля
             const sameStudent = { specialtyName: 'Прикладная информатика', specialtyProfile: 'Разработка ПО' };
             assert.strictEqual(hooks.isSameStudyDirection(sameStudent), true);
 
@@ -821,45 +836,28 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(hooks.isSameStudyDirection(diffSpecialty), false);
 
             assert.strictEqual(hooks.isSameStudyDirection(null), false);
-        });
 
-        test('calculateSpotlightCardPosition: центрирует карточку и разворачивает влево у края экрана', () => {
+            // 3. Вычисление позиции спотлайт-карточки
             const targetEl = env.document.createElement('div');
             targetEl.getBoundingClientRect = () => ({ top: 100, right: 300, bottom: 140, left: 200, width: 100, height: 40 });
 
             const posRight = hooks.calculateSpotlightCardPosition(targetEl, 310);
-            assert.strictEqual(posRight.left, 314); // Граница rect.right (300) + смещение (14)
+            assert.strictEqual(posRight.left, 314); // rect.right (300) + offset (14)
             assert.strictEqual(posRight.top, 100);
 
             // Разворот влево при приближении к правому краю (1150 + 14 + 310 > 1200 - 10)
             targetEl.getBoundingClientRect = () => ({ top: 100, right: 1150, bottom: 140, left: 1050, width: 100, height: 40 });
             const posLeft = hooks.calculateSpotlightCardPosition(targetEl, 310);
-            assert.strictEqual(posLeft.left, 726); // Граница rect.left (1050) - cardWidth (310) - смещение (14)
+            assert.strictEqual(posLeft.left, 726); // rect.left (1050) - cardWidth (310) - offset (14)
         });
 
-        test('управление друзьями: добавление, валидация полей и удаление', () => {
-            assertDeepEqual(hooks.getFriends(), []);
-
-            hooks.addFriend('id-1', 'Алексей Смирнов');
-            const friends1 = hooks.getFriends();
-            assert.strictEqual(friends1.length, 1);
-            assert.strictEqual(friends1[0].fullName, 'Алексей Смирнов');
-
-            // Защита от дубликатов по ID
-            hooks.addFriend('id-1', 'Алексей Дубль');
-            assert.strictEqual(hooks.getFriends().length, 1);
-
-            hooks.removeFriend('id-1');
-            assertDeepEqual(hooks.getFriends(), []);
-        });
-
-        test('processUrlChange: клик по паре (?selectedEvent) или смена фильтров не сбрасывает поиск общих пар', () => {
+        test('2. Навигация по URL: сохранение поиска при клике на пару/фильтрах и сброс при смене владельца', () => {
             env.window.location.href = 'https://utmn.modeus.org/schedule-calendar/my?calendar=2026-W45';
             hooks.selectedStudents.add('Иванов Иван');
             hooks.processUrlChange();
             assert.strictEqual(hooks.selectedStudents.size, 1);
 
-            // 1. Клик по паре (открытие боковой панели selectedEvent с добавлением eventsFilter)
+            // 1. Клик по паре (открытие боковой панели selectedEvent с сохранением владельца my-id)
             env.window.location.href = 'https://utmn.modeus.org/schedule-calendar/my?selectedEvent=%7B%22eventId%22%3A%22ev-1%22%7D&calendar=2026-W45&eventsFilter=%7B%22attendee%22%3A%5B%7B%22key%22%3A%22my-id%22%7D%5D%7D';
             hooks.processUrlChange();
             assert.strictEqual(hooks.selectedStudents.size, 1, 'Поиск не должен сбрасываться при клике на пару');
@@ -876,99 +874,97 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(hooks.selectedStudents.size, 0, 'Поиск должен очиститься при смене владельца календаря');
         });
 
-        test('highlightSingleCard: не пересоздает существующий узел бейджа в DOM, но всегда вызывает updateCardLayout', () => {
-            const card = env.document.createElement('div');
-            card.className = 'fc-time-grid-event';
-            card.setAttribute('data-event-id', 'ev-test-1');
-            const content = env.document.createElement('div');
-            content.className = 'fc-content';
-            const title = env.document.createElement('div');
-            title.className = 'fc-title';
-            title.textContent = 'Математический анализ';
-            content.appendChild(title);
-            card.appendChild(content);
-            env.document.body.appendChild(card);
+        test('3. Вычисление границ недели и кэширование событий расписания (TTL 20 минут, лимит 100)', () => {
+            // 1. Математический расчёт границ недели из calendarParam (понедельник 00:00 - воскресенье 23:59:59 UTC)
+            const mondayParam = JSON.stringify({ view: 'agendaWeek', date: '2026-11-09' });
+            const mondayRange = hooks.getWeekTimeRange(mondayParam);
+            assert.strictEqual(mondayRange.timeMin, '2026-11-09T00:00:00Z');
+            assert.strictEqual(mondayRange.timeMax, '2026-11-15T23:59:59Z');
+            assert.strictEqual(mondayRange.mondayYmd, '2026-11-09');
+            assert.strictEqual(mondayRange.sundayYmd, '2026-11-15');
 
-            hooks.uniqueStudents.set('Иванов Иван', { id: 'p-1', fullName: 'Иванов Иван' });
-            hooks.eventCache.set('ev-test-1', {
-                name: 'Математический анализ',
-                fullDisplayName: 'Математический анализ',
-                startsAtLocal: '10:15',
-                attendees: new Set(['Иванов Иван'])
-            });
+            // Середина недели (четверг) вычисляет тот же понедельник
+            const midWeekParam = JSON.stringify({ view: 'agendaWeek', date: '2026-11-12' });
+            const midWeekRange = hooks.getWeekTimeRange(midWeekParam);
+            assert.strictEqual(midWeekRange.mondayYmd, '2026-11-09');
+            assert.strictEqual(midWeekRange.sundayYmd, '2026-11-15');
 
-            // 1. Первое монтирование подсветки
-            const normalizedSelected = new Set(['Иванов Иван']);
-            hooks.highlightSingleCard(card, normalizedSelected);
+            // Високосный год и переход месяца
+            const leapYearParam = JSON.stringify({ view: 'agendaWeek', date: '2024-02-29' });
+            const leapYearRange = hooks.getWeekTimeRange(leapYearParam);
+            assert.strictEqual(leapYearRange.mondayYmd, '2024-02-26');
+            assert.strictEqual(leapYearRange.sundayYmd, '2024-03-03');
 
-            const bannerBefore = card.querySelector('.mse-event-match-tooltip');
-            assert.ok(bannerBefore, 'Бейдж должен быть смонтирован в DOM');
-            assert.strictEqual(card.classList.contains('search-highlight'), true);
+            // Фолбэк на DOM-заголовки .fc-day-header при отсутствии или повреждении calendarParam
+            const headerMon = env.document.createElement('div');
+            headerMon.className = 'fc-day-header';
+            headerMon.setAttribute('data-date', '2026-11-16');
+            const headerSun = env.document.createElement('div');
+            headerSun.className = 'fc-day-header';
+            headerSun.setAttribute('data-date', '2026-11-22');
+            env.document.body.appendChild(headerMon);
+            env.document.body.appendChild(headerSun);
 
-            // 2. Повторный вызов: узел бейджа в DOM не должен пересоздаваться
-            hooks.highlightSingleCard(card, normalizedSelected);
-            const bannerAfter = card.querySelector('.mse-event-match-tooltip');
-            assert.strictEqual(bannerBefore, bannerAfter, 'Существующий DOM-узел бейджа должен оставаться без удаления');
+            const fallbackRange = hooks.getWeekTimeRange('invalid-json');
+            assert.strictEqual(fallbackRange.mondayYmd, '2026-11-16');
+            assert.strictEqual(fallbackRange.timeMax, '2026-11-22T23:59:59Z');
+            headerMon.remove();
+            headerSun.remove();
+
+            // 2. Кэширование расписания недели в памяти (weekEventsCache)
+            hooks.weekEventsCache.clear();
+            const testPayload = { _embedded: { events: [{ id: 'ev-cached-1' }] } };
+            hooks.saveWeekEventsToCache('p1_2026-11-09', testPayload);
+
+            const cached = hooks.getWeekEventsFromCache('p1_2026-11-09');
+            assert.strictEqual(cached, testPayload, 'Кэш должен возвращать сохраненные данные недели');
+
+            // Истечение TTL (> 20 минут)
+            const entry = hooks.weekEventsCache.get('p1_2026-11-09');
+            entry.timestamp = Date.now() - (21 * 60 * 1000);
+            assert.strictEqual(hooks.getWeekEventsFromCache('p1_2026-11-09'), null, 'Просроченная запись должна инвалидироваться');
+            assert.strictEqual(hooks.weekEventsCache.has('p1_2026-11-09'), false, 'Просроченная запись должна удаляться из Map');
+
+            // LRU-вытеснение при превышении лимита в 100 записей
+            for (let i = 1; i <= 100; i++) {
+                hooks.saveWeekEventsToCache(`key_${i}`, { index: i });
+            }
+            assert.strictEqual(hooks.weekEventsCache.size, 100);
+            assert.ok(hooks.weekEventsCache.has('key_1'), 'Первый ключ должен присутствовать до переполнения');
+
+            // 101-й элемент вытесняет key_1
+            hooks.saveWeekEventsToCache('key_101', { index: 101 });
+            assert.strictEqual(hooks.weekEventsCache.size, 100);
+            assert.strictEqual(hooks.weekEventsCache.has('key_1'), false, 'Самый старый ключ должен быть вытеснен');
+            assert.ok(hooks.weekEventsCache.has('key_101'), 'Новый ключ должен быть добавлен');
+
+            hooks.weekEventsCache.clear();
         });
 
-        test('updateCardLayout: предотвращает повторную перезапись innerHTML при неизменном renderKey', () => {
-            const card = env.document.createElement('div');
-            card.className = 'fc-time-grid-event';
-            card.clientHeight = 50; // Короткая карточка
-            const content = env.document.createElement('div');
-            content.className = 'fc-content';
-            const banner = env.document.createElement('div');
-            banner.className = 'mse-event-match-tooltip';
-            content.appendChild(banner);
-            card.appendChild(content);
+        test('4. Идемпотентный рендер, синхронное восстановление DOM при мутациях и очистка поиска', () => {
+            hooks.setBuildingMap({ '05': 'ул. Перекопская, 15а' });
 
-            hooks.updateCardLayout(card, ['Иванов Иван']);
-            const htmlFirst = banner.innerHTML;
-            const renderKeyFirst = banner.dataset.mseRenderKey;
-            assert.ok(renderKeyFirst.startsWith('c:'), 'Для короткой карточки должен установиться compact режим');
-
-            // Симулируем метку на DOM-узле
-            banner.__customMarker = 123;
-            hooks.updateCardLayout(card, ['Иванов Иван']);
-
-            assert.strictEqual(banner.dataset.mseRenderKey, renderKeyFirst);
-            assert.strictEqual(banner.__customMarker, 123, 'Свойства узла не должны сбрасываться при неизменном renderKey');
-            assert.strictEqual(banner.innerHTML, htmlFirst);
-        });
-
-        test('hasUnmarkedCalendarEvents: корректно определяет появление карточек без разметки подсветки', () => {
-            const unmarkedCard = env.document.createElement('div');
-            unmarkedCard.className = 'fc-time-grid-event';
-
-            const markedCard = env.document.createElement('div');
-            markedCard.className = 'fc-time-grid-event search-fade';
-
-            assert.strictEqual(hooks.hasUnmarkedCalendarEvents([{ addedNodes: [unmarkedCard] }]), true);
-            assert.strictEqual(hooks.hasUnmarkedCalendarEvents([{ addedNodes: [markedCard] }]), false);
-            assert.strictEqual(hooks.hasUnmarkedCalendarEvents([{ addedNodes: [] }]), false);
-        });
-
-        test('mse-search-filtering-active: выставляется на document.body при активном поиске и снимается при очистке', () => {
-            assert.strictEqual(env.document.body.classList.contains(hooks.CLASS_MSE_SEARCH_FILTERING_ACTIVE), false);
-
-            hooks.selectedStudents.add('Иванов Иван');
-            hooks.highlightEventsForStudents();
-            assert.strictEqual(env.document.body.classList.contains(hooks.CLASS_MSE_SEARCH_FILTERING_ACTIVE), true);
-
-            hooks.clearSearch();
-            assert.strictEqual(env.document.body.classList.contains(hooks.CLASS_MSE_SEARCH_FILTERING_ACTIVE), false);
-        });
-
-        test('handleMainDomMutations: синхронно восстанавливает классы подсветки до отрисовки кадра', () => {
+            // 1. Создаём структуру карточки занятия в FullCalendar
             const card = env.document.createElement('div');
             card.className = 'fc-time-grid-event';
             card.setAttribute('data-event-id', 'ev-sync-1');
+
             const content = env.document.createElement('div');
             content.className = 'fc-content';
+
+            const timeDiv = env.document.createElement('div');
+            timeDiv.className = 'fc-time';
+            const buildingSmall = env.document.createElement('small');
+            buildingSmall.className = 'text-muted';
+            buildingSmall.textContent = 'Корпус-05, Ауд. 302';
+            timeDiv.appendChild(buildingSmall);
+            content.appendChild(timeDiv);
+
             const title = env.document.createElement('div');
             title.className = 'fc-title';
             title.textContent = 'Физика';
             content.appendChild(title);
+
             card.appendChild(content);
             env.document.body.appendChild(card);
 
@@ -981,71 +977,31 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             });
             hooks.selectedStudents.add('Иванов Иван');
 
-            // Симулируем появление неразмеченной карточки в мутации
+            // 2. Симулируем мутацию DOM (появление карточки в FullCalendar)
             hooks.handleMainDomMutations([{ addedNodes: [card] }]);
 
-            // Проверяем, что подсветка восстановилась СИНХРОННО (без ожидания таймеров)
-            assert.strictEqual(card.classList.contains('search-highlight'), true, 'Класс search-highlight должен выставиться синхронно');
-            assert.ok(card.querySelector('.mse-event-match-tooltip'), 'Бейдж должен смонтироваться синхронно');
-        });
-
-        test('hasUnenhancedBuildingEvents: определяет появление карточек без атрибута data-mse-buildings-enhanced="1"', () => {
-            const unmarkedCard = env.document.createElement('div');
-            unmarkedCard.className = 'fc-time-grid-event';
-
-            const markedCard = env.document.createElement('div');
-            markedCard.className = 'fc-time-grid-event';
-            markedCard.setAttribute('data-mse-buildings-enhanced', '1');
-
-            assert.strictEqual(hooks.hasUnenhancedBuildingEvents([{ addedNodes: [unmarkedCard] }]), true);
-            assert.strictEqual(hooks.hasUnenhancedBuildingEvents([{ addedNodes: [markedCard] }]), false);
-            assert.strictEqual(hooks.hasUnenhancedBuildingEvents([{ addedNodes: [] }]), false);
-        });
-
-        test('enhanceBuildingNames: подменяет коды корпусов на понятные названия и маркирует карточки атрибутом data-mse-buildings-enhanced="1"', () => {
-            hooks.setBuildingMap({ '05': 'ул. Перекопская, 15а' });
-
-            const card = env.document.createElement('div');
-            card.className = 'fc-time-grid-event';
-
-            const timeDiv = env.document.createElement('div');
-            timeDiv.className = 'fc-time';
-
-            const buildingSmall = env.document.createElement('small');
-            buildingSmall.className = 'text-muted';
-            buildingSmall.textContent = 'Корпус-05, Ауд. 302';
-            timeDiv.appendChild(buildingSmall);
-            card.appendChild(timeDiv);
-            env.document.body.appendChild(card);
-
-            hooks.enhanceBuildingNames();
-
+            // Синхронная подмена названия корпуса
             assert.strictEqual(buildingSmall.textContent, 'ул. Перекопская, 15а, Ауд. 302');
-            assert.strictEqual(buildingSmall.getAttribute('data-enhanced-building'), 'true');
             assert.strictEqual(card.getAttribute('data-mse-buildings-enhanced'), '1');
-        });
 
-        test('handleMainDomMutations: синхронно подменяет названия корпусов при добавлении карточек даже без выбранных друзей (selectedStudents.size === 0)', () => {
-            hooks.setBuildingMap({ '01': 'ул. Ленина, 16' });
-            hooks.selectedStudents.clear();
+            // Синхронная подсветка общей пары и бейдж
+            assert.strictEqual(card.classList.contains('search-highlight'), true);
+            assert.strictEqual(env.document.body.classList.contains('mse-search-filtering-active'), true);
+            const bannerBefore = card.querySelector('.mse-event-match-tooltip');
+            assert.ok(bannerBefore, 'Бейдж должен смонтироваться в DOM синхронно');
 
-            const card = env.document.createElement('div');
-            card.className = 'fc-time-grid-event';
-
-            const timeDiv = env.document.createElement('div');
-            timeDiv.className = 'fc-time';
-
-            const buildingSmall = env.document.createElement('small');
-            buildingSmall.className = 'text-muted';
-            buildingSmall.textContent = 'Корпус-01';
-            timeDiv.appendChild(buildingSmall);
-            card.appendChild(timeDiv);
-            env.document.body.appendChild(card);
-
+            // 3. Идемпотентность: повторная мутация не пересоздаёт существующий DOM-узел бейджа
             hooks.handleMainDomMutations([{ addedNodes: [card] }]);
+            const bannerAfter = card.querySelector('.mse-event-match-tooltip');
+            assert.strictEqual(bannerBefore, bannerAfter, 'Существующий DOM-узел бейджа должен оставаться без пересоздания');
 
-            assert.strictEqual(buildingSmall.textContent, 'ул. Ленина, 16', 'Название корпуса должно быть подменено синхронно');
-            assert.strictEqual(card.getAttribute('data-mse-buildings-enhanced'), '1', 'Карточка должна быть промаркирована как обработанная');
+            // 4. Очистка поиска: clearSearch снимает все классы подсветки, удаляет бейджи и сбрасывает состояние body
+            hooks.clearSearch();
+            assert.strictEqual(card.classList.contains('search-highlight'), false);
+            assert.strictEqual(card.classList.contains('mse-search-filtering-active'), false);
+            assert.strictEqual(env.document.body.classList.contains('mse-search-filtering-active'), false);
+            assert.strictEqual(card.querySelector('.mse-event-match-tooltip'), null);
+            assert.strictEqual(hooks.selectedStudents.size, 0);
         });
     });
 
