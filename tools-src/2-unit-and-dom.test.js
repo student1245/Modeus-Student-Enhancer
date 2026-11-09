@@ -107,26 +107,57 @@ class MockElement {
     }
 
     _parseInnerTags(html) {
-        const tagRegex = /<([a-zA-Z0-9-]+)([^>]*)>([\s\S]*?)<\/\1>|<([a-zA-Z0-9-]+)([^>]*)\/>/g;
+        const VOID_TAGS = new Set(['INPUT', 'IMG', 'BR', 'HR', 'META', 'LINK']);
+        const stack = [this];
+        const regex = /<!--[\s\S]*?-->|<(?:\/([a-zA-Z0-9-]+)|([a-zA-Z0-9-]+)([^>]*?)(\/?))>|([^<]+)/g;
         let match;
-        while ((match = tagRegex.exec(html)) !== null) {
-            const tagName = match[1] || match[4];
-            const rawAttrs = match[2] || match[5] || '';
-            const childEl = new MockElement(tagName, this.documentRef);
+        while ((match = regex.exec(html)) !== null) {
+            if (match[0].startsWith('<!--')) continue;
+            if (match[1]) {
+                const closeTag = match[1].toUpperCase();
+                for (let i = stack.length - 1; i > 0; i--) {
+                    if (stack[i].tagName === closeTag) {
+                        stack.splice(i, stack.length - i);
+                        break;
+                    }
+                }
+            } else if (match[2]) {
+                const tagName = match[2].toUpperCase();
+                const rawAttrs = match[3] || '';
+                const isSelfClosing = match[4] === '/' || VOID_TAGS.has(tagName);
+                const childEl = new MockElement(tagName, this.documentRef);
 
-            const idMatch = rawAttrs.match(/\bid=["']([^"']+)["']/i);
-            if (idMatch) {
-                childEl.id = idMatch[1];
-                if (this.documentRef) this.documentRef._registerId(childEl.id, childEl);
+                const idMatch = rawAttrs.match(/\bid=["']([^"']+)["']/i);
+                if (idMatch) {
+                    childEl.id = idMatch[1];
+                    if (this.documentRef) this.documentRef._registerId(childEl.id, childEl);
+                }
+                const classMatch = rawAttrs.match(/\bclass=["']([^"']+)["']/i);
+                if (classMatch) childEl.className = classMatch[1];
+
+                const actionMatch = rawAttrs.match(/\bdata-action=["']([^"']+)["']/i);
+                if (actionMatch) childEl.dataset.action = actionMatch[1];
+
+                const styleMatch = rawAttrs.match(/\bstyle=["']([^"']+)["']/i);
+                if (styleMatch) {
+                    const styleStr = styleMatch[1];
+                    styleStr.split(';').forEach(rule => {
+                        const parts = rule.split(':').map(s => s && s.trim());
+                        if (parts[0] && parts[1]) {
+                            const camelKey = parts[0].replace(/-([a-z])/g, (_, l) => l.toUpperCase());
+                            childEl.style[camelKey] = parts[1];
+                        }
+                    });
+                }
+
+                stack[stack.length - 1].appendChild(childEl);
+                if (!isSelfClosing) stack.push(childEl);
+            } else if (match[5]) {
+                const text = match[5].trim();
+                if (text && stack[stack.length - 1] !== this) {
+                    stack[stack.length - 1]._textContent = (stack[stack.length - 1]._textContent ? stack[stack.length - 1]._textContent + ' ' : '') + text;
+                }
             }
-            const classMatch = rawAttrs.match(/\bclass=["']([^"']+)["']/i);
-            if (classMatch) childEl.className = classMatch[1];
-
-            const actionMatch = rawAttrs.match(/\bdata-action=["']([^"']+)["']/i);
-            if (actionMatch) childEl.dataset.action = actionMatch[1];
-
-            childEl.textContent = (match[3] || '').replace(/<[^>]+>/g, '').trim();
-            this.appendChild(childEl);
         }
     }
 
@@ -211,11 +242,31 @@ class MockElement {
         list.forEach(cb => cb.call(this, event));
         if (this.parentElement && !event.cancelBubble) {
             this.parentElement.dispatchEvent(event);
+        } else if (this.documentRef && !event.cancelBubble) {
+            this.documentRef.dispatchEvent(event);
         }
         return true;
     }
     click() {
-        this.dispatchEvent({ type: 'click', target: this, cancelBubble: false, stopPropagation: () => {} });
+        const event = {
+            type: 'click',
+            target: this,
+            cancelBubble: false,
+            stopPropagation() { this.cancelBubble = true; },
+            composedPath: () => {
+                const path = [];
+                let curr = this;
+                while (curr) { path.push(curr); curr = curr.parentElement; }
+                return path;
+            }
+        };
+        this.dispatchEvent(event);
+    }
+    focus() {
+        this.dispatchEvent({ type: 'focus', target: this, cancelBubble: false, stopPropagation: () => {} });
+    }
+    blur() {
+        this.dispatchEvent({ type: 'blur', target: this, cancelBubble: false, stopPropagation: () => {} });
     }
 
     querySelector(selector) {
@@ -357,6 +408,7 @@ class MockDocument {
         this.body = new MockElement('BODY', this);
         this.documentElement.appendChild(this.head);
         this.documentElement.appendChild(this.body);
+        this.listeners = new Map();
     }
     _registerId(id, el) {
         this._elementsById.set(id, el);
@@ -383,8 +435,20 @@ class MockDocument {
     querySelectorAll(selector) {
         return this.documentElement.querySelectorAll(selector);
     }
-    addEventListener() {}
-    removeEventListener() {}
+    addEventListener(type, listener) {
+        if (!this.listeners.has(type)) this.listeners.set(type, []);
+        this.listeners.get(type).push(listener);
+    }
+    removeEventListener(type, listener) {
+        if (!this.listeners.has(type)) return;
+        const list = this.listeners.get(type).filter(l => l !== listener);
+        this.listeners.set(type, list);
+    }
+    dispatchEvent(event) {
+        const list = this.listeners.get(event.type) || [];
+        list.forEach(cb => cb.call(this, event));
+        return true;
+    }
 }
 
 function createMockEnvironment(initialUrl = 'https://utmn.modeus.org/') {
@@ -431,6 +495,13 @@ function createMockEnvironment(initialUrl = 'https://utmn.modeus.org/') {
         clearTimeout: () => {},
         innerWidth: 1200,
         innerHeight: 800,
+        getComputedStyle: (el) => el.style || { display: 'block', marginLeft: '0px', marginRight: '0px' },
+        ResizeObserver: class {
+            constructor(callback) { this.callback = callback; }
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        },
         addEventListener: () => {},
         removeEventListener: () => {},
         dispatchEvent: () => true,
@@ -802,7 +873,16 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     highlightEventsForStudents,
                     enhanceBuildingNames,
                     setBuildingMap: (map) => { buildingMap = map; },
-                    clearSearch
+                    clearSearch,
+                    setupUI,
+                    updateSearchCompactState,
+                    toggleSearchPopover,
+                    updateSelectedStudentsDisplay,
+                    selectStudentSuggestion,
+                    ID_SEARCH_CONTAINER,
+                    ID_SEARCH_TOGGLE_BTN,
+                    ID_SEARCH_POPOVER,
+                    ID_SEARCH_INPUT
                 };
             }`;
             executeScriptWithHook('src/injected.js', hook, env);
@@ -1002,6 +1082,103 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(env.document.body.classList.contains('mse-search-filtering-active'), false);
             assert.strictEqual(card.querySelector('.mse-event-match-tooltip'), null);
             assert.strictEqual(hooks.selectedStudents.size, 0);
+        });
+
+        test('5. Адаптивность шапки календаря, кнопка-лупа [🔍] и плавающий поповер #mse-search-popover', () => {
+            // 1. Создаём форму .main-calendar-form с нативными элементами Модеуса
+            const form = env.document.createElement('form');
+            form.className = 'main-calendar-form';
+            form.clientWidth = 1200;
+            env.document.body.appendChild(form);
+
+            const titleDiv = env.document.createElement('div');
+            titleDiv.className = 'pl-0 title';
+            titleDiv.offsetWidth = 200;
+            form.appendChild(titleDiv);
+
+            const selectDiv = env.document.createElement('div');
+            selectDiv.className = 'fix-width-select';
+            selectDiv.offsetWidth = 250;
+            form.appendChild(selectDiv);
+
+            // 2. Инициализируем UI календаря
+            hooks.setupUI();
+
+            const container = env.document.getElementById(hooks.ID_SEARCH_CONTAINER);
+            assert.ok(container, 'Контейнер поиска должен быть смонтирован в .main-calendar-form');
+
+            const toggleBtn = env.document.getElementById(hooks.ID_SEARCH_TOGGLE_BTN);
+            const popover = env.document.getElementById(hooks.ID_SEARCH_POPOVER);
+            const input = env.document.getElementById(hooks.ID_SEARCH_INPUT);
+            assert.ok(toggleBtn, 'Кнопка-лупа #search-toggle-btn должна быть создана');
+            assert.ok(popover, 'Поповер #mse-search-popover должен быть создан');
+            assert.ok(input, 'Поле ввода #student-search-input должно быть создано');
+
+            // 3. Широкий экран (> 1150px) и достаточно места: полный режим (is-compact отсутствует)
+            env.window.innerWidth = 1400;
+            form.clientWidth = 1100;
+            hooks.updateSearchCompactState();
+            assert.strictEqual(container.classList.contains('is-compact'), false, 'При достаточном месте не должен активироваться is-compact');
+
+            // 4. Сужение экрана (<= 1150px): компактный режим (.is-compact)
+            env.window.innerWidth = 1050;
+            hooks.updateSearchCompactState();
+            assert.strictEqual(container.classList.contains('is-compact'), true, 'При ширине <= 1150px должен выставляться .is-compact');
+
+            // 5. По умолчанию в компактном режиме поповер закрыт (is-open отсутствует)
+            assert.strictEqual(popover.classList.contains('is-open'), false, 'Поповер по умолчанию должен быть закрыт');
+            assert.strictEqual(toggleBtn.classList.contains('is-active'), false, 'Кнопка-лупа по умолчанию не активна');
+
+            // 6. Клик по кнопке-лупе открывает поповер
+            toggleBtn.click();
+            assert.strictEqual(popover.classList.contains('is-open'), true, 'Клик по кнопке-лупе должен открыть поповер (.is-open)');
+            assert.strictEqual(toggleBtn.classList.contains('is-active'), true, 'Кнопка-лупа должна получить .is-active');
+
+            // 7. Повторный клик закрывает поповер
+            toggleBtn.click();
+            assert.strictEqual(popover.classList.contains('is-open'), false, 'Повторный клик по кнопке-лупе должен закрыть поповер');
+
+            // 8. Открытие и клик вне поповера закрывает его
+            toggleBtn.click();
+            assert.strictEqual(popover.classList.contains('is-open'), true);
+            env.document.body.click();
+            assert.strictEqual(popover.classList.contains('is-open'), false, 'Клик вне поповера должен закрыть его');
+
+            // 9. Нажатие клавиши Escape закрывает поповер
+            toggleBtn.click();
+            assert.strictEqual(popover.classList.contains('is-open'), true);
+            input.dispatchEvent({ type: 'keydown', key: 'Escape' });
+            assert.strictEqual(popover.classList.contains('is-open'), false, 'Escape должен закрыть поповер');
+
+            // 10. Добавление студентов при нехватке места на широком экране (например, availableWidth < 410px)
+            env.window.innerWidth = 1400;
+            form.clientWidth = 950; // nativeWidth = 200 + 250 = 450; availableWidth = 500
+            hooks.updateSearchCompactState();
+            assert.strictEqual(container.classList.contains('is-compact'), false); // 500 >= 275 (0 друзей)
+
+            // Выбираем студента (требуется 410px, availableWidth = 350 при сужении формы)
+            form.clientWidth = 800; // availableWidth = 350 < 410
+            hooks.selectedStudents.add('Иванов Иван');
+            hooks.updateSelectedStudentsDisplay();
+            assert.strictEqual(container.classList.contains('is-compact'), true, 'При выборе студентов и нехватке места должен активироваться .is-compact');
+
+            // 11. Взаимное закрытие выпадающего списка выбранных студентов и поповера поиска
+            const selToggle = env.document.getElementById('selected-students-toggle');
+            const selContainer = env.document.getElementById('selected-students-container');
+
+            // Открываем список выбранных студентов
+            selToggle.click();
+            assert.strictEqual(selContainer.style.display, 'flex');
+
+            // Клик по кнопке-лупе открывает поповер и должен закрыть список студентов
+            toggleBtn.click();
+            assert.strictEqual(popover.classList.contains('is-open'), true);
+            assert.strictEqual(selContainer.style.display, 'none', 'Открытие поповера поиска должно закрыть выпадающий список студентов');
+
+            // Клик по кнопке списка студентов должен закрыть поповер поиска
+            selToggle.click();
+            assert.strictEqual(selContainer.style.display, 'flex');
+            assert.strictEqual(popover.classList.contains('is-open'), false, 'Открытие списка студентов должно закрыть поповер поиска');
         });
     });
 

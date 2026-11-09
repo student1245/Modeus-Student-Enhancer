@@ -96,11 +96,17 @@ body.mse-active {
         gap: 6px;
     }
 
+    .main-calendar-form {
+        flex-wrap: wrap !important;
+        row-gap: 6px !important;
+    }
+
     .icon-btn,
     #refresh-data-btn,
-    #add-friends-to-search-btn {
-        width: 34px;
-        height: 34px;
+    #add-friends-to-search-btn,
+    #search-toggle-btn {
+        width: 34px !important;
+        height: 34px !important;
         border-radius: 6px;
         border: 1px solid #cbd5e1;
         background: #ffffff;
@@ -117,9 +123,100 @@ body.mse-active {
 
     .icon-btn:hover,
     #refresh-data-btn:hover,
-    #add-friends-to-search-btn:hover {
+    #add-friends-to-search-btn:hover,
+    #search-toggle-btn:hover {
         background: #f1f5f9;
         color: #0f172a;
+    }
+
+    #search-toggle-btn.is-active {
+        background: #e2e8f0 !important;
+        color: #0f172a !important;
+        border-color: #94a3b8 !important;
+    }
+
+    #search-popover-wrapper {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    /* ПОЛНЫЙ РЕЖИМ (по умолчанию, когда места достаточно) */
+    #enhancer-search-container:not(.is-compact) #search-toggle-btn {
+        display: none !important;
+    }
+
+    #enhancer-search-container:not(.is-compact) #mse-search-popover {
+        display: block !important;
+        position: static !important;
+        width: auto !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        border-radius: 0 !important;
+        z-index: auto !important;
+    }
+
+    /* КОМПАКТНЫЙ РЕЖИМ (.is-compact, когда места не хватает) */
+    #enhancer-search-container.is-compact #search-toggle-btn {
+        display: inline-flex !important;
+    }
+
+    /* В компактном режиме поповер по умолчанию СТРОГО СКРЫТ */
+    #enhancer-search-container.is-compact #mse-search-popover {
+        display: none !important;
+    }
+
+    /* Плавающий поповер открывается ТОЛЬКО по клику на кнопку-лупу (.is-open) */
+    #enhancer-search-container.is-compact #mse-search-popover.is-open {
+        display: flex !important;
+        flex-direction: column !important;
+        position: absolute !important;
+        top: calc(100% + 6px) !important;
+        right: 0 !important;
+        width: 280px !important;
+        background: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+        padding: 8px !important;
+        box-sizing: border-box !important;
+        z-index: 1050 !important;
+    }
+
+    #enhancer-search-container.is-compact #mse-search-popover #student-search-input {
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 34px !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 6px !important;
+        padding: 0 10px !important;
+        font-size: 13.5px !important;
+        background: #ffffff !important;
+        color: #1e293b !important;
+        box-sizing: border-box !important;
+        outline: none !important;
+    }
+
+    #enhancer-search-container.is-compact #mse-search-popover #student-search-input:focus {
+        border-color: #16a34a !important;
+        box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15) !important;
+    }
+
+    #enhancer-search-container.is-compact #mse-search-popover #search-suggestions {
+        position: static !important;
+        width: 100% !important;
+        margin-top: 6px !important;
+        border-radius: 6px !important;
+        box-shadow: none !important;
+        border: 1px solid #e2e8f0 !important;
+        max-height: 220px !important;
+        box-sizing: border-box !important;
+    }
+
+    #enhancer-search-container.is-compact .selected-students-label {
+        display: none !important;
     }
 
     #student-search-input {
@@ -269,7 +366,9 @@ body.mse-active {
         display: none;
         position: absolute;
         top: 100%;
-        left: 0;
+        right: 0 !important;
+        left: auto !important;
+        max-width: calc(100vw - 24px) !important;
         background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 10px;

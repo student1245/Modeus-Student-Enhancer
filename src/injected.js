@@ -488,6 +488,9 @@
     const COMPACT_CHIP_MAX_WIDTH_PX = 110;
     const ID_SILENT_REFRESHER = 'mse-silent-refresher';
     const ID_SEARCH_CONTAINER = 'enhancer-search-container';
+    const ID_SEARCH_TOGGLE_BTN = 'search-toggle-btn';
+    const ID_SEARCH_POPOVER = 'mse-search-popover';
+    const ID_SEARCH_INPUT = 'student-search-input';
     const ID_STOP_BUTTON = 'enhancer-stop-button';
     const ID_TEACHER_TOOLTIP = 'teacher-tooltip';
     const ID_TOAST_CONTAINER = 'mse-toast-container';
@@ -1824,6 +1827,15 @@
         }
     };
 
+    const closeSelectedStudentsDropdown = () => {
+        const cont = qs('#selected-students-container');
+        if (cont) cont.style.display = 'none';
+        const toggle = qs('#selected-students-toggle');
+        if (toggle) toggle.classList.remove('is-open');
+        const pill = qs('#selected-students-pill');
+        if (pill) pill.classList.remove('is-open');
+    };
+
     const handleOutsideSearchClick = (e) => {
         const container = qs(`#${ID_SEARCH_CONTAINER}`);
         if (container && !container.contains(e.target)) {
@@ -1831,16 +1843,17 @@
             if (suggestions) suggestions.style.display = 'none';
             activeSuggestionIndex = -1;
         }
+
+        const popoverWrapper = qs('#search-popover-wrapper');
+        if (popoverWrapper && !popoverWrapper.contains(e.target)) {
+            toggleSearchPopover(false);
+        }
+
         const path = e.composedPath ? e.composedPath() : [];
         const isInsideDropdown = path.some(el => el && el.id === 'selected-students-dropdown-wrapper');
         const dropdown = qs('#selected-students-dropdown-wrapper');
         if (dropdown && !dropdown.contains(e.target) && !isInsideDropdown) {
-            const cont = qs('#selected-students-container');
-            if (cont) cont.style.display = 'none';
-            const toggle = qs('#selected-students-toggle');
-            if (toggle) toggle.classList.remove('is-open');
-            const pill = qs('#selected-students-pill');
-            if (pill) pill.classList.remove('is-open');
+            closeSelectedStudentsDropdown();
         }
     };
 
@@ -2253,7 +2266,57 @@
         });
     };
 
+    const toggleSearchPopover = (forceState) => {
+        const popover = qs(`#${ID_SEARCH_POPOVER}`);
+        const toggleBtn = qs(`#${ID_SEARCH_TOGGLE_BTN}`);
+        if (!popover || !toggleBtn) return;
+        const container = qs(`#${ID_SEARCH_CONTAINER}`);
+        if (!container || !container.classList.contains('is-compact')) return;
+
+        const isOpen = forceState !== undefined ? Boolean(forceState) : !popover.classList.contains('is-open');
+        popover.classList.toggle('is-open', isOpen);
+        toggleBtn.classList.toggle('is-active', isOpen);
+        if (isOpen) {
+            closeSelectedStudentsDropdown();
+            const input = qs(`#${ID_SEARCH_INPUT}`);
+            if (input && typeof input.focus === 'function') input.focus();
+        } else {
+            const suggestions = qs('#search-suggestions');
+            if (suggestions) suggestions.style.display = 'none';
+        }
+    };
+
+    const updateSearchCompactState = () => {
+        const container = qs(`#${ID_SEARCH_CONTAINER}`);
+        const form = qs('.main-calendar-form');
+        if (!container || !form) return;
+
+        const toolbarWidth = form.clientWidth || form.offsetWidth || 0;
+        let nativeWidth = 0;
+        for (const child of form.children) {
+            if (child.id === ID_SEARCH_CONTAINER) continue;
+            const style = window.getComputedStyle ? window.getComputedStyle(child) : null;
+            if (style && style.display === 'none') continue;
+            nativeWidth += child.offsetWidth || 0;
+            if (style) {
+                nativeWidth += (parseFloat(style.marginLeft) || 0) + (parseFloat(style.marginRight) || 0);
+            }
+        }
+
+        const availableWidth = toolbarWidth - nativeWidth;
+        const requiredFullWidth = selectedStudents.size > 0 ? 410 : 275;
+        const shouldBeCompact = (typeof window !== 'undefined' && window.innerWidth && window.innerWidth <= 1150) || availableWidth < requiredFullWidth;
+
+        const wasCompact = container.classList.contains('is-compact');
+        container.classList.toggle('is-compact', shouldBeCompact);
+
+        if (wasCompact && !shouldBeCompact) {
+            toggleSearchPopover(false);
+        }
+    };
+
     const handleCalendarResize = () => {
+        updateSearchCompactState();
         clearTimeout(calendarResizeDebounceTimer);
         calendarResizeDebounceTimer = setTimeout(refreshCardCompression, 100);
     };
@@ -2267,6 +2330,12 @@
         observedCalendarTarget = target;
         calendarResizeObserver = new ResizeObserver(handleCalendarResize);
         calendarResizeObserver.observe(target);
+        const formTarget = qs('.main-calendar-form');
+        if (formTarget && formTarget !== target) {
+            calendarResizeObserver.observe(formTarget);
+        }
+        window.addEventListener('resize', handleCalendarResize);
+        updateSearchCompactState();
     };
 
     const cleanupCalendarResizeObserver = () => {
@@ -2274,6 +2343,7 @@
             calendarResizeObserver.disconnect();
             calendarResizeObserver = null;
         }
+        window.removeEventListener('resize', handleCalendarResize);
         clearTimeout(calendarResizeDebounceTimer);
         calendarResizeDebounceTimer = null;
         observedCalendarTarget = null;
@@ -2298,12 +2368,13 @@
     };
 
     const clearSearch = () => {
-        const searchInput = qs('#student-search-input');
+        const searchInput = qs(`#${ID_SEARCH_INPUT}`);
         if (searchInput) searchInput.value = '';
         const suggestions = qs('#search-suggestions');
         if (suggestions) suggestions.style.display = 'none';
         selectedStudents.clear();
         document.body.classList.remove(CLASS_MSE_SEARCH_FILTERING_ACTIVE);
+        toggleSearchPopover(false);
         updateSelectedStudentsDisplay();
         clearHighlight();
         updateAttendeeSelectionHighlights();
@@ -2333,18 +2404,16 @@
             ).join('');
         } else {
             wrapper.style.display = 'none';
-            container.style.display = 'none';
             container.innerHTML = '';
-            if (toggle) toggle.classList.remove('is-open');
-            const pill = qs('#selected-students-pill');
-            if (pill) pill.classList.remove('is-open');
+            closeSelectedStudentsDropdown();
         }
+        updateSearchCompactState();
     };
 
     const selectStudentSuggestion = (studentName) => {
         if (!studentName) return;
         selectedStudents.add(studentName);
-        const searchInput = qs('#student-search-input');
+        const searchInput = qs(`#${ID_SEARCH_INPUT}`);
         if (searchInput) searchInput.value = '';
         const suggestionsBox = qs('#search-suggestions');
         if (suggestionsBox) {
@@ -2352,6 +2421,7 @@
             suggestionsBox.innerHTML = '';
         }
         activeSuggestionIndex = -1;
+        toggleSearchPopover(false);
         updateSelectedStudentsDisplay();
         highlightEventsForStudents();
     };
@@ -2367,6 +2437,14 @@
     };
 
     const handleSearchKeydown = (e) => {
+        if (e.key === 'Escape') {
+            const suggestionsBox = qs('#search-suggestions');
+            if (suggestionsBox) suggestionsBox.style.display = 'none';
+            activeSuggestionIndex = -1;
+            toggleSearchPopover(false);
+            return;
+        }
+
         const suggestionsBox = qs('#search-suggestions');
         if (!suggestionsBox || suggestionsBox.style.display === 'none') return;
 
@@ -2387,9 +2465,6 @@
                 e.preventDefault();
                 selectStudentSuggestion(items[targetIndex].getAttribute('data-name'));
             }
-        } else if (e.key === 'Escape') {
-            suggestionsBox.style.display = 'none';
-            activeSuggestionIndex = -1;
         }
     };
 
@@ -4124,39 +4199,50 @@
         container.innerHTML = `
             <span id="search-status" style="display: block;"></span>
             <div id="search-controls" class="toolbar" style="display: none;">
-                <button id="add-friends-to-search-btn" class="icon-btn" title="Добавить друзей в поиск общих пар">
+                <button id="add-friends-to-search-btn" class="icon-btn" title="Добавить друзей в поиск общих пар" type="button">
                     ${getSvgIcon('users', { size: 16, strokeWidth: 2 })}
                 </button>
-                <button id="refresh-data-btn" class="icon-btn" title="Обновить данные для поиска общих пар">
+                <button id="refresh-data-btn" class="icon-btn" title="Обновить данные для поиска общих пар" type="button">
                     ${getSvgIcon('refresh-ccw', { size: 16, strokeWidth: 2 })}
                 </button>
                 <div id="selected-students-dropdown-wrapper" style="display: none; position: relative;">
                     <div id="selected-students-pill" class="split-btn">
-                        <button id="selected-students-toggle" class="split-main" title="Показать список выбранных">
-                            <span>Выбрано:&nbsp;<span id="selected-count">0</span></span>
+                        <button id="selected-students-toggle" class="split-main" title="Показать список выбранных" type="button">
+                            <span class="selected-students-label">Выбрано:&nbsp;</span><span id="selected-count">0</span>
                             ${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'selected-dropdown-arrow' })}
                         </button>
-                        <button id="selected-students-reset-btn" class="split-clear" title="Сбросить всех выбранных студентов">
+                        <button id="selected-students-reset-btn" class="split-clear" title="Сбросить всех выбранных студентов" type="button">
                             ${getSvgIcon('x', { size: 14, strokeWidth: 2.2 })}
                         </button>
                     </div>
                     <div id="selected-students-container" class="selected-dropdown"></div>
                 </div>
-                <input type="text" id="student-search-input" placeholder="Найти общие пары...">
-            </div>
-            <div id="search-suggestions"></div>`;
+                <div id="search-popover-wrapper">
+                    <button id="${ID_SEARCH_TOGGLE_BTN}" class="icon-btn" title="Найти общие пары" type="button">
+                        ${getSvgIcon('search', { size: 16, strokeWidth: 2 })}
+                    </button>
+                    <div id="${ID_SEARCH_POPOVER}">
+                        <input type="text" id="${ID_SEARCH_INPUT}" placeholder="Найти общие пары...">
+                        <div id="search-suggestions"></div>
+                    </div>
+                </div>
+            </div>`;
         toolbar.appendChild(container);
 
         qs('#add-friends-to-search-btn').addEventListener('click', () => {
             const friends = getFriends();
             friends.forEach(f => selectedStudents.add(f.fullName));
-            qs('#student-search-input').value = '';
-            qs('#search-suggestions').style.display = 'none';
+            const searchInput = qs(`#${ID_SEARCH_INPUT}`);
+            if (searchInput) searchInput.value = '';
+            const suggestions = qs('#search-suggestions');
+            if (suggestions) suggestions.style.display = 'none';
+            toggleSearchPopover(false);
             updateSelectedStudentsDisplay();
             highlightEventsForStudents();
         });
 
         qs('#selected-students-toggle').addEventListener('click', () => {
+            toggleSearchPopover(false);
             const cont = qs('#selected-students-container');
             const toggle = qs('#selected-students-toggle');
             const pill = qs('#selected-students-pill');
@@ -4184,8 +4270,14 @@
             weekEventsCache.clear();
             loadAllData();
         });
-        qs('#student-search-input').addEventListener('input', updateSuggestions);
-        qs('#student-search-input').addEventListener('keydown', handleSearchKeydown);
+
+        qs(`#${ID_SEARCH_TOGGLE_BTN}`)?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleSearchPopover();
+        });
+
+        qs(`#${ID_SEARCH_INPUT}`).addEventListener('input', updateSuggestions);
+        qs(`#${ID_SEARCH_INPUT}`).addEventListener('keydown', handleSearchKeydown);
         qs('#selected-students-reset-btn').addEventListener('click', clearSearch);
         qs('#search-suggestions').addEventListener('click', (e) => {
             const item = e.target.closest('.suggestion-item');
@@ -4209,6 +4301,7 @@
         document.addEventListener('click', handleOutsideSearchClick);
         setupNativePopoverObserver();
         setupCalendarResizeObserver();
+        updateSearchCompactState();
 
         if (latestKnownUpdate) {
             renderUpdateUI(latestKnownUpdate.version, latestKnownUpdate.url, latestKnownUpdate.body);

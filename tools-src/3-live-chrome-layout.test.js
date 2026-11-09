@@ -139,7 +139,10 @@ function prepareInjectedWithHooks() {
             highlightEventsForStudents,
             selectedStudents,
             eventCache,
-            uniqueStudents
+            uniqueStudents,
+            updateSearchCompactState,
+            toggleSearchPopover,
+            clearSearch
         };
     }`;
     return raw.replace(/\}\)\(\);\s*$/, `\n${hook}\n})();`);
@@ -590,5 +593,138 @@ describe('Шаг 3: Живые геометрические и визуальн�
         // 3. Реальный геометрический инвариант движка Blink: текст заголовка не перекрывает капсулу
         assert.strictEqual(metrics.capsuleExists, true, 'Компактная капсула должна быть смонтирована');
         assert.strictEqual(metrics.titleRightLeqCapsuleLeft, true, 'Текст заголовка не должен пересекаться с капсулой по горизонтали');
+    });
+
+    test('8. Адаптивность шапки календаря: матрица экранов 1600px-850px, кнопка-лупа [🔍] и 0px горизонтального скролла', async (t) => {
+        if (!chromeOnline) {
+            t.skip('Debug Chrome недоступен на порту 9222. Тест пропущен.');
+            return;
+        }
+
+        // Подготавливаем окружение с календарем и нативными элементами Модеуса
+        await cdp.evaluateExpression(`
+            document.body.innerHTML = '';
+            document.body.className = 'mse-active';
+
+            const form = document.createElement('div');
+            form.className = 'main-calendar-form';
+            form.innerHTML = \`
+                <div class="pl-0 title" style="width: 217px; height: 34px;">Мое расписание</div>
+                <div class="fix-width-select d-inline-block" style="width: 250px; height: 34px;"></div>
+                <div class="fix-width-select d-inline-block" style="width: 100px; height: 34px;"></div>
+                <div class="location_table" style="width: 200px; height: 34px;">Адреса корпусов</div>
+            \`;
+            document.body.appendChild(form);
+
+            // Инициализируем UI расширения
+            window.__MSE_INJECTED_DEV__.setupUI();
+        `);
+
+        const widths = [1600, 1460, 1400, 1280, 1024, 860, 850];
+
+        for (const w of widths) {
+            for (const hasFriends of [false, true]) {
+                await cdp.send('Emulation.setDeviceMetricsOverride', {
+                    width: w,
+                    height: 800,
+                    deviceScaleFactor: 1,
+                    mobile: false
+                });
+
+                // Переключаем друзей и замеряем геометрию
+                const res = await cdp.evaluateExpression(`
+                    const dev = window.__MSE_INJECTED_DEV__;
+                    dev.selectedStudents.clear();
+                    if (${hasFriends}) {
+                        for (let i = 1; i <= 10; i++) {
+                            dev.selectedStudents.add('Друг ' + i);
+                        }
+                    }
+                    const searchControls = document.getElementById('search-controls');
+                    if (searchControls) searchControls.style.display = 'flex';
+                    const wrapper = document.getElementById('selected-students-dropdown-wrapper');
+                    const countSpan = document.getElementById('selected-count');
+                    if (wrapper) wrapper.style.display = ${hasFriends} ? 'block' : 'none';
+                    if (countSpan) countSpan.textContent = '${hasFriends ? 10 : 0}';
+
+                    dev.updateSearchCompactState();
+
+                    const container = document.getElementById('enhancer-search-container');
+                    const toggleBtn = document.getElementById('search-toggle-btn');
+                    const popover = document.getElementById('mse-search-popover');
+
+                    const scrollW = document.documentElement.scrollWidth;
+                    const clientW = document.documentElement.clientWidth;
+                    const hasScroll = scrollW > clientW;
+
+                    const isCompact = container.classList.contains('is-compact');
+                    const toggleDisplay = getComputedStyle(toggleBtn).display;
+                    const popoverDisplay = getComputedStyle(popover).display;
+
+                    // Тестируем открытие поповера в компактном режиме
+                    let popoverOpensCleanly = true;
+                    if (isCompact) {
+                        dev.toggleSearchPopover(true);
+                        const openDisplay = getComputedStyle(popover).display;
+                        const openRect = popover.getBoundingClientRect();
+                        const scrollWhenOpen = document.documentElement.scrollWidth > document.documentElement.clientWidth;
+                        popoverOpensCleanly = (openDisplay === 'flex' && openRect.width >= 270 && !scrollWhenOpen);
+                        dev.toggleSearchPopover(false);
+                        const closedDisplay = getComputedStyle(popover).display;
+                        if (closedDisplay !== 'none') popoverOpensCleanly = false;
+                    }
+
+                    // Тестируем выпадающий список выбранных студентов и взаимное закрытие
+                    let dropdownFitsViewport = true;
+                    let mutualCloseWorks = true;
+                    if (${hasFriends}) {
+                        const selToggle = document.getElementById('selected-students-toggle');
+                        const selDropdown = document.getElementById('selected-students-container');
+                        selToggle.click();
+                        const rDrop = selDropdown.getBoundingClientRect();
+                        dropdownFitsViewport = (rDrop.right <= window.innerWidth + 1);
+
+                        if (isCompact) {
+                            toggleBtn.click();
+                            mutualCloseWorks = (popover.classList.contains('is-open') && getComputedStyle(selDropdown).display === 'none');
+                            selToggle.click();
+                            mutualCloseWorks = mutualCloseWorks && (!popover.classList.contains('is-open') && getComputedStyle(selDropdown).display === 'flex');
+                            selToggle.click();
+                        } else {
+                            selToggle.click();
+                        }
+                    }
+
+                    return {
+                        w: ${w},
+                        hasFriends: ${hasFriends},
+                        scrollW,
+                        clientW,
+                        hasScroll,
+                        isCompact,
+                        toggleDisplay,
+                        popoverDisplay,
+                        popoverOpensCleanly,
+                        dropdownFitsViewport,
+                        mutualCloseWorks
+                    };
+                `);
+
+                assert.strictEqual(res.hasScroll, false, `На ширине ${w}px (друзья: ${hasFriends}) не должно быть горизонтального скролла (${res.scrollW} > ${res.clientW})`);
+                if (hasFriends) {
+                    assert.strictEqual(res.dropdownFitsViewport, true, `На ширине ${w}px список студентов не должен выходить за правый край экрана`);
+                    assert.strictEqual(res.mutualCloseWorks, true, `На ширине ${w}px взаимное закрытие поповеров должно работать корректно`);
+                }
+                if (res.isCompact) {
+                    assert.notStrictEqual(res.toggleDisplay, 'none', `На ширине ${w}px кнопка-лупа должна быть видима`);
+                    assert.strictEqual(res.popoverDisplay, 'none', `На ширине ${w}px поповер должен быть скрыт по умолчанию`);
+                    assert.strictEqual(res.popoverOpensCleanly, true, `На ширине ${w}px поповер должен открываться без скролла`);
+                } else {
+                    assert.strictEqual(res.toggleDisplay, 'none', `На ширине ${w}px кнопка-лупа должна быть скрыта`);
+                }
+            }
+        }
+
+        await cdp.send('Emulation.clearDeviceMetricsOverride');
     });
 });
