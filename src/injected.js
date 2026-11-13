@@ -2060,7 +2060,7 @@
         const safetyMargin = isShort ? 1 : BANNER_SAFETY_MARGIN_PX;
         const estimatedBannerTop = cardRect.bottom - BANNER_HEIGHT_PX - safetyMargin;
 
-        return estimatedBannerTop < titleRect.bottom - 4;
+        return titleRect.bottom > estimatedBannerTop - 2;
     };
 
     const SVG_USERS_BADGE = getSvgIcon('users', { size: 11, strokeWidth: 2, style: 'flex-shrink: 0;' });
@@ -2095,14 +2095,18 @@
             cardElement.classList.remove(CLASS_SHORT_CARD);
         }
 
+        // Если заголовок ранее был обрезан, временно снимаем CLASS_TITLE_CLIPPED,
+        // чтобы объективно замерить естественную геометрию полного заголовка
+        const hadTitleClipped = cardElement.classList.contains(CLASS_TITLE_CLIPPED);
+        if (hadTitleClipped) {
+            cardElement.classList.remove(CLASS_TITLE_CLIPPED);
+        }
+
         const isCompact = short || !doesExpandedBannerFit(cardElement);
         const isTitleOverlapping = isTitleOverlappingWithBanner(cardElement, isCompact, short);
 
-        if (isTitleOverlapping) {
-            cardElement.classList.add(CLASS_TITLE_CLIPPED);
-        } else {
-            cardElement.classList.remove(CLASS_TITLE_CLIPPED);
-        }
+        // Синхронно восстанавливаем или выставляем итоговое состояние обрезания
+        cardElement.classList.toggle(CLASS_TITLE_CLIPPED, isTitleOverlapping);
 
         const renderKey = `${isCompact ? (isTitleOverlapping ? 'c:o' : 'c') : 'e'}:${matchedStudents.join('|')}`;
         const currentRenderKey = banner.dataset?.mseRenderKey || banner.getAttribute('data-mse-render-key');

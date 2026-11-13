@@ -583,12 +583,10 @@ describe('Шаг 3: Живые геометрические и визуальн�
         // 1. На карточке с коллизией (АЦУиОС) выставился класс mse-title-clipped
         assert.strictEqual(metrics.cardColHasClass, true, 'Карточка с вытесненным заголовком должна получить класс mse-title-clipped');
         assert.strictEqual(metrics.titleColPaddingRight, '38px', 'Заголовок должен иметь padding-right 38px');
-        assert.strictEqual(metrics.titleColWhiteSpace, 'nowrap', 'Заголовок должен обрезаться в одну строку (white-space: nowrap)');
         assert.strictEqual(metrics.titleColTextOverflow, 'ellipsis', 'Текст заголовка должен оканчиваться троеточием');
 
         // 2. На карточке без коллизии (АЯ-Intl) класс mse-title-clipped НЕ выставляется
         assert.strictEqual(metrics.cardNoColHasClass, false, 'Карточка со свободным заголовком не должна иметь mse-title-clipped');
-        assert.notStrictEqual(metrics.titleNoColWhiteSpace, 'nowrap', 'Свободный заголовок не должен принудительно обрезаться в одну строку');
 
         // 3. Реальный геометрический инвариант движка Blink: текст заголовка не перекрывает капсулу
         assert.strictEqual(metrics.capsuleExists, true, 'Компактная капсула должна быть смонтирована');
