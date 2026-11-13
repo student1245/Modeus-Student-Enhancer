@@ -117,7 +117,7 @@ Accepted | Implemented (v2.2.2)
 
 ### 4. Разделение Dev vs Prod
 - В dev-режиме (при флаге `mse_debug: "1"`) `src/content.js` приоритетно считывает локальный `data/survey.json`, позволяя автору мгновенно тестировать новые структуры опросов без пушей в GitHub.
-- Метод `window.MSE_simulateSurvey(customConfig)` позволяет принудительно открыть попап с тестовым конфигом в любой момент в консоли.
+- Метод `window.MSE_simulateSurvey(customConfig = null)` позволяет принудительно открыть попап (из `data/survey.json` без аргументов или с переданным тестовым конфигом) в любой момент в консоли.
 - Метод `window.MSE_clearSurveyCache()` полностью сбрасывает кэш и все флаги скрытия (`mse_survey_dismissed_*`) для повторного тестирования.
 
 ## Consequences
