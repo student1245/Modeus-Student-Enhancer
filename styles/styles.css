@@ -256,8 +256,338 @@ body.mse-active {
         box-sizing: border-box !important;
     }
 
-    #enhancer-search-container.is-compact .selected-students-label {
+    #enhancer-search-container.is-ultra-compact .selected-students-label {
         display: none !important;
+    }
+
+    /* Запрет сжатия фиксированных элементов шапки */
+    .main-calendar-form>div,
+    .main-calendar-form .pl-0.title,
+    .main-calendar-form .ver-anchor {
+        flex-shrink: 0 !important;
+    }
+
+    /* Эластичность блока «Адреса корпусов и легенда» */
+    .main-calendar-form .location_table {
+        flex-shrink: 1 !important;
+        min-width: 60px !important;
+        width: auto !important;
+        overflow: hidden !important;
+    }
+
+    .main-calendar-form .location_table .location_table__header {
+        overflow: hidden !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        display: flex !important;
+        justify-content: flex-end !important;
+    }
+
+    .main-calendar-form .location_table .location_table__header span {
+        float: none !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        display: inline-flex !important;
+        align-items: center !important;
+    }
+
+    .main-calendar-form .location_table .location_table__header span i {
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        display: inline-block !important;
+        max-width: 100% !important;
+    }
+
+    /* Эластичное сжатие селекта расписания звонков */
+    .main-calendar-form > div:has(.grid),
+    .main-calendar-form > div:nth-child(2):not(.ver-anchor):not(#mse-update-anchor) {
+        flex: 0 1 250px !important;
+        flex-shrink: 1 !important;
+        width: auto !important;
+        min-width: 115px !important;
+        max-width: 250px !important;
+    }
+
+    .main-calendar-form .fix-width-select.grid,
+    .main-calendar-form > div:has(.grid) .fix-width-select,
+    .main-calendar-form > div:nth-child(2):not(.ver-anchor) .fix-width-select {
+        width: 100% !important;
+        min-width: 115px !important;
+        max-width: 250px !important;
+    }
+
+    .main-calendar-form > div:has(.grid) p-dropdown,
+    .main-calendar-form > div:has(.grid) .p-dropdown,
+    .main-calendar-form > div:has(.grid) .ui-dropdown,
+    .main-calendar-form > div:nth-child(2):not(.ver-anchor) p-dropdown,
+    .main-calendar-form > div:nth-child(2):not(.ver-anchor) .p-dropdown,
+    .main-calendar-form > div:nth-child(2):not(.ver-anchor) .ui-dropdown {
+        width: 100% !important;
+        min-width: 115px !important;
+        max-width: 250px !important;
+    }
+
+    .main-calendar-form > div:has(.grid) .p-dropdown-label,
+    .main-calendar-form > div:has(.grid) .ui-dropdown-label,
+    .main-calendar-form > div:has(.grid) .p-dropdown-label span,
+    .main-calendar-form > div:has(.grid) .ui-dropdown-label span,
+    .main-calendar-form > div:nth-child(2):not(.ver-anchor) .p-dropdown-label,
+    .main-calendar-form > div:nth-child(2):not(.ver-anchor) .ui-dropdown-label,
+    .main-calendar-form > div:nth-child(2):not(.ver-anchor) .p-dropdown-label span,
+    .main-calendar-form > div:nth-child(2):not(.ver-anchor) .ui-dropdown-label span {
+        width: 100% !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        display: block !important;
+    }
+
+    /* Выпадающий список вариантов звонков всегда раскрывается на удобную ширину */
+    .p-dropdown-panel,
+    .ui-dropdown-panel {
+        min-width: 250px !important;
+        width: max-content !important;
+        max-width: 90vw !important;
+    }
+
+    /* Убираем пустую распорку заголовка на всех разрешениях */
+    .main-calendar-form .pl-0.title,
+    .main-calendar-form .title {
+        width: auto !important;
+        max-width: fit-content !important;
+        padding-right: 12px !important;
+        margin-right: auto !important;
+        margin-left: 0 !important;
+    }
+
+    /* Защита контейнера от горизонтального распирания шире вьюпорта */
+    modeus-root>div,
+    .main-content,
+    .main-content .container-fluid {
+        min-width: 0 !important;
+    }
+
+    /* Адаптивные отступы элементов шапки */
+    @media (max-width: 1340px) {
+        .main-calendar-form > div,
+        .main-calendar-form .location_table,
+        .main-calendar-form .ver-anchor {
+            margin-left: 6px !important;
+        }
+
+        .main-calendar-form .pl-0.title,
+        .main-calendar-form .title {
+            margin-left: 0 !important;
+            padding-right: 6px !important;
+        }
+    }
+
+    /* Официальное сворачивание боковой панели Модеуса с 1155px (вместо 1100px) */
+    @media only screen and (max-width: 1155px) {
+        .p-panelmenu .p-panelmenu-header > a .p-menuitem-text,
+        .p-panelmenu .p-panelmenu-header:not(.p-highlight):not(.p-disabled) > a .p-menuitem-text,
+        .p-panelmenu .p-panelmenu-header.p-highlight > a .p-menuitem-text,
+        .p-panelmenu .p-panelmenu-header.p-highlight:not(.p-disabled) > a .p-menuitem-text {
+            display: none !important;
+        }
+
+        .p-panelmenu .p-panelmenu-content .p-menuitem .p-menuitem-link .p-menuitem-text {
+            display: none !important;
+        }
+
+        .p-panelmenu .p-panelmenu-content .p-menuitem .p-menuitem-link {
+            padding: 14px 30px 15px 20px !important;
+        }
+
+        .menu.menu-small .p-panelmenu .p-panelmenu-content .p-menuitem .p-menuitem-link .p-menuitem-text {
+            display: inline !important;
+        }
+
+        .menu .contacts {
+            display: none !important;
+        }
+
+        .menu {
+            width: 68px !important;
+        }
+
+        .menu:not(.menu-small) .user-name.user-full-name,
+        .menu:not(.menu-small) .user-name.user-visible-name {
+            display: none !important;
+        }
+
+        .menu:not(.menu-small) .user-name.user-short-name {
+            display: block !important;
+        }
+
+        .menu.menu-small .user-name.user-full-name,
+        .menu.menu-small .user-name.user-visible-name {
+            display: block !important;
+        }
+
+        .menu.menu-small .user-name.user-short-name {
+            display: none !important;
+        }
+
+        .menu .avatar {
+            display: inline-block !important;
+            margin: auto !important;
+            width: 100% !important;
+            padding: 10px 0px !important;
+        }
+
+        .menu .avatar > i::before {
+            border: 0px !important;
+            width: 34px !important;
+            height: 34px !important;
+            line-height: 34px !important;
+            font-size: 28px !important;
+        }
+
+        .menu .p-button {
+            width: 48px !important;
+        }
+
+        .menu.menu-small {
+            width: 272px !important;
+        }
+
+        .menu.menu-small p-button[icon="fa fa-bars"] .p-button {
+            color: rgb(143, 203, 234) !important;
+            background-color: rgb(35, 139, 200) !important;
+            transition: all !important;
+        }
+
+        .menu.menu-small .p-panelmenu .p-panelmenu-header > a .p-menuitem-text {
+            display: block !important;
+        }
+
+        .menu.menu-small .contacts {
+            display: block !important;
+        }
+
+        .content {
+            margin-left: 68px !important;
+        }
+
+        modeus-aside-panel + div {
+            width: calc(100% - 68px) !important;
+        }
+    }
+
+    /* Двухступенчатое адаптивное поведение правой карточки пары:
+       1) На 1172px..1380px: оверлей активируется только если левое меню раскрыто (широкое).
+          Если левое меню свёрнуто (.menu.menu-small), карточка пары открывается штатно сбоку.
+       2) На <= 1171px: карточка пары всегда открывается поверх расписания (overlay). */
+    @media (max-width: 1380.98px) {
+        &:has(.menu:not(.menu-small)) .calendar-container .calendar-row,
+        modeus-aside-panel:has(.menu:not(.menu-small)) + div .calendar-container .calendar-row,
+        .menu:not(.menu-small) ~ .content .calendar-container .calendar-row,
+        .menu:not(.menu-small) ~ .main-content .calendar-container .calendar-row {
+            position: relative !important;
+        }
+
+        &:has(.menu:not(.menu-small)) .calendar-container .calendar-row > div:first-child,
+        &:has(.menu:not(.menu-small)) .calendar-container .calendar-row > div:first-of-type,
+        modeus-aside-panel:has(.menu:not(.menu-small)) + div .calendar-container .calendar-row > div:first-child,
+        modeus-aside-panel:has(.menu:not(.menu-small)) + div .calendar-container .calendar-row > div:first-of-type,
+        .menu:not(.menu-small) ~ .content .calendar-container .calendar-row > div:first-child,
+        .menu:not(.menu-small) ~ .content .calendar-container .calendar-row > div:first-of-type,
+        .menu:not(.menu-small) ~ .main-content .calendar-container .calendar-row > div:first-child,
+        .menu:not(.menu-small) ~ .main-content .calendar-container .calendar-row > div:first-of-type {
+            width: 100% !important;
+            max-width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+
+        &:has(.menu:not(.menu-small)) .calendar-container .calendar-row .event-card-block,
+        modeus-aside-panel:has(.menu:not(.menu-small)) + div .calendar-container .calendar-row .event-card-block,
+        .menu:not(.menu-small) ~ .content .calendar-container .calendar-row .event-card-block,
+        .menu:not(.menu-small) ~ .main-content .calendar-container .calendar-row .event-card-block {
+            position: absolute !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            width: 350px !important;
+            max-width: min(350px, 90vw) !important;
+            margin-left: 0 !important;
+            z-index: 100 !important;
+            background: #ffffff !important;
+            box-shadow: -4px 0 16px rgba(15, 23, 42, 0.08) !important;
+            border-radius: 8px 0 0 8px !important;
+            overflow-y: auto !important;
+        }
+
+        &:has(.menu:not(.menu-small)) .calendar-container .calendar-row .event-card-block .event-card-container,
+        modeus-aside-panel:has(.menu:not(.menu-small)) + div .calendar-container .calendar-row .event-card-block .event-card-container,
+        .menu:not(.menu-small) ~ .content .calendar-container .calendar-row .event-card-block .event-card-container,
+        .menu:not(.menu-small) ~ .main-content .calendar-container .calendar-row .event-card-block .event-card-container {
+            height: 100% !important;
+            max-height: 100% !important;
+            border: none !important;
+        }
+    }
+
+    @media (max-width: 1171.98px) {
+        .calendar-container .calendar-row {
+            position: relative !important;
+        }
+
+        .calendar-container .calendar-row > div:first-child,
+        .calendar-container .calendar-row > div:first-of-type {
+            width: 100% !important;
+            max-width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+
+        .calendar-container .calendar-row .event-card-block {
+            position: absolute !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            width: 350px !important;
+            max-width: min(350px, 90vw) !important;
+            margin-left: 0 !important;
+            z-index: 100 !important;
+            background: #ffffff !important;
+            box-shadow: -4px 0 16px rgba(15, 23, 42, 0.08) !important;
+            border-radius: 8px 0 0 8px !important;
+            overflow-y: auto !important;
+        }
+
+        .calendar-container .calendar-row .event-card-block .event-card-container {
+            height: 100% !important;
+            max-height: 100% !important;
+            border: none !important;
+        }
+    }
+
+    @media (max-width: 860px) {
+        .main-calendar-form > div,
+        .main-calendar-form .location_table,
+        .main-calendar-form .ver-anchor {
+            margin-left: 3px !important;
+        }
+
+        .main-calendar-form .location_table .location_table__header span {
+            padding: 3px 6px 2px !important;
+        }
+
+        .main-calendar-form > div:has(.grid),
+        .main-calendar-form > div:nth-child(2):not(.ver-anchor) {
+            min-width: 95px !important;
+        }
+
+        .main-calendar-form .ver-anchor .ver-pill-btn {
+            padding: 2px 5px !important;
+            font-size: 11px !important;
+        }
     }
 
     #student-search-input {

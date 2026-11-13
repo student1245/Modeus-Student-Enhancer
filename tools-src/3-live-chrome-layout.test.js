@@ -809,6 +809,197 @@ describe('Шаг 3: Живые геометрические и визуальн�
             }
         }
 
+        // Проверка постоянства размещения: сужение до 850px -> обратное расширение до 1600px
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 850, height: 800, deviceScaleFactor: 1, mobile: false });
+        await cdp.evaluateExpression(`
+            const dev = window.__MSE_INJECTED_DEV__;
+            dev.selectedStudents.clear();
+            for (let i = 1; i <= 10; i++) dev.selectedStudents.add('Друг ' + i);
+            const menu = document.querySelector('div.menu');
+            if (menu) { menu.className = 'menu mobile-menu menu-small'; menu.style.width = '56px'; }
+            const mainContent = document.querySelector('.main-content');
+            if (mainContent) { mainContent.style.marginLeft = '56px'; mainContent.style.width = (850 - 56) + 'px'; }
+            dev.updateSearchCompactState();
+        `);
+
+        const narrowState = await cdp.evaluateExpression(`
+            const container = document.getElementById('enhancer-search-container');
+            const toolbar = document.querySelector('.fc-toolbar') || document.querySelector('.fc-header-toolbar');
+            return {
+                inToolbar: container.classList.contains('in-calendar-toolbar'),
+                parentIsToolbar: container.parentElement === toolbar
+            };
+        `);
+        assert.strictEqual(narrowState.inToolbar, true, 'На ширине 850px блок должен быть в .fc-toolbar');
+        assert.strictEqual(narrowState.parentIsToolbar, true, 'На ширине 850px родителем должен быть .fc-toolbar');
+
+        // Теперь обратно расширяем до 1600px
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 800, deviceScaleFactor: 1, mobile: false });
+        await cdp.evaluateExpression(`
+            const dev = window.__MSE_INJECTED_DEV__;
+            const menu = document.querySelector('div.menu');
+            if (menu) { menu.className = 'menu mobile-menu'; menu.style.width = '312px'; }
+            const mainContent = document.querySelector('.main-content');
+            if (mainContent) { mainContent.style.marginLeft = '312px'; mainContent.style.width = (1600 - 312) + 'px'; }
+            dev.updateSearchCompactState();
+        `);
+
+        const expandedState = await cdp.evaluateExpression(`
+            const container = document.getElementById('enhancer-search-container');
+            const toolbar = document.querySelector('.fc-toolbar') || document.querySelector('.fc-header-toolbar');
+            return {
+                inToolbar: container.classList.contains('in-calendar-toolbar'),
+                parentIsToolbar: container.parentElement === toolbar,
+                isCompact: container.classList.contains('is-compact'),
+                isUltraCompact: container.classList.contains('is-ultra-compact')
+            };
+        `);
+        assert.strictEqual(expandedState.inToolbar, true, 'При расширении до 1600px inToolbar сохраняется');
+        assert.strictEqual(expandedState.parentIsToolbar, true, 'При расширении до 1600px контейнер остаётся в .fc-toolbar');
+        assert.strictEqual(expandedState.isCompact, false, 'При ширине 1600px блок должен вернуться в полный режим (isCompact: false)');
+        assert.strictEqual(expandedState.isUltraCompact, false, 'При ширине 1600px isUltraCompact должен быть false');
+
+        await cdp.send('Emulation.clearDeviceMetricsOverride');
+    });
+
+    test('9. Адаптивность календаря: оверлей карточки пары (<= 1380px), зазор шапки и сворачивание бокового меню (1155px)', async (t) => {
+        if (!chromeOnline) {
+            t.skip('Debug Chrome недоступен на порту 9222. Тест пропущен.');
+            return;
+        }
+
+        // 1. Проверка сворачивания бокового меню на 1150px
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1150, height: 800, deviceScaleFactor: 1, mobile: false });
+        await cdp.evaluateScript(`
+            document.body.innerHTML = \`
+                <div class="menu">
+                    <div class="user-info">
+                        <span class="user-name user-full-name">Егор Е. Миллер</span>
+                        <span class="user-name user-short-name">Е.Е.</span>
+                    </div>
+                </div>
+                <div class="content">
+                    <div class="main-calendar-form">
+                        <div class="title"><h3>Мое расписание</h3></div>
+                        <div class="fix-width-select grid" style="height: 34px;">Селект</div>
+                    </div>
+                    <div class="calendar-container">
+                        <div class="calendar-row">
+                            <div class="cal-col">
+                                <div class="fc-toolbar" style="height: 34px; display: flex; justify-content: space-between;">
+                                    <div class="fc-left">9 – 15 нояб. 2026 г.</div>
+                                    <div class="fc-right">Кнопки тулбара</div>
+                                </div>
+                                <div class="fc-view-container" style="height: 400px;">Сетка календаря</div>
+                            </div>
+                            <div class="event-card-block">
+                                <div class="event-card-container">
+                                    <div class="event-card-container__header">
+                                        <span>Открыть</span>
+                                        <span class="close-btn">Закрыть</span>
+                                    </div>
+                                    <div class="event-card-container__content">Детали пары</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            \`;
+        `);
+
+        // Проверка бокового меню на 1150px
+        const menuCheck = await cdp.evaluateExpression(`
+            const menu = document.querySelector('.menu');
+            const short = menu ? menu.querySelector('.user-short-name') : null;
+            const full = menu ? menu.querySelector('.user-full-name') : null;
+            return {
+                width: menu ? menu.offsetWidth : null,
+                shortVisible: short ? getComputedStyle(short).display !== 'none' : null,
+                fullVisible: full ? getComputedStyle(full).display !== 'none' : null
+            };
+        `);
+        assert.strictEqual(menuCheck.width, 68, 'На 1150px ширина .menu должна быть 68px');
+        assert.strictEqual(menuCheck.shortVisible, true, 'На 1150px при свёрнутом меню отображаются инициалы (.user-short-name)');
+        assert.strictEqual(menuCheck.fullVisible, false, 'На 1150px при свёрнутом меню скрыто полное имя (.user-full-name)');
+
+        // 2. Двухступенчатая проверка оверлея карточки пары:
+        // А) На 1250px и 1196px: оверлей при раскрытом меню, штатный поток при свёрнутом
+        for (const w of [1250, 1196]) {
+            await cdp.send('Emulation.setDeviceMetricsOverride', { width: w, height: 800, deviceScaleFactor: 1, mobile: false });
+
+            // Раскрытое меню (overlay)
+            await cdp.evaluateScript(`
+                const menu = document.querySelector('.menu');
+                if (menu) menu.className = 'menu';
+            `);
+            const expRes = await cdp.evaluateExpression(`
+                const row = document.querySelector('.calendar-row');
+                const calCol = row ? row.firstElementChild : null;
+                const card = document.querySelector('.event-card-block');
+                const cardComp = card ? getComputedStyle(card) : null;
+                return {
+                    cardPosition: cardComp ? cardComp.position : null,
+                    calColWidth: calCol ? calCol.offsetWidth : null,
+                    rowWidth: row ? row.offsetWidth : null
+                };
+            `);
+            assert.strictEqual(expRes.cardPosition, 'absolute', `На ${w}px при раскрытом меню карточка пары должна быть overlay`);
+            assert.strictEqual(expRes.calColWidth, expRes.rowWidth, `На ${w}px при раскрытом меню календарь занимает 100% ширины`);
+
+            // Свёрнутое меню (штатный поток сбоку)
+            await cdp.evaluateScript(`
+                const menu = document.querySelector('.menu');
+                if (menu) menu.className = 'menu menu-small';
+            `);
+            const colRes = await cdp.evaluateExpression(`
+                const card = document.querySelector('.event-card-block');
+                const cardComp = card ? getComputedStyle(card) : null;
+                return {
+                    cardPosition: cardComp ? cardComp.position : null
+                };
+            `);
+            assert.strictEqual(colRes.cardPosition, 'static', `На ${w}px при свёрнутом меню карточка пары открывается штатно сбоку (in-flow)`);
+        }
+
+        // Б) На 1171px и 983px: безусловный оверлей независимо от состояния меню
+        for (const w of [1171, 983]) {
+            await cdp.send('Emulation.setDeviceMetricsOverride', { width: w, height: 800, deviceScaleFactor: 1, mobile: false });
+            for (const isSmall of [false, true]) {
+                await cdp.evaluateScript(`
+                    const menu = document.querySelector('.menu');
+                    if (menu) menu.className = ${isSmall} ? 'menu menu-small' : 'menu';
+                `);
+                const uncondRes = await cdp.evaluateExpression(`
+                    const row = document.querySelector('.calendar-row');
+                    const calCol = row ? row.firstElementChild : null;
+                    const card = document.querySelector('.event-card-block');
+                    const cardComp = card ? getComputedStyle(card) : null;
+                    return {
+                        cardPosition: cardComp ? cardComp.position : null,
+                        calColWidth: calCol ? calCol.offsetWidth : null,
+                        rowWidth: row ? row.offsetWidth : null
+                    };
+                `);
+                assert.strictEqual(uncondRes.cardPosition, 'absolute', `На ${w}px (menu-small: ${isSmall}) карточка пары всегда overlay`);
+                assert.strictEqual(uncondRes.calColWidth, uncondRes.rowWidth, `На ${w}px (menu-small: ${isSmall}) календарь сохраняет 100% ширины`);
+            }
+        }
+
+        // 3. Проверка вертикального зазора на 1600px, 1340px, 1155px, 850px
+        for (const w of [1600, 1340, 1155, 850]) {
+            await cdp.send('Emulation.setDeviceMetricsOverride', { width: w, height: 800, deviceScaleFactor: 1, mobile: false });
+            const gapRes = await cdp.evaluateExpression(`
+                const form = document.querySelector('.main-calendar-form');
+                const titleH3 = form ? form.querySelector('.title h3') : null;
+                return {
+                    formHeight: form ? form.offsetHeight : null,
+                    h3MarginTop: titleH3 ? getComputedStyle(titleH3).marginTop : null,
+                    h3MarginBottom: titleH3 ? getComputedStyle(titleH3).marginBottom : null
+                };
+            `);
+            assert.notStrictEqual(gapRes.h3MarginBottom, '0px', `На ширине ${w}px вертикальные маржины h3 не должны обнуляться`);
+        }
+
         await cdp.send('Emulation.clearDeviceMetricsOverride');
     });
 });

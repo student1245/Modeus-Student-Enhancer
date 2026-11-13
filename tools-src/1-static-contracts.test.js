@@ -269,7 +269,9 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
                 cls.startsWith('location-info') ||
                 cls.startsWith('teachers-list') ||
                 cls.startsWith('main-calendar-form') ||
-                cls.startsWith('calendar-container') ||
+                cls.startsWith('main-content') ||
+                cls.startsWith('container-fluid') ||
+                cls.startsWith('calendar-') ||
                 cls.startsWith('search-wrap') ||
                 cls.startsWith('search-field') ||
                 cls.startsWith('search-highlight') ||
@@ -280,7 +282,16 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
                 cls === 'card' ||
                 cls === 'error-container' ||
                 cls === 'content' ||
-                cls === 'form-container') {
+                cls === 'fix-width-select' ||
+                cls === 'pl-0' ||
+                cls === 'title' ||
+                cls === 'd-inline-block' ||
+                cls.startsWith('location') ||
+                cls === 'form-container' ||
+                cls.startsWith('menu') ||
+                cls.startsWith('user-') ||
+                cls === 'contacts' ||
+                cls === 'avatar') {
                 return true;
             }
             // Разрешаем только конкретный список динамических модификаторов тостов при наличии префикса в рантайме
