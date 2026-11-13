@@ -879,6 +879,7 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     toggleSearchPopover,
                     updateSelectedStudentsDisplay,
                     selectStudentSuggestion,
+                    renderUpdateUI,
                     ID_SEARCH_CONTAINER,
                     ID_SEARCH_TOGGLE_BTN,
                     ID_SEARCH_POPOVER,
@@ -1085,7 +1086,11 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
         });
 
         test('5. Адаптивность шапки календаря, кнопка-лупа [🔍] и плавающий поповер #mse-search-popover', () => {
-            // 1. Создаём форму .main-calendar-form с нативными элементами Модеуса
+            // 1. Создаём меню, форму .main-calendar-form и тулбар .fc-toolbar с нативными элементами Модеуса
+            const menu = env.document.createElement('div');
+            menu.className = 'menu mobile-menu';
+            env.document.body.appendChild(menu);
+
             const form = env.document.createElement('form');
             form.className = 'main-calendar-form';
             form.clientWidth = 1200;
@@ -1101,11 +1106,37 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             selectDiv.offsetWidth = 250;
             form.appendChild(selectDiv);
 
+            const fcToolbar = env.document.createElement('div');
+            fcToolbar.className = 'fc-toolbar fc-header-toolbar';
+            fcToolbar.clientWidth = 1200;
+            env.document.body.appendChild(fcToolbar);
+
+            const fcLeft = env.document.createElement('div');
+            fcLeft.className = 'fc-left';
+            fcLeft.getBoundingClientRect = () => ({ right: 270, width: 270, left: 0, top: 50, bottom: 98, height: 48 });
+            fcToolbar.appendChild(fcLeft);
+
+            const filterBtn = env.document.createElement('button');
+            filterBtn.className = 'btn-filter';
+            fcToolbar.appendChild(filterBtn);
+
+            const fcRight = env.document.createElement('div');
+            fcRight.className = 'fc-right';
+            fcRight.getBoundingClientRect = () => ({ right: 1200, width: 106, left: 1094, top: 50, bottom: 98, height: 48 });
+            fcToolbar.appendChild(fcRight);
+
             // 2. Инициализируем UI календаря
             hooks.setupUI();
 
             const container = env.document.getElementById(hooks.ID_SEARCH_CONTAINER);
-            assert.ok(container, 'Контейнер поиска должен быть смонтирован в .main-calendar-form');
+            assert.ok(container, 'Контейнер поиска должен быть смонтирован в .fc-toolbar');
+            assert.strictEqual(container.parentElement, fcToolbar, 'Постоянным родителем поиска обязан быть .fc-toolbar');
+
+            // Симулируем обновление для проверки постоянного монтирования .ver-anchor в .main-calendar-form
+            hooks.renderUpdateUI('2.5.0', 'https://example.com/release', 'Release notes', { forceShow: true });
+            const updateAnchor = env.document.getElementById('mse-update-anchor');
+            assert.ok(updateAnchor, 'Кнопка обновления расширения .ver-anchor должна быть создана');
+            assert.strictEqual(updateAnchor.parentElement, form, '.ver-anchor обязана монтироваться в белую шапку .main-calendar-form');
 
             const toggleBtn = env.document.getElementById(hooks.ID_SEARCH_TOGGLE_BTN);
             const popover = env.document.getElementById(hooks.ID_SEARCH_POPOVER);
@@ -1114,16 +1145,30 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.ok(popover, 'Поповер #mse-search-popover должен быть создан');
             assert.ok(input, 'Поле ввода #student-search-input должно быть создано');
 
-            // 3. Широкий экран (> 1150px) и достаточно места: полный режим (is-compact отсутствует)
-            env.window.innerWidth = 1400;
-            form.clientWidth = 1100;
-            hooks.updateSearchCompactState();
-            assert.strictEqual(container.classList.contains('is-compact'), false, 'При достаточном месте не должен активироваться is-compact');
+            const setSpace = (freePx) => {
+                // freeSpace = rightBoundary - leftBoundary - 16;
+                // rightBoundary (filterBtn.left) = leftBoundary (270) + 16 + freePx
+                const fLeft = 270 + 16 + freePx;
+                const totalW = fLeft + 115;
+                env.window.innerWidth = totalW;
+                env.document.documentElement.clientWidth = totalW;
+                fcToolbar.clientWidth = totalW;
+                fcToolbar.getBoundingClientRect = () => ({ right: totalW, width: totalW, left: 0, top: 50, bottom: 98, height: 48 });
+                filterBtn.getBoundingClientRect = () => ({ right: fLeft + 95, width: 95, left: fLeft, top: 62, bottom: 96, height: 34 });
+            };
 
-            // 4. Сужение экрана (<= 1150px): компактный режим (.is-compact)
-            env.window.innerWidth = 1050;
+            // 3. Без друзей: широкий экран (freeSpace >= 270): полный режим (is-compact и is-ultra-compact отсутствуют)
+            setSpace(350);
             hooks.updateSearchCompactState();
-            assert.strictEqual(container.classList.contains('is-compact'), true, 'При ширине <= 1150px должен выставляться .is-compact');
+            assert.strictEqual(container.classList.contains('is-compact'), false, 'При freeSpace >= 270 не должен активироваться is-compact');
+            assert.strictEqual(container.classList.contains('is-ultra-compact'), false);
+            assert.strictEqual(container.parentElement, fcToolbar, 'Контейнер остаётся в .fc-toolbar');
+
+            // 4. Без друзей: компактный режим (125 <= freeSpace < 270): .is-compact
+            setSpace(200);
+            hooks.updateSearchCompactState();
+            assert.strictEqual(container.classList.contains('is-compact'), true, 'При 125 <= freeSpace < 270 должен выставляться .is-compact');
+            assert.strictEqual(container.classList.contains('is-ultra-compact'), false);
 
             // 5. По умолчанию в компактном режиме поповер закрыт (is-open отсутствует)
             assert.strictEqual(popover.classList.contains('is-open'), false, 'Поповер по умолчанию должен быть закрыт');
@@ -1150,17 +1195,27 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             input.dispatchEvent({ type: 'keydown', key: 'Escape' });
             assert.strictEqual(popover.classList.contains('is-open'), false, 'Escape должен закрыть поповер');
 
-            // 10. Добавление студентов при нехватке места на широком экране (например, availableWidth < 410px)
-            env.window.innerWidth = 1400;
-            form.clientWidth = 950; // nativeWidth = 200 + 250 = 450; availableWidth = 500
+            // 10. С друзьями: проверка ступеней Full -> Compact A -> Compact B (ultra-compact)
+            // Полный режим: freeSpace >= 420
+            setSpace(450);
             hooks.updateSearchCompactState();
-            assert.strictEqual(container.classList.contains('is-compact'), false); // 500 >= 275 (0 друзей)
+            assert.strictEqual(container.classList.contains('is-compact'), false);
 
-            // Выбираем студента (требуется 410px, availableWidth = 350 при сужении формы)
-            form.clientWidth = 800; // availableWidth = 350 < 410
+            // Выбираем студента (hasSelected = true)
             hooks.selectedStudents.add('Иванов Иван');
             hooks.updateSelectedStudentsDisplay();
-            assert.strictEqual(container.classList.contains('is-compact'), true, 'При выборе студентов и нехватке места должен активироваться .is-compact');
+
+            // Ступень A: 275 <= freeSpace < 420 -> is-compact, но слово "Выбрано:" остаётся
+            setSpace(320);
+            hooks.updateSearchCompactState();
+            assert.strictEqual(container.classList.contains('is-compact'), true, 'При выборе студентов и freeSpace < 420 должен активироваться .is-compact');
+            assert.strictEqual(container.classList.contains('is-ultra-compact'), false, 'На ступени А слово "Выбрано:" должно оставаться видимым');
+
+            // Ступень Б: freeSpace < 275 -> is-ultra-compact
+            setSpace(230);
+            hooks.updateSearchCompactState();
+            assert.strictEqual(container.classList.contains('is-compact'), true);
+            assert.strictEqual(container.classList.contains('is-ultra-compact'), true, 'На ступени Б должен выставляться .is-ultra-compact');
 
             // 11. Взаимное закрытие выпадающего списка выбранных студентов и поповера поиска
             const selToggle = env.document.getElementById('selected-students-toggle');
@@ -1179,6 +1234,51 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             selToggle.click();
             assert.strictEqual(selContainer.style.display, 'flex');
             assert.strictEqual(popover.classList.contains('is-open'), false, 'Открытие списка студентов должно закрыть поповер поиска');
+
+            // 12. Постоянство размещения: при любом сужении/расширении контейнер всегда в .fc-toolbar
+            setSpace(100);
+            hooks.updateSearchCompactState();
+            assert.strictEqual(container.parentElement, fcToolbar, 'При экстремальном сужении контейнер остаётся в .fc-toolbar');
+            assert.strictEqual(container.classList.contains('is-compact'), true);
+            assert.strictEqual(container.classList.contains('is-ultra-compact'), true);
+
+            setSpace(600);
+            hooks.updateSearchCompactState();
+            assert.strictEqual(container.parentElement, fcToolbar, 'При обратном расширении контейнер также остаётся в .fc-toolbar');
+            assert.strictEqual(container.classList.contains('is-compact'), false);
+            assert.strictEqual(container.classList.contains('is-ultra-compact'), false);
+
+            // 13. Переключение недели (пересоздание .fc-toolbar): бесшовное сохранение живого DOM-узла (cachedSearchContainer)
+            assert.strictEqual(hooks.selectedStudents.size, 1);
+
+            // Имитируем удаление .fc-toolbar и создание нового при смене недели в FullCalendar
+            fcToolbar.remove();
+            const newFcToolbar = env.document.createElement('div');
+            newFcToolbar.className = 'fc-toolbar fc-header-toolbar';
+            env.document.body.appendChild(newFcToolbar);
+            const newFilterBtn = env.document.createElement('button');
+            newFilterBtn.className = 'btn-filter';
+            newFcToolbar.appendChild(newFilterBtn);
+
+            // Вызываем setupUI (как это делает MutationObserver/debouncedMutationHandler при пересоздании тулбара)
+            hooks.setupUI();
+
+            const reattachedContainer = env.document.getElementById(hooks.ID_SEARCH_CONTAINER);
+            assert.ok(reattachedContainer, 'Контейнер поиска обязан присутствовать в новом тулбаре');
+            assert.strictEqual(reattachedContainer, container, 'При пересоздании тулбара обязан переиспользоваться тот же самый живой DOM-экземпляр без пересоздания');
+            assert.strictEqual(reattachedContainer.parentElement, newFcToolbar, 'Контейнер должен быть прикреплен к новому .fc-toolbar');
+
+            const controls = env.document.getElementById('search-controls');
+            assert.ok(controls, '#search-controls обязан присутствовать');
+            assert.notStrictEqual(controls.style.display, 'none', 'Панель #search-controls не должна скрываться в display: none');
+
+            const newWrapper = env.document.getElementById('selected-students-dropdown-wrapper');
+            const newCount = env.document.getElementById('selected-count');
+            const newItems = env.document.querySelectorAll('.selected-student-tag');
+            assert.ok(newWrapper, 'Обертка выбранных студентов должна существовать в новом тулбаре');
+            assert.strictEqual(newWrapper.style.display, 'block', 'Кнопка выбранных студентов должна оставаться видимой (display: block) после переключения недели');
+            assert.strictEqual(newCount.textContent, '1', 'Счётчик выбранных студентов должен сохраняться');
+            assert.strictEqual(newItems.length, 1, 'Список тегов выбранных студентов должен сохраняться');
         });
     });
 

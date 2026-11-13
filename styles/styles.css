@@ -27,6 +27,7 @@
     from {
         transform: rotate(0deg);
     }
+
     to {
         transform: rotate(360deg);
     }
@@ -81,12 +82,40 @@ body.mse-active {
     }
 
     /* 2. Блок поиска и кнопок расширения */
-    #enhancer-search-container {
-        margin-left: auto !important;
+    .fc-toolbar {
         position: relative !important;
+    }
+
+    .btn-filter {
+        height: 34px !important;
+        top: 7px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-sizing: border-box !important;
+    }
+
+    #enhancer-search-container {
+        position: absolute !important;
+        top: 7px !important;
+        height: 34px !important;
+        margin: 0 !important;
         display: flex !important;
-        flex-direction: column !important;
-        align-items: flex-end !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        z-index: 10 !important;
+        left: auto !important;
+        text-align: left !important;
+    }
+
+    #enhancer-search-container #search-status {
+        display: none !important;
+    }
+
+    .main-calendar-form>#enhancer-search-container {
+        position: relative !important;
+        top: auto !important;
+        margin-left: auto !important;
     }
 
     .toolbar,
@@ -97,8 +126,13 @@ body.mse-active {
     }
 
     .main-calendar-form {
-        flex-wrap: wrap !important;
-        row-gap: 6px !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .main-calendar-form .ver-anchor {
+        margin-left: 12px !important;
+        flex-shrink: 0 !important;
     }
 
     .icon-btn,
@@ -129,6 +163,11 @@ body.mse-active {
         color: #0f172a;
     }
 
+    #refresh-data-btn.is-loading svg {
+        animation: mse-spin 0.9s linear infinite !important;
+        transform-origin: center !important;
+    }
+
     #search-toggle-btn.is-active {
         background: #e2e8f0 !important;
         color: #0f172a !important;
@@ -156,6 +195,7 @@ body.mse-active {
         padding: 0 !important;
         border-radius: 0 !important;
         z-index: auto !important;
+        text-align: left !important;
     }
 
     /* КОМПАКТНЫЙ РЕЖИМ (.is-compact, когда места не хватает) */
@@ -183,6 +223,7 @@ body.mse-active {
         padding: 8px !important;
         box-sizing: border-box !important;
         z-index: 1050 !important;
+        text-align: left !important;
     }
 
     #enhancer-search-container.is-compact #mse-search-popover #student-search-input {
@@ -382,6 +423,7 @@ body.mse-active {
         flex-direction: column;
         gap: 2px;
         box-sizing: border-box;
+        text-align: left !important;
     }
 
     .selected-dropdown::-webkit-scrollbar,
@@ -425,9 +467,10 @@ body.mse-active {
 
     .selected-item,
     .selected-student-tag {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        text-align: left !important;
         padding: 7px 10px;
         border-radius: 6px;
         font-size: 13px;
@@ -450,6 +493,7 @@ body.mse-active {
         overflow: hidden;
         text-overflow: ellipsis;
         flex: 1 1 auto;
+        text-align: left !important;
     }
 
     .selected-student-name strong {
@@ -952,8 +996,15 @@ body.mse-active {
     }
 
     @keyframes mseSpotlightFadeIn {
-        from { opacity: 0; transform: translateY(-6px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 
     .mse-spotlight-header {
@@ -1145,10 +1196,13 @@ body.mse-active {
     }
 
     @keyframes mseAmberDotPulse {
-        0%, 100% {
+
+        0%,
+        100% {
             box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
             transform: scale(0.95);
         }
+
         50% {
             box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);
             transform: scale(1.05);
@@ -1626,7 +1680,7 @@ body.mse-active {
     }
 
     td.text-center:not(.p-frozen-column),
-    .p-datatable-tbody > tr > td.text-center:not(.p-frozen-column) {
+    .p-datatable-tbody>tr>td.text-center:not(.p-frozen-column) {
         width: 105px !important;
         min-width: 105px !important;
     }
@@ -1655,6 +1709,7 @@ body.mse-active {
         margin-left: 4px !important;
         vertical-align: baseline !important;
     }
+
     .mse-max-done {
         color: #1e293b !important;
         border-bottom: 2px solid #1c9b4a !important;

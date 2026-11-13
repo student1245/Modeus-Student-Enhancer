@@ -481,6 +481,9 @@
     const CLASS_MSE_SEARCH_FILTERING_ACTIVE = 'mse-search-filtering-active';
     const CLASS_SHORT_CARD = 'mse-short-card';
     const CLASS_TITLE_CLIPPED = 'mse-title-clipped';
+    const CLASS_IN_CALENDAR_TOOLBAR = 'in-calendar-toolbar';
+    const CLASS_IS_COMPACT = 'is-compact';
+    const CLASS_IS_ULTRA_COMPACT = 'is-ultra-compact';
     const CLASS_NATIVE_POPOVER_SHARED = 'mse-native-popover-shared';
     const SHORT_CARD_MAX_HEIGHT_PX = 54;
     const BANNER_HEIGHT_PX = 19;
@@ -554,6 +557,7 @@
     let calendarResizeObserver = null;
     let calendarResizeDebounceTimer = null;
     let observedCalendarTarget = null;
+    let cachedSearchContainer = null;
 
     // Успеваемость и технологические карты
     const GRADES_MAX_UNKNOWN_THRESHOLD = 0.3; // Порог неизвестных макс. баллов (30%) для вывода Н/Д*
@@ -1903,6 +1907,7 @@
         document.body.classList.remove(CLASS_MSE_ACTIVE);
         document.body.classList.remove(CLASS_MSE_SEARCH_FILTERING_ACTIVE);
         qs(`#${ID_SEARCH_CONTAINER}`)?.remove();
+        cachedSearchContainer = null;
         qs(`#${ID_TEACHER_TOOLTIP}`)?.remove();
         qs(`#${ID_STOP_BUTTON}`)?.remove();
         qs(`#${ID_TOAST_CONTAINER}`)?.remove();
@@ -2290,32 +2295,93 @@
         }
     };
 
-    const updateSearchCompactState = () => {
-        const container = qs(`#${ID_SEARCH_CONTAINER}`);
-        const form = qs('.main-calendar-form');
-        if (!container || !form) return;
+    const calculateAvailableToolbarSpace = (toolbar) => {
+        const target = toolbar || qs('.fc-toolbar') || qs('.fc-header-toolbar') || qs('.main-calendar-form');
+        if (!target) return 1000;
 
-        const toolbarWidth = form.clientWidth || form.offsetWidth || 0;
-        let nativeWidth = 0;
-        for (const child of form.children) {
-            if (child.id === ID_SEARCH_CONTAINER) continue;
-            const style = window.getComputedStyle ? window.getComputedStyle(child) : null;
-            if (style && style.display === 'none') continue;
-            nativeWidth += child.offsetWidth || 0;
-            if (style) {
-                nativeWidth += (parseFloat(style.marginLeft) || 0) + (parseFloat(style.marginRight) || 0);
-            }
+        const fcLeft = qs('.fc-left', target) || qs('.fc-left');
+        const filterBtn = qs('.btn-filter', target) || qs('.btn-filter');
+        const fcRight = qs('.fc-right', target) || qs('.fc-right');
+
+        const targetRect = target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+        const targetRight = (targetRect && targetRect.right) || (target.clientWidth || 1200);
+
+        const leftRect = fcLeft && fcLeft.getBoundingClientRect ? fcLeft.getBoundingClientRect() : null;
+        let leftBoundary = (leftRect && leftRect.right > 0) ? leftRect.right : (targetRect ? targetRect.left + 270 : 270);
+
+        let rightBoundary = targetRight;
+        if (filterBtn && filterBtn.getBoundingClientRect) {
+            const fRect = filterBtn.getBoundingClientRect();
+            if (fRect.left > 0) rightBoundary = fRect.left;
+        } else if (fcRight && fcRight.getBoundingClientRect) {
+            const rRect = fcRight.getBoundingClientRect();
+            if (rRect.left > 0) rightBoundary = rRect.left;
+        } else {
+            rightBoundary = targetRight - 215;
         }
 
-        const availableWidth = toolbarWidth - nativeWidth;
-        const requiredFullWidth = selectedStudents.size > 0 ? 410 : 275;
-        const shouldBeCompact = (typeof window !== 'undefined' && window.innerWidth && window.innerWidth <= 1150) || availableWidth < requiredFullWidth;
+        return Math.max(0, rightBoundary - leftBoundary - 16);
+    };
 
-        const wasCompact = container.classList.contains('is-compact');
-        container.classList.toggle('is-compact', shouldBeCompact);
+    const calculateAvailableFormSpace = calculateAvailableToolbarSpace;
 
-        if (wasCompact && !shouldBeCompact) {
-            toggleSearchPopover(false);
+    const updateSearchCompactState = () => {
+        const container = qs(`#${ID_SEARCH_CONTAINER}`);
+        const fcToolbar = qs('.fc-toolbar') || qs('.fc-header-toolbar');
+        const form = qs('.main-calendar-form');
+        if (!container) return;
+
+        const toolbar = fcToolbar || form;
+        if (fcToolbar && container.parentElement !== fcToolbar) {
+            if (window.getComputedStyle && window.getComputedStyle(fcToolbar).position === 'static') {
+                fcToolbar.style.position = 'relative';
+            }
+            fcToolbar.appendChild(container);
+        }
+
+        container.classList.add(CLASS_IN_CALENDAR_TOOLBAR);
+
+        const freeSpace = calculateAvailableToolbarSpace(toolbar);
+        const hasSelected = selectedStudents.size > 0;
+
+        // Пороги переключения:
+        // Полный вид: полный инпут + полный лейбл Выбрано: N
+        const fullRequired = hasSelected ? 440 : 270;
+        // Ступень А: кнопка-лупа [🔍] + полный лейбл Выбрано: N
+        const compactWithLabelRequired = hasSelected ? 300 : 125;
+
+        if (freeSpace >= fullRequired) {
+            const wasCompact = container.classList.contains(CLASS_IS_COMPACT);
+            container.classList.remove(CLASS_IS_COMPACT);
+            container.classList.remove(CLASS_IS_ULTRA_COMPACT);
+            if (wasCompact) {
+                toggleSearchPopover(false);
+            }
+        } else if (freeSpace >= compactWithLabelRequired) {
+            container.classList.add(CLASS_IS_COMPACT);
+            container.classList.remove(CLASS_IS_ULTRA_COMPACT);
+        } else {
+            // Ступень Б: лупа [🔍] + скрытый лейбл N ▾ | ×
+            container.classList.add(CLASS_IS_COMPACT);
+            container.classList.add(CLASS_IS_ULTRA_COMPACT);
+        }
+
+        // Выравнивание перед кнопкой Фильтры / Неделя
+        if (fcToolbar) {
+            const filterBtn = qs('.btn-filter', fcToolbar) || qs('.btn-filter');
+            const fcRight = qs('.fc-right', fcToolbar) || qs('.fc-right');
+            let rightOffset = 220;
+            if (filterBtn && (filterBtn.offsetParent || filterBtn.getBoundingClientRect)) {
+                const tRect = fcToolbar.getBoundingClientRect ? fcToolbar.getBoundingClientRect() : null;
+                const fRect = filterBtn.getBoundingClientRect ? filterBtn.getBoundingClientRect() : null;
+                if (tRect && fRect && tRect.right > 0 && fRect.left > 0) {
+                    rightOffset = Math.max(12, Math.round(tRect.right - fRect.left) + 12);
+                }
+            } else if (fcRight) {
+                const w = fcRight.offsetWidth || (fcRight.getBoundingClientRect ? fcRight.getBoundingClientRect().width : 106);
+                rightOffset = Math.max(12, Math.round(w) + 16);
+            }
+            container.style.right = `${rightOffset}px`;
         }
     };
 
@@ -2326,18 +2392,22 @@
     };
 
     const setupCalendarResizeObserver = () => {
-        const target = qs('.fc-view-container') || qs('.main-calendar-form') || qs('.fc-time-grid');
-        if (!target) return;
+        const formTarget = qs('.main-calendar-form');
+        const viewTarget = qs('.fc-view-container') || qs('.fc-time-grid');
+        const toolbarTarget = qs('.fc-toolbar') || qs('.fc-header-toolbar');
+
+        if (!formTarget && !viewTarget && !toolbarTarget) return;
+
+        const target = viewTarget || formTarget;
         if (calendarResizeObserver && observedCalendarTarget === target && target.isConnected) return;
 
         cleanupCalendarResizeObserver();
         observedCalendarTarget = target;
         calendarResizeObserver = new ResizeObserver(handleCalendarResize);
-        calendarResizeObserver.observe(target);
-        const formTarget = qs('.main-calendar-form');
-        if (formTarget && formTarget !== target) {
-            calendarResizeObserver.observe(formTarget);
-        }
+        if (viewTarget && viewTarget.isConnected) calendarResizeObserver.observe(viewTarget);
+        if (toolbarTarget && toolbarTarget.isConnected) calendarResizeObserver.observe(toolbarTarget);
+
+        window.removeEventListener('resize', handleCalendarResize);
         window.addEventListener('resize', handleCalendarResize);
         updateSearchCompactState();
     };
@@ -2661,9 +2731,12 @@
     const loadAllData = async () => {
         const statusEl = qs('#search-status');
         const controlsEl = qs('#search-controls');
+        const refreshBtn = qs('#refresh-data-btn');
+        const refreshIcon = refreshBtn ? refreshBtn.querySelector('svg') : null;
         try {
-            if (controlsEl) controlsEl.style.display = 'none';
-            if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Загрузка данных...'; statusEl.style.color = '#2196F3'; }
+            if (refreshIcon) refreshIcon.classList.add('mse-spinning-icon');
+            if (refreshBtn) refreshBtn.classList.add('is-loading');
+            if (controlsEl && controlsEl.style.display === 'none') controlsEl.style.display = 'flex';
 
             const token = sessionStorage.getItem('id_token');
             if (!token) throw new Error("Токен не найден.");
@@ -2797,12 +2870,20 @@
 
             if (statusEl) statusEl.style.display = 'none';
             if (controlsEl) controlsEl.style.display = 'flex';
-            if (selectedStudents.size > 0) highlightEventsForStudents();
+            if (selectedStudents.size > 0) {
+                updateSelectedStudentsDisplay();
+                highlightEventsForStudents();
+            } else {
+                updateSearchCompactState();
+            }
             checkSurvey();
         } catch (err) {
             if (statusEl) { statusEl.textContent = `Ошибка: ${err.message}`; statusEl.style.color = 'red'; }
             if (controlsEl) controlsEl.style.display = 'flex';
             logger.error('Критическая ошибка загрузки данных расписания:', err);
+        } finally {
+            if (refreshIcon) refreshIcon.classList.remove('mse-spinning-icon');
+            if (refreshBtn) refreshBtn.classList.remove('is-loading');
         }
     };
 
@@ -3134,8 +3215,8 @@
     };
 
     const renderUpdateUI = (latestVersion, releaseUrl, releaseBody = '', { forceShow = false } = {}) => {
-        const controls = qs('#search-controls');
-        if (!controls) return;
+        const form = qs('.main-calendar-form') || qs('#search-controls');
+        if (!form) return;
 
         qs(`#${ID_UPDATE_ANCHOR}`)?.remove();
         qs(`#${ID_UPDATE_BADGE}`)?.remove();
@@ -3147,12 +3228,7 @@
         anchor.className = 'ver-anchor';
         anchor.innerHTML = buildUpdateAnchorHtml(versionTag, releaseUrl, releaseBody);
 
-        const friendsBtn = qs('#add-friends-to-search-btn', controls);
-        if (friendsBtn) {
-            controls.insertBefore(anchor, friendsBtn);
-        } else {
-            controls.insertBefore(anchor, controls.firstChild);
-        }
+        form.appendChild(anchor);
 
         bindUpdateAnchorEvents(anchor, latestVersion);
 
@@ -4195,14 +4271,28 @@
     };
 
     const setupUI = () => {
-        const toolbar = qs('.main-calendar-form');
-        if (!toolbar || qs(`#${ID_SEARCH_CONTAINER}`)) return;
+        const fcToolbar = qs('.fc-toolbar') || qs('.fc-header-toolbar');
+        const form = qs('.main-calendar-form');
+        const targetToolbar = fcToolbar || form;
+        if (!targetToolbar) return;
+
+        if (cachedSearchContainer) {
+            if (!cachedSearchContainer.isConnected || cachedSearchContainer.parentElement !== targetToolbar) {
+                targetToolbar.appendChild(cachedSearchContainer);
+            }
+            updateSelectedStudentsDisplay();
+            updateSearchCompactState();
+            return;
+        }
+
+        if (qs(`#${ID_SEARCH_CONTAINER}`)) return;
 
         const container = document.createElement('div');
         container.id = ID_SEARCH_CONTAINER;
+        container.className = CLASS_IN_CALENDAR_TOOLBAR;
         container.innerHTML = `
-            <span id="search-status" style="display: block;"></span>
-            <div id="search-controls" class="toolbar" style="display: none;">
+            <span id="search-status" style="display: none;"></span>
+            <div id="search-controls" class="toolbar">
                 <button id="add-friends-to-search-btn" class="icon-btn" title="Добавить друзей в поиск общих пар" type="button">
                     ${getSvgIcon('users', { size: 16, strokeWidth: 2 })}
                 </button>
@@ -4231,7 +4321,11 @@
                     </div>
                 </div>
             </div>`;
-        toolbar.appendChild(container);
+        if (fcToolbar && window.getComputedStyle && window.getComputedStyle(fcToolbar).position === 'static') {
+            fcToolbar.style.position = 'relative';
+        }
+        cachedSearchContainer = container;
+        targetToolbar.appendChild(container);
 
         qs('#add-friends-to-search-btn').addEventListener('click', () => {
             const friends = getFriends();
@@ -4305,7 +4399,7 @@
         document.addEventListener('click', handleOutsideSearchClick);
         setupNativePopoverObserver();
         setupCalendarResizeObserver();
-        updateSearchCompactState();
+        updateSelectedStudentsDisplay();
 
         if (latestKnownUpdate) {
             renderUpdateUI(latestKnownUpdate.version, latestKnownUpdate.url, latestKnownUpdate.body);
@@ -5197,11 +5291,18 @@
             enhancePopovers();
             updateAddFriendButtons();
 
-            if (qs('.main-calendar-form') && !qs(`#${ID_SEARCH_CONTAINER}`)) setupUI();
-            if (!calendarResizeObserver && qs('.main-calendar-form')) setupCalendarResizeObserver();
+            if (qs('.main-calendar-form') && (!cachedSearchContainer || !cachedSearchContainer.isConnected)) setupUI();
+            if (qs('.main-calendar-form') && (!observedCalendarTarget || !observedCalendarTarget.isConnected)) {
+                setupCalendarResizeObserver();
+            }
+            if (qs('.main-calendar-form')) updateSearchCompactState();
 
             // Если выбран хоть один человек — всегда держим подсветку включенной (даже если кликнули на пару)
             if (selectedStudents.size > 0) {
+                const wrapper = qs('#selected-students-dropdown-wrapper');
+                if (wrapper && wrapper.style.display === 'none') {
+                    updateSelectedStudentsDisplay();
+                }
                 highlightEventsForStudents();
             }
 
@@ -5299,6 +5400,15 @@
     };
 
     const handleMainDomMutations = (mutations) => {
+        // Синхронный возврат панели поиска в .fc-toolbar до фазы Paint браузера
+        if (cachedSearchContainer && !cachedSearchContainer.isConnected) {
+            const targetToolbar = qs('.fc-toolbar') || qs('.fc-header-toolbar') || qs('.main-calendar-form');
+            if (targetToolbar) {
+                targetToolbar.appendChild(cachedSearchContainer);
+                updateSearchCompactState();
+            }
+        }
+
         // Синхронная подмена названий корпусов и восстановление подсветки пар строго до Paint-фазы браузера
         if (!isRestoringHighlights) {
             const hasNewBuildings = hasUnenhancedBuildingEvents(mutations);

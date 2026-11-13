@@ -140,6 +140,7 @@ function prepareInjectedWithHooks() {
             selectedStudents,
             eventCache,
             uniqueStudents,
+            calculateAvailableFormSpace,
             updateSearchCompactState,
             toggleSearchPopover,
             clearSearch
@@ -208,7 +209,16 @@ describe('Шаг 3: Живые геометрические и визуальн�
             document.head.appendChild(style);
 
             // Каркас хост-страницы расписания Modeus
-            document.body.innerHTML = '<div class="main-calendar-form"></div>';
+            document.body.innerHTML = \`
+                <div class="main-calendar-form" style="display: flex; align-items: center; position: relative;">
+                    <div class="pl-0 title">Мое расписание</div>
+                </div>
+                <div class="fc-toolbar fc-header-toolbar" style="background: rgb(227, 242, 253); height: 48px; position: relative; box-sizing: border-box; padding: 5px 10px 4px; margin-top: 10px;">
+                    <div class="fc-left" style="float: left; height: 34px;"><h2>9 – 15 нояб. 2026 г.</h2></div>
+                    <button type="button" class="btn-filter screen-only" style="position: absolute; right: 115px; top: 12px; width: 95px; height: 34px;"><span>Фильтры (1)</span></button>
+                    <div class="fc-right" style="position: absolute; right: 10px; top: 12px; width: 106px; height: 34px;"></div>
+                </div>
+            \`;
         `);
 
         // 3. Загрузка реальных модулей расширения
@@ -278,7 +288,8 @@ describe('Шаг 3: Живые геометрические и визуальн�
                     getComputedStyle(splitBtn).height,
                     getComputedStyle(pillCheck).height
                 ],
-                toolbarTops: [rPill.top, rIcon.top, rSplit.top]
+                searchTops: [rIcon.top, rSplit.top],
+                pillTop: rPill.top
             };
         `);
 
@@ -286,10 +297,9 @@ describe('Шаг 3: Живые геометрические и визуальн�
         metrics.heights.forEach(h => assert.strictEqual(Math.round(h), 34));
         metrics.computedHeights.forEach(ch => assert.strictEqual(ch, '34px'));
 
-        // Кнопки тулбара расположены строго на одной оптической горизонтали
-        const [topA, topB, topC] = metrics.toolbarTops;
-        assert.ok(Math.abs(topA - topB) <= 1, 'Кнопка обновления и иконка должны быть выровнены по top');
-        assert.ok(Math.abs(topB - topC) <= 1, 'Иконка и сплит-кнопка должны быть выровнены по top');
+        // Кнопки тулбара поиска в .fc-toolbar расположены строго на одной оптической горизонтали
+        const [topA, topB] = metrics.searchTops;
+        assert.ok(Math.abs(topA - topB) <= 1, 'Иконка и сплит-кнопка должны быть выровнены по top в .fc-toolbar');
     });
 
     test('2. Поповер обновления .ver-popover: позиция строго под кнопкой .ver-pill-btn', async (t) => {
@@ -603,6 +613,13 @@ describe('Шаг 3: Живые геометрические и визуальн�
         await cdp.evaluateExpression(`
             document.body.innerHTML = '';
             document.body.className = 'mse-active';
+            document.body.style.padding = '0';
+            document.body.style.margin = '0';
+
+            const menu = document.createElement('div');
+            menu.className = 'menu mobile-menu';
+            menu.style.cssText = 'position: fixed; left: 0; top: 0; bottom: 0; z-index: 100;';
+            document.body.appendChild(menu);
 
             const form = document.createElement('div');
             form.className = 'main-calendar-form';
@@ -612,13 +629,34 @@ describe('Шаг 3: Живые геометрические и визуальн�
                 <div class="fix-width-select d-inline-block" style="width: 100px; height: 34px;"></div>
                 <div class="location_table" style="width: 200px; height: 34px;">Адреса корпусов</div>
             \`;
-            document.body.appendChild(form);
+            const mainContent = document.createElement('div');
+            mainContent.className = 'main-content';
+            mainContent.style.cssText = 'box-sizing: border-box;';
+            const containerFluid = document.createElement('div');
+            containerFluid.className = 'container-fluid';
+            containerFluid.style.minWidth = '845px'; // Нативный стиль Модеуса
+            containerFluid.appendChild(form);
+            document.body.appendChild(mainContent);
+
+            const calWrapper = document.createElement('div');
+            calWrapper.className = 'calendar-wrapper';
+            calWrapper.style.position = 'relative';
+            calWrapper.innerHTML = \`
+                <button type="button" class="btn-filter screen-only" style="position: absolute; right: 115px; top: 12px; width: 95px; height: 27px;"><span>Фильтры (1)</span></button>
+                <div class="fc-toolbar fc-header-toolbar" style="background: rgb(227, 242, 253); height: 48px; position: relative; box-sizing: border-box; padding: 5px 10px 4px;">
+                    <div class="fc-left" style="float: left;"><h2>9 – 15 нояб. 2026 г.</h2></div>
+                    <div class="fc-right" style="float: right; width: 107px;"><select class="fc-view-select form-control" style="width: 107px; height: 34px;"><option>Неделя</option></select></div>
+                    <div class="fc-clear" style="clear: both;"></div>
+                </div>
+            \`;
+            containerFluid.appendChild(calWrapper);
+            mainContent.appendChild(containerFluid);
 
             // Инициализируем UI расширения
             window.__MSE_INJECTED_DEV__.setupUI();
         `);
 
-        const widths = [1600, 1460, 1400, 1280, 1024, 860, 850];
+        const widths = [1600, 1460, 1400, 1280, 1131, 1024, 860, 850];
 
         for (const w of widths) {
             for (const hasFriends of [false, true]) {
@@ -645,17 +683,37 @@ describe('Шаг 3: Живые геометрические и визуальн�
                     if (wrapper) wrapper.style.display = ${hasFriends} ? 'block' : 'none';
                     if (countSpan) countSpan.textContent = '${hasFriends ? 10 : 0}';
 
+                    const isMenuExpanded = ${w} > 1100;
+                    const sidebarWidth = isMenuExpanded ? 312 : 56;
+                    const menu = document.querySelector('div.menu');
+                    if (menu) {
+                        menu.className = isMenuExpanded ? 'menu mobile-menu' : 'menu mobile-menu menu-small';
+                        menu.style.width = sidebarWidth + 'px';
+                    }
+                    const mainContent = document.querySelector('.main-content');
+                    if (mainContent) {
+                        mainContent.style.marginLeft = sidebarWidth + 'px';
+                        mainContent.style.width = (${w} - sidebarWidth) + 'px';
+                    }
+
                     dev.updateSearchCompactState();
 
                     const container = document.getElementById('enhancer-search-container');
                     const toggleBtn = document.getElementById('search-toggle-btn');
                     const popover = document.getElementById('mse-search-popover');
 
+                    const fcToolbar = document.querySelector('.fc-toolbar') || document.querySelector('.fc-header-toolbar');
+                    const freeSpace = dev.calculateAvailableFormSpace(fcToolbar);
+
+                    const containerRect = container.getBoundingClientRect();
+                    const containerFitsViewport = containerRect.right <= document.documentElement.clientWidth + 1;
+
                     const scrollW = document.documentElement.scrollWidth;
                     const clientW = document.documentElement.clientWidth;
                     const hasScroll = scrollW > clientW;
 
                     const isCompact = container.classList.contains('is-compact');
+                    const isUltraCompact = container.classList.contains('is-ultra-compact');
                     const toggleDisplay = getComputedStyle(toggleBtn).display;
                     const popoverDisplay = getComputedStyle(popover).display;
 
@@ -696,10 +754,15 @@ describe('Шаг 3: Живые геометрические и визуальн�
                     return {
                         w: ${w},
                         hasFriends: ${hasFriends},
+                        freeSpace,
                         scrollW,
                         clientW,
                         hasScroll,
                         isCompact,
+                        isUltraCompact,
+                        inToolbar: container.classList.contains('in-calendar-toolbar'),
+                        containerFitsViewport,
+                        containerRight: containerRect.right,
                         toggleDisplay,
                         popoverDisplay,
                         popoverOpensCleanly,
@@ -709,6 +772,29 @@ describe('Шаг 3: Живые геометрические и визуальн�
                 `);
 
                 assert.strictEqual(res.hasScroll, false, `На ширине ${w}px (друзья: ${hasFriends}) не должно быть горизонтального скролла (${res.scrollW} > ${res.clientW})`);
+                assert.strictEqual(res.containerFitsViewport, true, `На ширине ${w}px (друзья: ${hasFriends}) правый край блока (${res.containerRight}) не должен выходить за вьюпорт (${res.clientW})`);
+
+                const fullRequired = hasFriends ? 440 : 270;
+                const compactWithLabelRequired = hasFriends ? 300 : 125;
+
+                let expectedIsCompact = false;
+                let expectedIsUltraCompact = false;
+
+                if (res.freeSpace >= fullRequired) {
+                    expectedIsCompact = false;
+                    expectedIsUltraCompact = false;
+                } else if (res.freeSpace >= compactWithLabelRequired) {
+                    expectedIsCompact = true;
+                    expectedIsUltraCompact = false;
+                } else {
+                    expectedIsCompact = true;
+                    expectedIsUltraCompact = true;
+                }
+
+                assert.strictEqual(res.inToolbar, true, `На ширине ${w}px контейнер поиска должен постоянно находиться в .fc-toolbar`);
+                assert.strictEqual(res.isCompact, expectedIsCompact, `На ширине ${w}px (друзья: ${hasFriends}, freeSpace: ${res.freeSpace}) статус isCompact должен быть ${expectedIsCompact}`);
+                assert.strictEqual(res.isUltraCompact, expectedIsUltraCompact, `На ширине ${w}px (друзья: ${hasFriends}, freeSpace: ${res.freeSpace}) статус isUltraCompact должен быть ${expectedIsUltraCompact}`);
+
                 if (hasFriends) {
                     assert.strictEqual(res.dropdownFitsViewport, true, `На ширине ${w}px список студентов не должен выходить за правый край экрана`);
                     assert.strictEqual(res.mutualCloseWorks, true, `На ширине ${w}px взаимное закрытие поповеров должно работать корректно`);
