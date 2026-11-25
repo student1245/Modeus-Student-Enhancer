@@ -803,8 +803,8 @@ body.mse-active {
     #search-suggestions::-webkit-scrollbar-thumb:active,
     .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-thumb:hover,
     .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-thumb:active,
-    .p-multiselect-wrapper::-webkit-scrollbar-thumb:hover,
-    .p-multiselect-wrapper::-webkit-scrollbar-thumb:active {
+    .p-multiselect-items-wrapper::-webkit-scrollbar-thumb:hover,
+    .p-multiselect-items-wrapper::-webkit-scrollbar-thumb:active {
         background-color: #64748b;
         border: 1px solid transparent;
     }

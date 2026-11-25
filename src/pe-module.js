@@ -518,8 +518,16 @@ window.MSE_PE = (function () {
 
     async function getPersonIdByName(name) {
         // 1. Сначала ищем в локальных друзьях (мгновенно)
-        const friends = JSON.parse(localStorage.getItem(STORAGE_KEY_FRIENDS) || '[]');
-        const friend = friends.find(f => f.fullName.toLowerCase().includes(name.toLowerCase()));
+        let friends = [];
+        try {
+            const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY_FRIENDS) || '[]');
+            if (Array.isArray(parsed)) friends = parsed;
+        } catch {
+            friends = [];
+        }
+        const friend = friends.find(
+            f => f && typeof f.fullName === 'string' && f.fullName.toLowerCase().includes(name.toLowerCase())
+        );
         if (friend) return { id: friend.id, name: friend.fullName };
 
         // 2. Если нет в друзьях — ищем через актуальное POST API Модеуса (как на скриншоте)
@@ -557,14 +565,6 @@ window.MSE_PE = (function () {
         return null;
     }
 
-    function ensureSpinKeyframes() {
-        if (typeof document === 'undefined' || document.getElementById('mse-spin-keyframes')) return;
-        const style = document.createElement('style');
-        style.id = 'mse-spin-keyframes';
-        style.textContent = '@keyframes mse-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}.mse-spinning-icon{display:inline-block!important;transform-origin:center!important;animation:mse-spin .9s linear infinite!important}';
-        (document.head || document.documentElement).appendChild(style);
-    }
-
     window.MSE_PE_loadFriend = async function () {
         const input = document.getElementById('pe-friendInput');
         const wrapper = document.getElementById('pe-friendWrapper');
@@ -577,11 +577,9 @@ window.MSE_PE = (function () {
             return;
         }
 
-        ensureSpinKeyframes();
         btn.innerHTML = getSvgIcon('refresh-ccw', {
             size: 14,
-            className: 'mse-spinning-icon',
-            style: 'display: inline-block; transform-origin: center; animation: mse-spin 0.9s linear infinite;'
+            className: 'mse-spinning-icon'
         });
         btn.disabled = true;
         input.disabled = true;
@@ -608,6 +606,9 @@ window.MSE_PE = (function () {
                 headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
                 body: JSON.stringify({ size: 500, timeMin: now.toISOString(), timeMax: future.toISOString(), attendeePersonId: [person.id] })
             });
+            if (!schedRes.ok) {
+                throw new Error(`HTTP ${schedRes.status}`);
+            }
             const eventsData = await schedRes.json();
             const events = eventsData._embedded?.events || [];
 
@@ -615,12 +616,14 @@ window.MSE_PE = (function () {
             const dayMap = { 1: 'ПН', 2: 'ВТ', 3: 'СР', 4: 'ЧТ', 5: 'ПТ', 6: 'СБ' };
 
             events.forEach(ev => {
-                if (ev.name.toLowerCase().includes('физическая культура')) return;
+                if (!ev?.name || !ev?.startsAtLocal || ev.name.toLowerCase().includes('физическая культура')) return;
                 const d = new Date(ev.startsAtLocal);
                 const day = dayMap[d.getDay()];
                 if (!day) return;
 
-                let time = ev.startsAtLocal.split('T')[1].substring(0, 5);
+                const timePart = ev.startsAtLocal.split('T')[1];
+                if (!timePart) return;
+                let time = timePart.substring(0, 5);
                 if (time.startsWith('0')) time = time.substring(1);
 
                 if (!friendSchedule[day]) friendSchedule[day] = {};

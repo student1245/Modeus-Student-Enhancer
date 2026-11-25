@@ -340,16 +340,17 @@
         sessionStorage.setItem('mse_sso_tried', '1');
         try {
             const credentials = await decryptCredentials(mse_sso_vault);
-            if (credentials?.username && credentials?.password) {
-                setInputValue(usernameInput, credentials.username);
-                setInputValue(passwordInput, credentials.password);
-                if (submitButton) {
-                    submitButton.click();
-                } else {
-                    HTMLFormElement.prototype.submit.call(loginForm);
-                }
-                return;
+            if (!credentials?.username || !credentials?.password) {
+                throw new Error('Поврежденные или неполные учетные данные в хранилище');
             }
+            setInputValue(usernameInput, credentials.username);
+            setInputValue(passwordInput, credentials.password);
+            if (submitButton) {
+                submitButton.click();
+            } else {
+                HTMLFormElement.prototype.submit.call(loginForm);
+            }
+            return;
         } catch (err) {
             console.warn('[MSE SSO Autologin] Ошибка расшифровки хранилища:', err);
             await chrome.storage.local.remove('mse_sso_vault');

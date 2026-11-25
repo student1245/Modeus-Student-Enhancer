@@ -1319,6 +1319,7 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     getTeacherRatingBadgeHtml,
                     createSportCardElement,
                     createBusyCardHtml,
+                    getPersonIdByName,
                     setLocalReviews: (map) => { localTeacherReviews = map; },
                     setCurrentSchedule: (sch) => { currentSchedule = sch; }
                 };
@@ -1475,6 +1476,24 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(friendContainer.classList.contains('is-popover-open'), true);
             friendToggleBtn.click();
             assert.strictEqual(friendContainer.classList.contains('is-popover-open'), false);
+        });
+
+        test('getPersonIdByName: не падает при поврежденном JSON в mse_friends_list и переходит к API', async () => {
+            env.localStorage.setItem('mse_friends_list', '{broken-json');
+            let apiCalled = false;
+            env.window.fetch = async () => {
+                apiCalled = true;
+                return {
+                    ok: true,
+                    json: async () => ({
+                        _embedded: { persons: [{ id: 'p-api-1', fullName: 'Иванов Иван' }] }
+                    })
+                };
+            };
+
+            const person = await hooks.getPersonIdByName('Иванов');
+            assert.strictEqual(apiCalled, true, 'При битом кэше друзей должен выполняться fallback-запрос к API');
+            assertDeepEqual(person, { id: 'p-api-1', name: 'Иванов Иван' });
         });
     });
 

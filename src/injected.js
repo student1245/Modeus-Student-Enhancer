@@ -1735,41 +1735,38 @@
             let btn = item.querySelector('.mse-add-friend-btn');
 
             if (!btn) {
+                const itemContent = item.querySelector('.item');
+                if (!itemContent) continue;
+
                 btn = document.createElement('span');
                 btn.className = 'mse-add-friend-btn';
+                itemContent.style.position = 'relative';
+                itemContent.appendChild(btn);
 
-                const itemContent = item.querySelector('.item');
-                if (itemContent) {
-                    itemContent.style.position = 'relative';
-                    itemContent.appendChild(btn);
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
 
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
+                    const currentFriends = getFriends();
+                    const isCurrentlyFriend = currentFriends.some(f => f.id === personId);
 
-                        const currentFriends = getFriends();
-                        const isCurrentlyFriend = currentFriends.some(f => f.id === personId);
-
-                        if (isCurrentlyFriend) {
-                            removeFriend(personId);
-                            btn.classList.remove('is-friend');
-                            btn.innerHTML = SVG_HEART_OUTLINE;
-                            btn.title = 'Добавить в друзья';
-                        } else {
-                            addFriend(personId, label);
-                            btn.classList.add('is-friend');
-                            btn.innerHTML = SVG_HEART;
-                            btn.title = 'Удалить из друзей';
-                        }
-                    });
-                }
+                    if (isCurrentlyFriend) {
+                        removeFriend(personId);
+                        btn.classList.remove('is-friend');
+                        btn.innerHTML = SVG_HEART_OUTLINE;
+                        btn.title = 'Добавить в друзья';
+                    } else {
+                        addFriend(personId, label);
+                        btn.classList.add('is-friend');
+                        btn.innerHTML = SVG_HEART;
+                        btn.title = 'Удалить из друзей';
+                    }
+                });
             }
 
-            if (btn) {
-                btn.classList.toggle('is-friend', isFriend);
-                btn.innerHTML = isFriend ? SVG_HEART : SVG_HEART_OUTLINE;
-                btn.title = isFriend ? 'Удалить из друзей' : 'Добавить в друзья';
-            }
+            btn.classList.toggle('is-friend', isFriend);
+            btn.innerHTML = isFriend ? SVG_HEART : SVG_HEART_OUTLINE;
+            btn.title = isFriend ? 'Удалить из друзей' : 'Добавить в друзья';
         }
 
         if (hasParticipantItems) {
@@ -2462,12 +2459,11 @@
         const wrapper = qs('#selected-students-dropdown-wrapper');
         const container = qs('#selected-students-container');
         const countSpan = qs('#selected-count');
-        const toggle = qs('#selected-students-toggle');
         if (!container || !wrapper) return;
 
         if (selectedStudents.size > 0) {
             wrapper.style.display = 'block';
-            countSpan.textContent = selectedStudents.size;
+            if (countSpan) countSpan.textContent = selectedStudents.size;
             container.innerHTML = [...selectedStudents].map(name =>
                 `<div class="selected-item selected-student-tag">` +
                 `<span class="selected-student-name" title="${escapeHtml(name)}">${formatStudentDisplayNameHtml(name)}</span>` +
@@ -4106,7 +4102,7 @@
     /**
      * Экран 3: Финал и благодарность с автозакрытием.
      */
-    const renderSurveyCompletedScreen = (container, config, state, onClose) => {
+    const renderSurveyCompletedScreen = (container, state, onClose) => {
         container.innerHTML = `
             ${buildSurveyHeaderHtml('Спасибо за участие!', { closeTitle: 'Закрыть' })}
             <div class="sc-desc">
@@ -4165,7 +4161,7 @@
                     renderSurveyQuestionScreen(container, config, state, onTransition, onClose);
                     break;
                 case 'completed':
-                    renderSurveyCompletedScreen(container, config, state, onClose);
+                    renderSurveyCompletedScreen(container, state, onClose);
                     break;
             }
         };
@@ -4448,7 +4444,10 @@
             fetch(`${API_COURSES}/${courseUnitId}/lessons-technology`, {
                 headers: { "authorization": `Bearer ${token}` }
             })
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
+                })
                 .then(technologyData => {
                     if (technologyData.lessonTechnologies) {
                         technologyData.lessonTechnologies.forEach(lessonTech => {
@@ -5173,6 +5172,9 @@
             headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
             body: JSON.stringify({ size: 500, timeMin: now.toISOString(), timeMax: future.toISOString(), attendeePersonId: [personId] })
         });
+        if (!schedRes.ok) {
+            throw new Error(`HTTP ${schedRes.status}`);
+        }
         const eventsData = await schedRes.json();
         const events = eventsData._embedded?.events || [];
 
@@ -5180,12 +5182,14 @@
         const dayMap = { 1: 'ПН', 2: 'ВТ', 3: 'СР', 4: 'ЧТ', 5: 'ПТ', 6: 'СБ' };
 
         events.forEach(ev => {
-            if (ev.name.toLowerCase().includes('физическая культура')) return;
+            if (!ev?.name || !ev?.startsAtLocal || ev.name.toLowerCase().includes('физическая культура')) return;
             const d = new Date(ev.startsAtLocal);
             const day = dayMap[d.getDay()];
             if (!day) return;
 
-            let time = ev.startsAtLocal.split('T')[1].substring(0, 5);
+            const timePart = ev.startsAtLocal.split('T')[1];
+            if (!timePart) return;
+            let time = timePart.substring(0, 5);
             if (time.startsWith('0')) time = time.substring(1);
 
             if (!blockedSlots[day]) blockedSlots[day] = {};
