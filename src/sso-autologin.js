@@ -63,14 +63,13 @@
     function renderRetryRecoveryButton() {
         const btnId = 'mse-retry-recovery-btn';
         if (document.getElementById(btnId)) return;
+        ensureSsoStyles();
 
         const btn = document.createElement('a');
         btn.id = btnId;
+        btn.className = 'mse-sso-retry-btn';
         btn.href = 'https://utmn.modeus.org/';
         btn.textContent = 'Попробовать снова (Вернуться в Modeus)';
-        btn.style.cssText = 'display: inline-block; margin-top: 16px; padding: 10px 18px; background: #007bff; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 500; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; text-align: center; cursor: pointer; transition: background 0.15s;';
-        btn.onmouseover = () => { btn.style.background = '#0056b3'; };
-        btn.onmouseout = () => { btn.style.background = '#007bff'; };
 
         btn.addEventListener('click', () => {
             sessionStorage.removeItem('mse_retry_count');
@@ -182,8 +181,47 @@
         const style = document.createElement('style');
         style.id = 'mse-sso-styles';
         style.textContent = `
-.mse-sso-warn {
+.mse-sso-retry-btn {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 10px 18px;
+  background: #007bff;
+  color: #ffffff;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.mse-sso-retry-btn:hover {
+  background: #0056b3;
+}
+#mse-remember-container {
+  margin: 12px 0 16px 0;
+  font-family: "Segoe UI", "Segoe WP", Tahoma, Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  color: #262626;
+}
+.mse-remember-label {
   display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  gap: 8px;
+}
+.mse-remember-checkbox {
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  accent-color: #0067b8;
+  margin: 0;
+}
+.mse-sso-warn {
+  display: none;
   align-items: flex-start;
   gap: 10px;
   background: #fffbeb;
@@ -196,6 +234,9 @@
   line-height: 1.4;
   color: #78350f;
   text-align: left;
+}
+.mse-sso-warn.is-visible {
+  display: flex;
 }
 .mse-sso-icon {
   width: 24px;
@@ -365,14 +406,13 @@
 
         const container = document.createElement('div');
         container.id = 'mse-remember-container';
-        container.style.cssText = 'margin: 12px 0 16px 0; font-family: "Segoe UI", "Segoe WP", Tahoma, Arial, sans-serif; font-size: 13px; font-weight: 400; color: #262626;';
 
         container.innerHTML = `
-            <label style="display: flex; align-items: center; cursor: pointer; user-select: none; gap: 8px;">
-                <input type="checkbox" id="mse-remember-checkbox" style="cursor: pointer; width: 15px; height: 15px; accent-color: #0067b8; margin: 0;" ${isVaultSaved ? 'checked' : ''}>
+            <label class="mse-remember-label">
+                <input type="checkbox" id="mse-remember-checkbox" class="mse-remember-checkbox" ${isVaultSaved ? 'checked' : ''}>
                 <span>Запомнить меня (бесконечная сессия)</span>
             </label>
-            <div class="mse-sso-warn" id="mse-remember-warning" style="display: ${isVaultSaved ? 'flex' : 'none'};">
+            <div class="mse-sso-warn${isVaultSaved ? ' is-visible' : ''}" id="mse-remember-warning">
                 <span class="mse-sso-icon">
                     ${getSsoSvgIcon('lock', 14)}
                 </span>
@@ -445,7 +485,7 @@
         }
 
         checkbox.addEventListener('change', () => {
-            warning.style.display = checkbox.checked ? 'flex' : 'none';
+            warning.classList.toggle('is-visible', checkbox.checked);
             if (checkbox.checked) {
                 triggerReactiveSave(0);
             } else {

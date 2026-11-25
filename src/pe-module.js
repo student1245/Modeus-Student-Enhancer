@@ -514,6 +514,10 @@ window.MSE_PE = (function () {
         if (!e.target.closest('.custom-multiselect')) {
             document.querySelectorAll('.custom-multiselect').forEach(m => m.classList.remove('open'));
         }
+        const busyCard = e.target.closest('.busy-card.is-expandable');
+        if (busyCard) {
+            busyCard.classList.toggle('expanded');
+        }
     });
 
     async function getPersonIdByName(name) {
@@ -634,18 +638,11 @@ window.MSE_PE = (function () {
                 }
             });
 
-            // Намертво красим в зеленый через JS
-            wrapper.style.setProperty('border-color', '#86efac', 'important');
-            input.style.setProperty('background', '#f0fdf4', 'important');
-            input.style.setProperty('color', '#16a34a', 'important');
-            input.style.setProperty('font-weight', '600', 'important');
+            wrapper.classList.add('has-friend');
             input.value = `С вами: ${friendNameForUI}`;
             input.disabled = false;
             input.readOnly = true;
 
-            btn.style.setProperty('background', '#fef2f2', 'important');
-            btn.style.setProperty('color', '#ef4444', 'important');
-            btn.style.setProperty('border-left-color', '#fca5a5', 'important');
             btn.innerText = "Сброс";
             btn.disabled = false;
 
@@ -673,15 +670,9 @@ window.MSE_PE = (function () {
             input.value = '';
             input.readOnly = false;
             input.disabled = false;
-            input.style.setProperty('background', 'transparent', 'important');
-            input.style.setProperty('color', '#0f172a', 'important');
-            input.style.setProperty('font-weight', 'normal', 'important');
         }
-        if (wrapper) wrapper.style.setProperty('border-color', '#cbd5e1', 'important');
+        if (wrapper) wrapper.classList.remove('has-friend');
         if (btn) {
-            btn.style.setProperty('background', '#f8fafc', 'important');
-            btn.style.setProperty('color', '#475569', 'important');
-            btn.style.setProperty('border-left-color', '#cbd5e1', 'important');
             btn.innerText = 'Поиск';
         }
 
@@ -718,11 +709,10 @@ window.MSE_PE = (function () {
         const safeTitle = disciplinesList.map(escapeHtml).join('<br>+ ');
         const isExpandable = isBusyCardExpandable(disciplinesList);
         const cardClass = isExpandable ? 'busy-card is-expandable' : 'busy-card';
-        const onclickAttr = isExpandable ? ' onclick="this.classList.toggle(\'expanded\')"' : '';
         const chevronHtml = isExpandable ? BUSY_CHEVRON_SVG : '';
 
         return `
-            <div class="${cardClass}"${onclickAttr}>
+            <div class="${cardClass}">
                 <div class="busy-header">
                     <span class="busy-header-left" title="${escapeHtml(labelText)}">
                         ${BUSY_CALENDAR_SVG}
@@ -882,7 +872,6 @@ window.MSE_PE = (function () {
             const hasChevron = !!card.querySelector('.busy-chevron');
             if (isClamped && !card.classList.contains('is-expandable')) {
                 card.classList.add('is-expandable');
-                card.setAttribute('onclick', "this.classList.toggle('expanded')");
                 const header = card.querySelector('.busy-header');
                 if (header && !hasChevron) {
                     header.insertAdjacentHTML('beforeend', BUSY_CHEVRON_SVG);

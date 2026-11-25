@@ -46,6 +46,22 @@
 body.mse-active {
 
     /* 1. Кнопка Стоп-скрипт и действия заголовка карточки */
+    #mse-feedback-footer {
+        margin-top: 10px;
+        margin-bottom: 10px;
+        font-size: 12px;
+        line-height: 1.4;
+    }
+
+    .mse-feedback-title {
+        opacity: 0.85;
+    }
+
+    .mse-feedback-link {
+        color: #f0f4f7;
+        text-decoration: underline;
+    }
+
     #enhancer-stop-button {
         cursor: pointer;
         color: #dc3545;
@@ -112,6 +128,10 @@ body.mse-active {
         display: none !important;
     }
 
+    #enhancer-search-container #search-status.is-error {
+        color: #dc2626;
+    }
+
     .main-calendar-form>#enhancer-search-container {
         position: relative !important;
         top: auto !important;
@@ -135,10 +155,7 @@ body.mse-active {
         flex-shrink: 0 !important;
     }
 
-    .icon-btn,
-    #refresh-data-btn,
-    #add-friends-to-search-btn,
-    #search-toggle-btn {
+    .icon-btn {
         width: 34px !important;
         height: 34px !important;
         border-radius: 6px;
@@ -155,10 +172,7 @@ body.mse-active {
         box-sizing: border-box;
     }
 
-    .icon-btn:hover,
-    #refresh-data-btn:hover,
-    #add-friends-to-search-btn:hover,
-    #search-toggle-btn:hover {
+    .icon-btn:hover {
         background: #f1f5f9;
         color: #0f172a;
     }
@@ -2078,6 +2092,28 @@ body.mse-active {
     .mse-max-grade.mse-max-unknown {
         color: #94a3b8 !important;
         cursor: help !important;
+    }
+
+    .mse-lost-na,
+    .mse-lost-negative,
+    .mse-lost-zero {
+        font-weight: 500;
+    }
+
+    .mse-lost-na {
+        color: #64748b;
+    }
+
+    .mse-lost-negative {
+        color: #ff3b30;
+    }
+
+    .mse-lost-zero {
+        color: #34c759;
+    }
+
+    .mse-lost-help {
+        cursor: help;
     }
 
     /* 9. Всплывающие уведомления (Toast) вместо alert() */

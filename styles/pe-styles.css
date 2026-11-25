@@ -15,7 +15,7 @@
     box-sizing: border-box;
 }
 
-.modal-close-btn {
+#mse-pe-overlay .modal-close-btn {
     position: static;
     width: 34px;
     height: 34px;
@@ -33,7 +33,7 @@
     flex-shrink: 0;
 }
 
-.modal-close-btn:hover {
+#mse-pe-overlay .modal-close-btn:hover {
     background: #f1f5f9;
     color: #0f172a;
     border-color: #94a3b8;
@@ -143,16 +143,10 @@
         margin-left: 0 !important;
         margin-top: 0;
     }
-    #pe-friendWrapper {
-        margin-left: 0 !important;
-    }
-    .pe-friend-container {
-        margin-left: 0 !important;
-    }
 }
 
 /* Разделитель панели инструментов */
-.toolbar-divider {
+#mse-pe-overlay .toolbar-divider {
     width: 1px;
     height: 20px;
     background: #e2e8f0;
@@ -161,13 +155,13 @@
 }
 
 /* Обёртка селекта и аккуратный выпадающий список */
-.select-wrap {
+#mse-pe-overlay .select-wrap {
     position: relative;
     display: inline-flex;
     align-items: center;
 }
 
-.clean-select {
+#mse-pe-overlay .clean-select {
     appearance: none;
     -webkit-appearance: none;
     height: 34px;
@@ -183,12 +177,12 @@
     transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.clean-select:hover {
+#mse-pe-overlay .clean-select:hover {
     border-color: #94a3b8;
     background: #f8fafc;
 }
 
-.select-chevron {
+#mse-pe-overlay .select-chevron {
     position: absolute;
     right: 9px;
     pointer-events: none;
@@ -196,7 +190,7 @@
 }
 
 /* Кнопки-переключатели с кастомной галочкой (Вариант Б) */
-.pill-check {
+#mse-pe-overlay .pill-check {
     height: 34px;
     padding: 0 11px 0 9px;
     border-radius: 7px;
@@ -214,13 +208,13 @@
     outline: none;
 }
 
-.pill-check:hover {
+#mse-pe-overlay .pill-check:hover {
     border-color: #94a3b8;
     background: #f8fafc;
     color: #0f172a;
 }
 
-.pill-check .check-box {
+#mse-pe-overlay .pill-check .check-box {
     width: 16px;
     height: 16px;
     border-radius: 4px;
@@ -235,27 +229,27 @@
 }
 
 /* Нажатое (активное) состояние: спокойная рамка и текст, акцент только на квадратике с галочкой */
-.pill-check.active {
+#mse-pe-overlay .pill-check.active {
     background: #ffffff;
     border-color: #cbd5e1;
     color: #334155;
     font-weight: 500;
 }
 
-.pill-check.active:hover {
+#mse-pe-overlay .pill-check.active:hover {
     border-color: #94a3b8;
     background: #f8fafc;
     color: #0f172a;
 }
 
-.pill-check.active .check-box {
+#mse-pe-overlay .pill-check.active .check-box {
     background: #2563eb;
     border-color: #2563eb;
     color: #ffffff;
 }
 
 /* Кнопка сброса в конце */
-.reset-btn {
+#mse-pe-overlay .reset-btn {
     height: 34px;
     padding: 0 10px;
     border-radius: 7px;
@@ -272,7 +266,7 @@
     outline: none;
 }
 
-.reset-btn:hover {
+#mse-pe-overlay .reset-btn:hover {
     background: #fee2e2;
     color: #dc2626;
     border-color: #fecaca;
@@ -335,7 +329,7 @@
     text-decoration: underline;
 }
 
-.ms-list-wrap {
+#mse-pe-overlay .ms-list-wrap {
     position: relative;
     width: 100%;
     min-height: 0;
@@ -468,7 +462,7 @@
 }
 
 /* Контейнер ячейки дня, изолирующий скроллбар от таблицы */
-.day-cell-wrap {
+#mse-pe-overlay .day-cell-wrap {
     position: relative;
     width: 100%;
     height: 100%;
@@ -544,57 +538,42 @@ body.mse-scrollbar-dragging {
 
 /* Чистый CSS-фолбэк скроллбара 6px для элементов без .mse-has-smooth-scroll */
 #mse-pe-overlay::-webkit-scrollbar,
-.day-cell::-webkit-scrollbar,
 #mse-pe-overlay .day-cell::-webkit-scrollbar,
 #mse-pe-overlay .card-group::-webkit-scrollbar,
 #mse-pe-overlay .slot-cell::-webkit-scrollbar,
 #mse-pe-overlay .ms-list::-webkit-scrollbar,
-.ms-list::-webkit-scrollbar,
-.pe-friend-dropdown-list::-webkit-scrollbar,
-#pe-friendDropdown::-webkit-scrollbar,
+#mse-pe-overlay .pe-friend-dropdown-list::-webkit-scrollbar,
+#mse-pe-overlay #pe-friendDropdown::-webkit-scrollbar,
 #mse-pe-modal-body::-webkit-scrollbar {
     width: 6px;
     height: 6px;
 }
 
 #mse-pe-overlay::-webkit-scrollbar-button,
-#mse-pe-overlay *::-webkit-scrollbar-button,
-.day-cell::-webkit-scrollbar-button,
-#mse-pe-overlay .day-cell::-webkit-scrollbar-button,
-#mse-pe-overlay .card-group::-webkit-scrollbar-button,
-#mse-pe-overlay .slot-cell::-webkit-scrollbar-button,
-#mse-pe-overlay .ms-list::-webkit-scrollbar-button,
-.ms-list::-webkit-scrollbar-button,
-.pe-friend-dropdown-list::-webkit-scrollbar-button,
-#pe-friendDropdown::-webkit-scrollbar-button,
-#mse-pe-modal-body::-webkit-scrollbar-button {
+#mse-pe-overlay *::-webkit-scrollbar-button {
     display: none !important;
     width: 0 !important;
     height: 0 !important;
 }
 
 #mse-pe-overlay::-webkit-scrollbar-track,
-.day-cell::-webkit-scrollbar-track,
 #mse-pe-overlay .day-cell::-webkit-scrollbar-track,
 #mse-pe-overlay .card-group::-webkit-scrollbar-track,
 #mse-pe-overlay .slot-cell::-webkit-scrollbar-track,
 #mse-pe-overlay .ms-list::-webkit-scrollbar-track,
-.ms-list::-webkit-scrollbar-track,
-.pe-friend-dropdown-list::-webkit-scrollbar-track,
-#pe-friendDropdown::-webkit-scrollbar-track,
+#mse-pe-overlay .pe-friend-dropdown-list::-webkit-scrollbar-track,
+#mse-pe-overlay #pe-friendDropdown::-webkit-scrollbar-track,
 #mse-pe-modal-body::-webkit-scrollbar-track {
     background: transparent;
 }
 
 #mse-pe-overlay::-webkit-scrollbar-thumb,
-.day-cell::-webkit-scrollbar-thumb,
 #mse-pe-overlay .day-cell::-webkit-scrollbar-thumb,
 #mse-pe-overlay .card-group::-webkit-scrollbar-thumb,
 #mse-pe-overlay .slot-cell::-webkit-scrollbar-thumb,
 #mse-pe-overlay .ms-list::-webkit-scrollbar-thumb,
-.ms-list::-webkit-scrollbar-thumb,
-.pe-friend-dropdown-list::-webkit-scrollbar-thumb,
-#pe-friendDropdown::-webkit-scrollbar-thumb,
+#mse-pe-overlay .pe-friend-dropdown-list::-webkit-scrollbar-thumb,
+#mse-pe-overlay #pe-friendDropdown::-webkit-scrollbar-thumb,
 #mse-pe-modal-body::-webkit-scrollbar-thumb {
     background-color: #94a3b8;
     border-radius: 99px;
@@ -605,8 +584,6 @@ body.mse-scrollbar-dragging {
 
 #mse-pe-overlay::-webkit-scrollbar-thumb:hover,
 #mse-pe-overlay::-webkit-scrollbar-thumb:active,
-.day-cell::-webkit-scrollbar-thumb:hover,
-.day-cell::-webkit-scrollbar-thumb:active,
 #mse-pe-overlay .day-cell::-webkit-scrollbar-thumb:hover,
 #mse-pe-overlay .day-cell::-webkit-scrollbar-thumb:active,
 #mse-pe-overlay .card-group::-webkit-scrollbar-thumb:hover,
@@ -615,12 +592,10 @@ body.mse-scrollbar-dragging {
 #mse-pe-overlay .slot-cell::-webkit-scrollbar-thumb:active,
 #mse-pe-overlay .ms-list::-webkit-scrollbar-thumb:hover,
 #mse-pe-overlay .ms-list::-webkit-scrollbar-thumb:active,
-.ms-list::-webkit-scrollbar-thumb:hover,
-.ms-list::-webkit-scrollbar-thumb:active,
-.pe-friend-dropdown-list::-webkit-scrollbar-thumb:hover,
-.pe-friend-dropdown-list::-webkit-scrollbar-thumb:active,
-#pe-friendDropdown::-webkit-scrollbar-thumb:hover,
-#pe-friendDropdown::-webkit-scrollbar-thumb:active,
+#mse-pe-overlay .pe-friend-dropdown-list::-webkit-scrollbar-thumb:hover,
+#mse-pe-overlay .pe-friend-dropdown-list::-webkit-scrollbar-thumb:active,
+#mse-pe-overlay #pe-friendDropdown::-webkit-scrollbar-thumb:hover,
+#mse-pe-overlay #pe-friendDropdown::-webkit-scrollbar-thumb:active,
 #mse-pe-modal-body::-webkit-scrollbar-thumb:hover,
 #mse-pe-modal-body::-webkit-scrollbar-thumb:active {
     background-color: #64748b;
@@ -636,7 +611,7 @@ body.mse-scrollbar-dragging {
 }
 
 /* Карточки видов спорта внутри ячеек */
-.sport-card {
+#mse-pe-overlay .sport-card {
     border: 1px solid #e2e8f0;
     border-radius: 7px;
     padding: 6px 9px;
@@ -646,29 +621,29 @@ body.mse-scrollbar-dragging {
     transition: all 0.12s ease;
 }
 
-.sport-card:last-child {
+#mse-pe-overlay .sport-card:last-child {
     margin-bottom: 0;
 }
 
-.sport-card:hover {
+#mse-pe-overlay .sport-card:hover {
     border-color: #0284c7;
     background: #f0f9ff;
     box-shadow: 0 2px 5px rgba(2, 132, 199, 0.08);
 }
 
-.sport-card.is-enrolled,
-.sport-card.enrolled {
+#mse-pe-overlay .sport-card.is-enrolled,
+#mse-pe-overlay .sport-card.enrolled {
     border: 1.5px solid #4ade80;
     background: #f0fdf4;
 }
 
-.sport-card.is-enrolled:hover,
-.sport-card.enrolled:hover {
+#mse-pe-overlay .sport-card.is-enrolled:hover,
+#mse-pe-overlay .sport-card.enrolled:hover {
     border-color: #22c55e;
     background: #dcfce7;
 }
 
-.enrolled-dot-badge {
+#mse-pe-overlay .enrolled-dot-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -683,7 +658,7 @@ body.mse-scrollbar-dragging {
     align-self: center;
 }
 
-.sc-top {
+#mse-pe-overlay .sc-top {
     display: flex;
     align-items: center;
     width: 100%;
@@ -691,7 +666,7 @@ body.mse-scrollbar-dragging {
     min-width: 0;
 }
 
-.sc-name {
+#mse-pe-overlay .sc-name {
     display: inline-flex;
     align-items: baseline;
     max-width: 100%;
@@ -702,7 +677,7 @@ body.mse-scrollbar-dragging {
     line-height: 1.25;
 }
 
-.sc-title-text {
+#mse-pe-overlay .sc-title-text {
     flex: 0 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -710,7 +685,7 @@ body.mse-scrollbar-dragging {
     min-width: 0;
 }
 
-.sc-count {
+#mse-pe-overlay .sc-count {
     flex: 0 0 auto;
     font-weight: 400;
     color: #94a3b8;
@@ -719,7 +694,7 @@ body.mse-scrollbar-dragging {
     white-space: nowrap;
 }
 
-.sc-bottom {
+#mse-pe-overlay .sc-bottom {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -728,7 +703,7 @@ body.mse-scrollbar-dragging {
     min-width: 0;
 }
 
-.sc-slots {
+#mse-pe-overlay .sc-slots {
     display: inline-flex;
     align-items: center;
     gap: 0;
@@ -739,7 +714,7 @@ body.mse-scrollbar-dragging {
     white-space: nowrap;
 }
 
-.sc-slots.slots-ok {
+#mse-pe-overlay .sc-slots.slots-ok {
     background: transparent;
     padding: 0;
     border: none;
@@ -747,7 +722,7 @@ body.mse-scrollbar-dragging {
     font-weight: 600;
 }
 
-.sc-slots.slots-ok::before {
+#mse-pe-overlay .sc-slots.slots-ok::before {
     content: "";
     width: 6px;
     height: 6px;
@@ -757,17 +732,17 @@ body.mse-scrollbar-dragging {
     margin-right: 5px;
 }
 
-.sc-slots.slots-ok .sc-slots-total {
+#mse-pe-overlay .sc-slots.slots-ok .sc-slots-total {
     color: #15803d;
     font-weight: 600;
 }
 
-.sc-slots-total {
+#mse-pe-overlay .sc-slots-total {
     color: #94a3b8;
     font-weight: 400;
 }
 
-.sc-slots.slots-low {
+#mse-pe-overlay .sc-slots.slots-low {
     background: #fef3c7;
     color: #b45309;
     border: 1px solid #fde68a;
@@ -777,12 +752,12 @@ body.mse-scrollbar-dragging {
     border-radius: 5px;
 }
 
-.sc-slots.slots-low .sc-slots-total {
+#mse-pe-overlay .sc-slots.slots-low .sc-slots-total {
     color: #b45309;
     font-weight: 600;
 }
 
-.sc-slots.slots-zero {
+#mse-pe-overlay .sc-slots.slots-zero {
     background: transparent;
     padding: 0;
     border: none;
@@ -790,12 +765,12 @@ body.mse-scrollbar-dragging {
     font-weight: 500;
 }
 
-.sc-slots.slots-zero .sc-slots-total {
+#mse-pe-overlay .sc-slots.slots-zero .sc-slots-total {
     color: #94a3b8;
     font-weight: 400;
 }
 
-.sc-loc {
+#mse-pe-overlay .sc-loc {
     font-size: 11px;
     color: #64748b;
     white-space: nowrap;
@@ -805,13 +780,13 @@ body.mse-scrollbar-dragging {
     flex: 1 1 auto;
 }
 
-.sport-card.is-full {
+#mse-pe-overlay .sport-card.is-full {
     background: #f8fafc;
     border-color: #f1f5f9;
     opacity: 0.6;
 }
 
-.sport-card.is-full:hover {
+#mse-pe-overlay .sport-card.is-full:hover {
     opacity: 0.95;
     border-color: #cbd5e1;
     background: #ffffff;
@@ -820,7 +795,7 @@ body.mse-scrollbar-dragging {
 }
 
 /* Блок «У вас пара» (занятый слот в расписании) */
-.busy-card {
+#mse-pe-overlay .busy-card {
     background: repeating-linear-gradient(-45deg,
             #f8fafc,
             #f8fafc 6px,
@@ -836,19 +811,19 @@ body.mse-scrollbar-dragging {
     transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.busy-card.is-expandable {
+#mse-pe-overlay .busy-card.is-expandable {
     cursor: pointer;
 }
 
-.busy-card.is-expandable:hover {
+#mse-pe-overlay .busy-card.is-expandable:hover {
     border-color: #cbd5e1;
 }
 
-.busy-card+.busy-card {
+#mse-pe-overlay .busy-card+.busy-card {
     margin-top: 4px;
 }
 
-.busy-header {
+#mse-pe-overlay .busy-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -857,7 +832,7 @@ body.mse-scrollbar-dragging {
     min-width: 0;
 }
 
-.busy-header-left {
+#mse-pe-overlay .busy-header-left {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -873,24 +848,24 @@ body.mse-scrollbar-dragging {
     white-space: nowrap;
 }
 
-.busy-header-left span:last-child {
+#mse-pe-overlay .busy-header-left span:last-child {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
 }
 
-.busy-chevron {
+#mse-pe-overlay .busy-chevron {
     color: #94a3b8;
     transition: transform 0.15s ease;
     flex-shrink: 0;
 }
 
-.busy-card.expanded .busy-chevron {
+#mse-pe-overlay .busy-card.expanded .busy-chevron {
     transform: rotate(180deg);
 }
 
-.busy-title {
+#mse-pe-overlay .busy-title {
     font-size: 11.5px;
     font-weight: 400;
     color: #64748b;
@@ -903,7 +878,7 @@ body.mse-scrollbar-dragging {
     text-overflow: ellipsis;
 }
 
-.busy-card.expanded .busy-title {
+#mse-pe-overlay .busy-card.expanded .busy-title {
     display: block;
     -webkit-line-clamp: unset;
     line-clamp: unset;
@@ -957,23 +932,8 @@ body.mse-scrollbar-dragging {
     }
 }
 
-@keyframes mse-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.mse-spinning-icon {
-    display: inline-block !important;
-    transform-origin: center !important;
-    animation: mse-spin 0.9s linear infinite !important;
-}
-
 #mse-pe-modal-header,
-.m-header {
+#mse-pe-overlay .m-header {
     padding: 16px 20px;
     border-bottom: 1px solid #e2e8f0;
     display: flex;
@@ -998,7 +958,7 @@ body.mse-scrollbar-dragging {
     line-height: 1.35;
 }
 
-.sec-modal-close-btn,
+#mse-pe-overlay .sec-modal-close-btn,
 #mse-pe-modal-close-btn {
     position: static !important;
     top: auto !important;
@@ -1024,7 +984,7 @@ body.mse-scrollbar-dragging {
     outline: none;
 }
 
-.sec-modal-close-btn:hover,
+#mse-pe-overlay .sec-modal-close-btn:hover,
 #mse-pe-modal-close-btn:hover {
     background: #f1f5f9;
     color: #0f172a;
@@ -1041,7 +1001,7 @@ body.mse-scrollbar-dragging {
 }
 
 /* Карточка конкретной секции в модальном окне */
-.sec-card {
+#mse-pe-overlay .sec-card {
     border: 1px solid #e2e8f0;
     border-radius: 10px;
     padding: 14px 16px;
@@ -1049,19 +1009,19 @@ body.mse-scrollbar-dragging {
     transition: 0.15s ease;
 }
 
-.sec-card.is-full {
+#mse-pe-overlay .sec-card.is-full {
     background: #f8fafc;
     border-color: #e2e8f0;
     opacity: 0.72;
 }
 
-.sec-card.enrolled-card {
+#mse-pe-overlay .sec-card.enrolled-card {
     border-color: #86efac;
     background: #fcfdfc;
     box-shadow: 0 0 0 1px #86efac;
 }
 
-.sec-top {
+#mse-pe-overlay .sec-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1070,7 +1030,7 @@ body.mse-scrollbar-dragging {
     margin-bottom: 10px;
 }
 
-.sec-name {
+#mse-pe-overlay .sec-name {
     font-size: 14.5px;
     font-weight: 700;
     color: #0f172a;
@@ -1079,7 +1039,7 @@ body.mse-scrollbar-dragging {
     gap: 8px;
 }
 
-.sec-enrolled-badge {
+#mse-pe-overlay .sec-enrolled-badge {
     font-size: 11px;
     font-weight: 600;
     color: #15803d;
@@ -1092,7 +1052,7 @@ body.mse-scrollbar-dragging {
     gap: 4px;
 }
 
-.slot-pill {
+#mse-pe-overlay .slot-pill {
     font-size: 11.5px;
     font-weight: 600;
     padding: 2px 9px;
@@ -1100,22 +1060,22 @@ body.mse-scrollbar-dragging {
     white-space: nowrap;
 }
 
-.slot-ok {
+#mse-pe-overlay .slot-ok {
     background: #dcfce7;
     color: #15803d;
 }
 
-.slot-low {
+#mse-pe-overlay .slot-low {
     background: #fef3c7;
     color: #b45309;
 }
 
-.slot-zero {
+#mse-pe-overlay .slot-zero {
     background: #e2e8f0;
     color: #64748b;
 }
 
-.info-row {
+#mse-pe-overlay .info-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1125,19 +1085,19 @@ body.mse-scrollbar-dragging {
     color: #334155;
 }
 
-.info-left {
+#mse-pe-overlay .info-left {
     display: flex;
     align-items: center;
     gap: 8px;
     min-width: 0;
 }
 
-.info-icon {
+#mse-pe-overlay .info-icon {
     color: #64748b;
     flex-shrink: 0;
 }
 
-.rating-badge {
+#mse-pe-overlay .rating-badge {
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -1148,31 +1108,31 @@ body.mse-scrollbar-dragging {
     flex-shrink: 0;
 }
 
-.rating-pos {
+#mse-pe-overlay .rating-pos {
     background: #f0fdf4;
     color: #15803d;
     border: 1px solid #bbf7d0;
 }
 
-.rating-neg {
+#mse-pe-overlay .rating-neg {
     background: #fef2f2;
     color: #b91c1c;
     border: 1px solid #fecaca;
 }
 
-.rating-neu {
+#mse-pe-overlay .rating-neu {
     background: #f8fafc;
     color: #475569;
     border: 1px solid #e2e8f0;
 }
 
-.rating-none {
+#mse-pe-overlay .rating-none {
     font-size: 11.5px;
     color: #94a3b8;
     font-weight: 400;
 }
 
-.review-box {
+#mse-pe-overlay .review-box {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -1180,7 +1140,7 @@ body.mse-scrollbar-dragging {
     margin: 6px 0 11px 0;
 }
 
-.review-list {
+#mse-pe-overlay .review-list {
     margin: 0;
     padding: 0;
     list-style: none;
@@ -1189,7 +1149,7 @@ body.mse-scrollbar-dragging {
     gap: 4px;
 }
 
-.review-list li {
+#mse-pe-overlay .review-list li {
     position: relative;
     padding-left: 12px;
     font-size: 12.5px;
@@ -1197,7 +1157,7 @@ body.mse-scrollbar-dragging {
     line-height: 1.4;
 }
 
-.review-list li::before {
+#mse-pe-overlay .review-list li::before {
     content: "";
     position: absolute;
     left: 1px;
@@ -1208,7 +1168,7 @@ body.mse-scrollbar-dragging {
     background: #94a3b8;
 }
 
-.map-link {
+#mse-pe-overlay .map-link {
     display: inline-flex;
     align-items: center;
     color: #64748b;
@@ -1217,16 +1177,16 @@ body.mse-scrollbar-dragging {
     transition: all 0.15s ease;
 }
 
-.map-link:hover {
+#mse-pe-overlay .map-link:hover {
     color: #0284c7;
     background: #f1f5f9;
 }
 
 /* Кнопки действия внизу карточки секции */
-.btn-enroll,
-.btn-reenroll,
-.btn-unenroll,
-.btn-disabled {
+#mse-pe-overlay .btn-enroll,
+#mse-pe-overlay .btn-reenroll,
+#mse-pe-overlay .btn-unenroll,
+#mse-pe-overlay .btn-disabled {
     width: 100%;
     height: 36px;
     border-radius: 8px;
@@ -1240,50 +1200,50 @@ body.mse-scrollbar-dragging {
     transition: all 0.15s ease;
 }
 
-.btn-enroll,
-.btn-reenroll,
-.btn-unenroll {
+#mse-pe-overlay .btn-enroll,
+#mse-pe-overlay .btn-reenroll,
+#mse-pe-overlay .btn-unenroll {
     font-weight: 600;
     cursor: pointer;
 }
 
-.btn-enroll {
+#mse-pe-overlay .btn-enroll {
     background: #f0fdf4;
     border: 1px solid #86efac;
     color: #15803d;
 }
 
-.btn-enroll:hover {
+#mse-pe-overlay .btn-enroll:hover {
     background: #dcfce7;
     border-color: #22c55e;
     color: #14532d;
 }
 
-.btn-reenroll {
+#mse-pe-overlay .btn-reenroll {
     background: #fffbeb;
     border: 1px solid #fcd34d;
     color: #b45309;
 }
 
-.btn-reenroll:hover {
+#mse-pe-overlay .btn-reenroll:hover {
     background: #fef3c7;
     border-color: #f59e0b;
     color: #92400e;
 }
 
-.btn-unenroll {
+#mse-pe-overlay .btn-unenroll {
     background: #fef2f2;
     border: 1px solid #fecaca;
     color: #b91c1c;
 }
 
-.btn-unenroll:hover {
+#mse-pe-overlay .btn-unenroll:hover {
     background: #fee2e2;
     border-color: #ef4444;
     color: #991b1b;
 }
 
-.btn-disabled {
+#mse-pe-overlay .btn-disabled {
     background: #f1f5f9;
     border: 1px solid #e2e8f0;
     color: #94a3b8;
@@ -1292,7 +1252,7 @@ body.mse-scrollbar-dragging {
     margin-top: 4px;
 }
 
-.replace-hint {
+#mse-pe-overlay .replace-hint {
     margin-top: 6px;
     padding: 0;
     border: none;
@@ -1303,20 +1263,20 @@ body.mse-scrollbar-dragging {
     line-height: 1.3;
 }
 
-.replace-hint b,
-.replace-hint strong {
+#mse-pe-overlay .replace-hint b,
+#mse-pe-overlay .replace-hint strong {
     color: #b45309;
     font-weight: 600;
 }
 
 /* --- Панель поиска друга и адаптивная кнопка-лупа с поповером --- */
-.pe-friend-container {
+#mse-pe-overlay .pe-friend-container {
     position: relative;
     display: inline-flex;
     align-items: center;
 }
 
-.pe-friend-toggle-btn {
+#mse-pe-overlay .pe-friend-toggle-btn {
     display: none;
     width: 34px;
     height: 34px;
@@ -1333,20 +1293,20 @@ body.mse-scrollbar-dragging {
     outline: none;
 }
 
-.pe-friend-toggle-btn:hover {
+#mse-pe-overlay .pe-friend-toggle-btn:hover {
     background: #f1f5f9;
     color: #0f172a;
     border-color: #94a3b8;
 }
 
-.pe-friend-toggle-btn.is-active {
+#mse-pe-overlay .pe-friend-toggle-btn.is-active {
     background: #f0fdf4 !important;
     color: #16a34a !important;
     border-color: #86efac !important;
     box-shadow: 0 0 0 1px #86efac !important;
 }
 
-.pe-friend-wrapper {
+#mse-pe-overlay .pe-friend-wrapper {
     display: flex;
     align-items: center;
     background: #ffffff;
@@ -1360,7 +1320,7 @@ body.mse-scrollbar-dragging {
     transition: border-color 0.15s ease;
 }
 
-.pe-friend-wrapper input {
+#mse-pe-overlay .pe-friend-wrapper input {
     border: none !important;
     outline: none !important;
     font-size: 12.5px !important;
@@ -1375,7 +1335,7 @@ body.mse-scrollbar-dragging {
     box-sizing: border-box !important;
 }
 
-.pe-friend-wrapper button {
+#mse-pe-overlay .pe-friend-wrapper button {
     background: #f8fafc;
     color: #475569;
     border: none !important;
@@ -1395,17 +1355,33 @@ body.mse-scrollbar-dragging {
     transition: background 0.15s ease;
 }
 
-.pe-friend-wrapper button:hover {
+#mse-pe-overlay .pe-friend-wrapper button:hover {
     background: #f1f5f9;
 }
 
-.pe-friend-dropdown {
+#mse-pe-overlay .pe-friend-wrapper.has-friend {
+    border-color: #86efac !important;
+}
+
+#mse-pe-overlay .pe-friend-wrapper.has-friend input {
+    background: #f0fdf4 !important;
+    color: #16a34a !important;
+    font-weight: 600 !important;
+}
+
+#mse-pe-overlay .pe-friend-wrapper.has-friend button {
+    background: #fef2f2 !important;
+    color: #ef4444 !important;
+    border-left-color: #fca5a5 !important;
+}
+
+#mse-pe-overlay .pe-friend-dropdown {
     border-top: 1px solid #f1f5f9;
     padding-top: 8px;
     margin-top: 4px;
 }
 
-.pe-friend-dropdown-title {
+#mse-pe-overlay .pe-friend-dropdown-title {
     font-size: 11px;
     color: #94a3b8;
     margin-bottom: 4px;
@@ -1414,13 +1390,13 @@ body.mse-scrollbar-dragging {
     font-weight: 600;
 }
 
-.pe-friend-list-wrap {
+#mse-pe-overlay .pe-friend-list-wrap {
     position: relative;
     width: 100%;
     min-height: 0;
 }
 
-.pe-friend-dropdown-list {
+#mse-pe-overlay .pe-friend-dropdown-list {
     max-height: 140px;
     overflow-y: auto;
     padding: 2px 10px 2px 2px;
@@ -1429,7 +1405,7 @@ body.mse-scrollbar-dragging {
     gap: 2px;
 }
 
-.pe-friend-item {
+#mse-pe-overlay .pe-friend-item {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1441,28 +1417,28 @@ body.mse-scrollbar-dragging {
     transition: background 0.15s ease;
 }
 
-.pe-friend-item:hover {
+#mse-pe-overlay .pe-friend-item:hover {
     background: #f1f5f9;
     color: #0f172a;
 }
 
 @media (min-width: 1241px) {
-    .pe-friend-toggle-btn {
+    #mse-pe-overlay .pe-friend-toggle-btn {
         display: none !important;
     }
-    .pe-friend-popover {
+    #mse-pe-overlay .pe-friend-popover {
         display: contents !important;
     }
-    .pe-friend-dropdown {
+    #mse-pe-overlay .pe-friend-dropdown {
         display: none !important;
     }
 }
 
 @media (max-width: 1240px) {
-    .pe-friend-toggle-btn {
+    #mse-pe-overlay .pe-friend-toggle-btn {
         display: inline-flex !important;
     }
-    .pe-friend-popover {
+    #mse-pe-overlay .pe-friend-popover {
         display: none;
         position: absolute;
         top: calc(100% + 6px);
@@ -1476,12 +1452,12 @@ body.mse-scrollbar-dragging {
         width: 300px;
         box-sizing: border-box;
     }
-    .pe-friend-container.is-popover-open .pe-friend-popover {
+    #mse-pe-overlay .pe-friend-container.is-popover-open .pe-friend-popover {
         display: flex;
         flex-direction: column;
         gap: 8px;
     }
-    .pe-friend-container .pe-friend-wrapper {
+    #mse-pe-overlay .pe-friend-container .pe-friend-wrapper {
         width: 100% !important;
         margin-left: 0 !important;
     }

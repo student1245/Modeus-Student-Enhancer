@@ -245,7 +245,7 @@ describe('Шаг 3: Живые геометрические и визуальн�
             const modalOverlay = document.getElementById('mse-pe-modal-overlay');
             if (modalOverlay) modalOverlay.style.display = 'flex';
 
-            // Монтируем карточку занятости .busy-card реальной функцией расширения
+            // Монтируем карточку занятости .busy-card реальной функцией расширения внутри #mse-pe-overlay
             const busyWrap = document.createElement('div');
             busyWrap.id = 'mse-busy-test-wrap';
             busyWrap.style.width = '240px';
@@ -254,7 +254,8 @@ describe('Шаг 3: Живые геометрические и визуальн�
                 'Линейная алгебра и аналитическая геометрия (доц. Петров П. П.)',
                 'Теория вероятностей и математическая статистика (доц. Сидоров С. С.)'
             ]);
-            document.body.appendChild(busyWrap);
+            const peOverlayForBusy = document.getElementById('mse-pe-overlay');
+            (peOverlayForBusy || document.body).appendChild(busyWrap);
         `);
     });
 
@@ -346,7 +347,7 @@ describe('Шаг 3: Живые геометрические и визуальн�
             const hCollapsed = card.getBoundingClientRect().height;
             const chevronTransformBefore = chevron ? getComputedStyle(chevron).transform : 'none';
 
-            // Эмулируем клик пользователя (срабатывает onclick="this.classList.toggle('expanded')")
+            // Эмулируем клик пользователя (срабатывает делегированный обработчик клика)
             card.click();
 
             const hExpanded = card.getBoundingClientRect().height;
@@ -443,11 +444,12 @@ describe('Шаг 3: Живые геометрические и визуальн�
 
         const metrics = await cdp.evaluateExpression(`
             // 1. Проверка чистого CSS-фолбэка 6px на элементе без .mse-has-smooth-scroll
+            const peOverlay = document.getElementById('mse-pe-overlay');
             const fallbackDiv = document.createElement('div');
             fallbackDiv.className = 'day-cell';
             fallbackDiv.style.cssText = 'width: 100px; height: 100px; overflow-y: scroll; position: absolute; left: -9999px;';
             fallbackDiv.innerHTML = '<div style="height: 500px; width: 100%;">Фолбэк</div>';
-            document.body.appendChild(fallbackDiv);
+            (peOverlay || document.body).appendChild(fallbackDiv);
             const fallbackScrollbarWidth = fallbackDiv.offsetWidth - fallbackDiv.clientWidth;
             fallbackDiv.remove();
 

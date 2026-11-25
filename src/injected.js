@@ -1696,10 +1696,9 @@
         if (mailEl) {
             const feedbackDiv = document.createElement('div');
             feedbackDiv.id = ID_FEEDBACK_FOOTER;
-            feedbackDiv.style.cssText = 'margin-top: 10px; margin-bottom: 10px; font-size: 12px; line-height: 1.4;';
             feedbackDiv.innerHTML = `
-                <div style="opacity: 0.85;">Баги и отзывы (Enhancer):</div>
-                <a href="${FEEDBACK_BOT_URL}" target="_blank" style="color: #f0f4f7; text-decoration: underline;">
+                <div class="mse-feedback-title">Баги и отзывы (Enhancer):</div>
+                <a class="mse-feedback-link" href="${FEEDBACK_BOT_URL}" target="_blank">
                     Telegram: @Theguestroom_bot
                 </a>
             `;
@@ -2864,7 +2863,10 @@
             const linkedCount = linkDomEventsToCache();
             logger.calendar(`Этап 3: завершена привязка к DOM (привязано ${linkedCount} карточек событий)`);
 
-            if (statusEl) statusEl.style.display = 'none';
+            if (statusEl) {
+                statusEl.style.display = 'none';
+                statusEl.classList.remove('is-error');
+            }
             if (controlsEl) controlsEl.style.display = 'flex';
             if (selectedStudents.size > 0) {
                 updateSelectedStudentsDisplay();
@@ -2874,7 +2876,10 @@
             }
             checkSurvey();
         } catch (err) {
-            if (statusEl) { statusEl.textContent = `Ошибка: ${err.message}`; statusEl.style.color = 'red'; }
+            if (statusEl) {
+                statusEl.textContent = `Ошибка: ${err.message}`;
+                statusEl.classList.add('is-error');
+            }
             if (controlsEl) controlsEl.style.display = 'flex';
             logger.error('Критическая ошибка загрузки данных расписания:', err);
         } finally {
@@ -4523,8 +4528,6 @@
         badge.className = 'mse-max-grade mse-max-unknown';
         badge.textContent = ' / ?';
         badge.title = 'Преподаватель не указал максимальный балл за это занятие в техкарте Модеуса';
-        badge.style.color = '#94a3b8';
-        badge.style.cursor = 'help';
         return badge;
     }
 
@@ -4951,7 +4954,7 @@
                             // 1. Невозможно рассчитать: неизвестно больше 30% оценок предмета или ни у одной нет максимума
                             if (totalGradedCount > 0 && (unknownRatio > GRADES_MAX_UNKNOWN_THRESHOLD || evaluatedWithMaxCount === 0)) {
                                 const percent = Math.round(unknownRatio * 100);
-                                totalTd.innerHTML = `<span style="color: #64748b; font-weight: 500; cursor: help;" title="Невозможно рассчитать потери: у ${missingMaxCount} из ${totalGradedCount} оценок (${percent}%) в техкарте Модеуса не указан макс. балл.">Н/Д*</span>`;
+                                totalTd.innerHTML = `<span class="mse-lost-na mse-lost-help" title="Невозможно рассчитать потери: у ${missingMaxCount} из ${totalGradedCount} оценок (${percent}%) в техкарте Модеуса не указан макс. балл.">Н/Д*</span>`;
                                 return;
                             }
 
@@ -4962,18 +4965,18 @@
                                 const percent = Math.round(unknownRatio * 100);
                                 const titleAttr = ` title="Неполный расчет: у ${missingMaxCount} из ${totalGradedCount} оценок (${percent}%) в техкарте Модеуса не указан макс. балл."`;
                                 if (lostPoints > 0) {
-                                    totalTd.innerHTML = `<span style="color: #ff3b30; font-weight: 500; cursor: help;"${titleAttr}>-${totalLost.toFixed(2)}*</span>`;
+                                    totalTd.innerHTML = `<span class="mse-lost-negative mse-lost-help"${titleAttr}>-${totalLost.toFixed(2)}*</span>`;
                                 } else {
-                                    totalTd.innerHTML = `<span style="color: #34c759; font-weight: 500; cursor: help;"${titleAttr}>0.00*</span>`;
+                                    totalTd.innerHTML = `<span class="mse-lost-zero mse-lost-help"${titleAttr}>0.00*</span>`;
                                 }
                                 return;
                             }
 
                             // 3. Точный расчет (все максимумы известны)
                             if (lostPoints > 0) {
-                                totalTd.innerHTML = `<span style="color: #ff3b30; font-weight: 500;">-${lostPoints}</span>`;
+                                totalTd.innerHTML = `<span class="mse-lost-negative">-${lostPoints}</span>`;
                             } else {
-                                totalTd.innerHTML = `<span style="color: #34c759; font-weight: 500;">0.00</span>`;
+                                totalTd.innerHTML = `<span class="mse-lost-zero">0.00</span>`;
                             }
                         } else {
                             totalTd.innerHTML = totalTd.dataset.mseOrigText;
