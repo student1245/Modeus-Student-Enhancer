@@ -172,6 +172,7 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
         assert.ok(rules.length > 0, 'data/rules.json не должен быть пустым');
 
         const allowedDomains = ['||fs.utmn.ru', '||auth.modeus.org'];
+        const allowedInitiatorDomains = ['utmn.modeus.org', 'auth.modeus.org', 'fs.utmn.ru'];
 
         rules.forEach(rule => {
             const types = rule.condition?.resourceTypes || [];
@@ -193,6 +194,18 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
                 allowedDomains.includes(filter),
                 `Правило #${rule.id}: целевой домен ${filter} не входит в список разрешенных: ${allowedDomains.join(', ')}`
             );
+
+            const initiators = rule.condition?.initiatorDomains;
+            assert.ok(
+                Array.isArray(initiators) && initiators.length > 0,
+                `КРИТИЧЕСКАЯ УЯЗВИМОСТЬ: Правило #${rule.id} обязано ограничивать initiatorDomains для защиты от clickjacking`
+            );
+            initiators.forEach(domain => {
+                assert.ok(
+                    allowedInitiatorDomains.includes(domain),
+                    `Правило #${rule.id}: недопустимый initiatorDomain '${domain}'. Разрешены: ${allowedInitiatorDomains.join(', ')}`
+                );
+            });
         });
     });
 

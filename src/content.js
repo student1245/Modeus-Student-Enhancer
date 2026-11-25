@@ -42,11 +42,10 @@
     }
   };
 
-  function readCache(key, ttlMs) {
+  function readCache(storageData, key, ttlMs) {
     try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
+      const entry = storageData?.[key];
+      const parsed = typeof entry === 'string' ? JSON.parse(entry) : entry;
       if (!parsed?.text) return null;
       const isStale = !parsed.timestamp || (Date.now() - parsed.timestamp > ttlMs);
       return { text: parsed.text, isStale };
@@ -55,14 +54,26 @@
     }
   }
 
-  function writeCache(key, text) {
+  async function writeCache(key, text) {
     try {
-      localStorage.setItem(key, JSON.stringify({
-        timestamp: Date.now(),
-        text
-      }));
+      await chrome.storage.local.set({
+        [key]: {
+          timestamp: Date.now(),
+          text
+        }
+      });
     } catch {
-      // Игнорируем QuotaExceededError
+      // Игнорируем ошибки записи в изолированное хранилище
+    }
+  }
+
+  function cleanupLegacyLocalCaches() {
+    try {
+      localStorage.removeItem(CACHE_KEY_BUILDINGS);
+      localStorage.removeItem(CACHE_KEY_REVIEWS);
+      localStorage.removeItem(CACHE_KEY_SURVEY);
+    } catch {
+      // Игнорируем ошибки доступа к localStorage
     }
   }
 
@@ -153,10 +164,10 @@
     }
   }
 
-  async function getInitialResourceData(filename, cacheKey, ttlMs) {
-    const cached = readCache(cacheKey, ttlMs);
+  async function getInitialResourceData(storageData, filename, cacheKey, ttlMs) {
+    const cached = readCache(storageData, cacheKey, ttlMs);
     if (cached?.text) {
-      return { text: cached.text, source: 'кэш localStorage', isStale: cached.isStale };
+      return { text: cached.text, source: 'кэш chrome.storage.local', isStale: cached.isStale };
     }
     const bundleResult = await fetchFromLocalBundle(filename);
     if (bundleResult?.text) {
@@ -165,16 +176,16 @@
     return null;
   }
 
-  async function getInitialSurveyData() {
+  async function getInitialSurveyData(storageData) {
     if (isDebug()) {
       const localDraft = await fetchFromLocalBundle(RESOURCE_SURVEY);
       if (localDraft?.text) {
         return { text: localDraft.text, source: localDraft.source, isStale: false };
       }
     }
-    const cached = readCache(CACHE_KEY_SURVEY, SURVEY_CACHE_TTL_MS);
+    const cached = readCache(storageData, CACHE_KEY_SURVEY, SURVEY_CACHE_TTL_MS);
     if (cached?.text) {
-      return { text: cached.text, source: 'кэш localStorage (TTL 12 ч)', isStale: cached.isStale };
+      return { text: cached.text, source: 'кэш chrome.storage.local (TTL 12 ч)', isStale: cached.isStale };
     }
     return null;
   }
@@ -185,7 +196,7 @@
     const remote = await fetchFromGitHub(item.filename);
     if (!remote?.text) return false;
 
-    writeCache(item.cacheKey, remote.text);
+    await writeCache(item.cacheKey, remote.text);
     if (remote.text !== item.currentText) {
       mountOrUpdateMeta(item.metaName, remote.text, remote.source);
       logDb(`Фоновое обновление: ${item.filename} обновлен (${remote.source})`);
@@ -205,12 +216,18 @@
     }
   }
 
-  // 1. Мгновенная инициализация из кэша / локального бандла (< 5 мс)
-  const [buildingsData, reviewsData, surveyData, vaultResult] = await Promise.all([
-    getInitialResourceData(RESOURCE_BUILDINGS, CACHE_KEY_BUILDINGS, DATA_CACHE_TTL_MS),
-    getInitialResourceData(RESOURCE_TEACHER_REVIEWS, CACHE_KEY_REVIEWS, DATA_CACHE_TTL_MS),
-    getInitialSurveyData(),
-    chrome.storage.local.get('mse_sso_vault')
+  // 1. Мгновенная инициализация из изолированного chrome.storage.local / локального бандла (< 5 мс)
+  cleanupLegacyLocalCaches();
+  const initialStorageState = await chrome.storage.local.get([
+    CACHE_KEY_BUILDINGS,
+    CACHE_KEY_REVIEWS,
+    CACHE_KEY_SURVEY,
+    'mse_sso_vault'
+  ]);
+  const [buildingsData, reviewsData, surveyData] = await Promise.all([
+    getInitialResourceData(initialStorageState, RESOURCE_BUILDINGS, CACHE_KEY_BUILDINGS, DATA_CACHE_TTL_MS),
+    getInitialResourceData(initialStorageState, RESOURCE_TEACHER_REVIEWS, CACHE_KEY_REVIEWS, DATA_CACHE_TTL_MS),
+    getInitialSurveyData(initialStorageState)
   ]);
 
   if (buildingsData?.text) {
@@ -226,8 +243,8 @@
     logDb(`Монтирован опрос (${surveyData.source})`);
   }
 
-  mountOrUpdateAutologinMeta(Boolean(vaultResult?.mse_sso_vault));
-  logDb(`Статус автовхода 24ч+: ${vaultResult?.mse_sso_vault ? 'активен (1)' : 'не настроен (0)'}`);
+  mountOrUpdateAutologinMeta(Boolean(initialStorageState?.mse_sso_vault));
+  logDb(`Статус автовхода 24ч+: ${initialStorageState?.mse_sso_vault ? 'активен (1)' : 'не настроен (0)'}`);
 
   // Синхронизация статуса автовхода при изменениях в chrome.storage.local
   chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -243,6 +260,12 @@
   document.addEventListener('mse:manual-logout', () => {
     chrome.storage.local.set({ mse_manual_logout_once: true });
     logDb('Зафиксирован явный выход из системы: установлен одноразовый флаг mse_manual_logout_once');
+  });
+
+  // Очистка изолированного кэша опроса по запросу отладочного API
+  document.addEventListener('mse:clear-survey-cache', () => {
+    chrome.storage.local.remove(CACHE_KEY_SURVEY);
+    logDb('Изолированный кэш опроса очищен (chrome.storage.local)');
   });
 
   // 2. Мгновенная инъекция мета-версии и исполняемых скриптов ядра

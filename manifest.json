@@ -11,8 +11,7 @@
   },
   "permissions": [
     "storage",
-    "tabs",
-    "scripting",
+    "activeTab",
     "declarativeNetRequest"
   ],
   "host_permissions": [

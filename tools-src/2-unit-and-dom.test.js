@@ -647,7 +647,7 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(hooks.hasValidToken(), false);
         });
 
-        test('хэш #mse_logout=1: очищает сессию и перенаправляет на WSO2 prompt=login', () => {
+        test('хэш #mse_logout=1: очищает сессию, сохраняет state/nonce и перенаправляет на WSO2 prompt=login', () => {
             const logoutEnv = createMockEnvironment('https://utmn.modeus.org/#mse_logout=1');
             logoutEnv.localStorage.setItem('mse_auth_backup', 'data');
             logoutEnv.sessionStorage.setItem('access_token', 'token');
@@ -656,21 +656,66 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
 
             assert.strictEqual(logoutEnv.localStorage.getItem('mse_auth_backup'), null);
             assert.strictEqual(logoutEnv.sessionStorage.getItem('access_token'), null);
+            const expectedState = logoutEnv.sessionStorage.getItem('mse_oauth_expected_state');
+            const expectedNonce = logoutEnv.sessionStorage.getItem('mse_oauth_expected_nonce');
+            assert.ok(expectedState && expectedState.length >= 32, 'Должен генерироваться криптостойкий state');
+            assert.ok(expectedNonce && expectedNonce.length >= 32, 'Должен генерироваться криптостойкий nonce');
             assert.ok(logoutEnv.location.href.includes('prompt=login'));
+            assert.ok(logoutEnv.location.href.includes(`state=${expectedState}`));
+            assert.ok(logoutEnv.location.href.includes(`nonce=${expectedNonce}`));
             assert.ok(logoutEnv.location.href.includes('https://auth.modeus.org/oauth2/authorize'));
         });
 
-        test('хэш #access_token=...: сохраняет 9 ключей и очищает URL в / через replaceState', () => {
-            const hash = '#access_token=acc123&id_token=id456&expires_in=3600&session_state=state789';
+        test('хэш #access_token=...: сохраняет 9 ключей только при совпадении state/nonce и очищает URL', () => {
+            const state = 'valid_state_token_123';
+            const nonce = 'valid_nonce_token_456';
+            const expSec = Math.floor(Date.now() / 1000) + 3600;
+            const idB64 = Buffer.from(JSON.stringify({ sub: 'stud-1', nonce, exp: expSec })).toString('base64url');
+            const idToken = `header.${idB64}.sig`;
+
+            const hash = `#access_token=acc123&id_token=${idToken}&state=${state}&expires_in=3600&session_state=state789`;
             const authEnv = createMockEnvironment(`https://utmn.modeus.org/${hash}`);
+            authEnv.sessionStorage.setItem('mse_oauth_expected_state', state);
+            authEnv.sessionStorage.setItem('mse_oauth_expected_nonce', nonce);
 
             executeScriptWithHook('src/keeper-early.js', '', authEnv);
 
             assert.strictEqual(authEnv.sessionStorage.getItem('access_token'), 'acc123');
-            assert.strictEqual(authEnv.sessionStorage.getItem('id_token'), 'id456');
+            assert.strictEqual(authEnv.sessionStorage.getItem('id_token'), idToken);
             assert.strictEqual(authEnv.sessionStorage.getItem('session_state'), 'state789');
+            assert.strictEqual(authEnv.sessionStorage.getItem('mse_oauth_expected_state'), null, 'Ожидаемый state должен очищаться после проверки');
+            assert.strictEqual(authEnv.sessionStorage.getItem('mse_oauth_expected_nonce'), null, 'Ожидаемый nonce должен очищаться после проверки');
             assert.ok(authEnv.localStorage.getItem('mse_auth_backup') !== null);
             assert.strictEqual(authEnv.location.pathname, '/');
+        });
+
+        test('хэш #access_token=...: отклоняет поддельные токены при отсутствии или несовпадении state/nonce', () => {
+            const nonce = 'valid_nonce_token';
+            const idB64 = Buffer.from(JSON.stringify({ sub: 'stud-1', nonce })).toString('base64url');
+            const idToken = `header.${idB64}.sig`;
+
+            // 1. Нет сохранённых mse_oauth_expected_* (обычный Angular flow или внешний вброс)
+            const noExpectedEnv = createMockEnvironment(`https://utmn.modeus.org/#access_token=evil&id_token=${idToken}&state=any`);
+            executeScriptWithHook('src/keeper-early.js', '', noExpectedEnv);
+            assert.strictEqual(noExpectedEnv.sessionStorage.getItem('access_token'), null);
+            assert.strictEqual(noExpectedEnv.localStorage.getItem('mse_auth_backup'), null);
+
+            // 2. Несовпадение state (Login CSRF)
+            const badStateEnv = createMockEnvironment(`https://utmn.modeus.org/#access_token=evil&id_token=${idToken}&state=wrong_state`);
+            badStateEnv.sessionStorage.setItem('mse_oauth_expected_state', 'expected_state');
+            badStateEnv.sessionStorage.setItem('mse_oauth_expected_nonce', nonce);
+            executeScriptWithHook('src/keeper-early.js', '', badStateEnv);
+            assert.strictEqual(badStateEnv.sessionStorage.getItem('access_token'), null);
+            assert.strictEqual(badStateEnv.localStorage.getItem('mse_auth_backup'), null);
+            assert.strictEqual(badStateEnv.sessionStorage.getItem('mse_oauth_expected_state'), null);
+
+            // 3. Несовпадение nonce в id_token
+            const badNonceEnv = createMockEnvironment(`https://utmn.modeus.org/#access_token=evil&id_token=${idToken}&state=expected_state`);
+            badNonceEnv.sessionStorage.setItem('mse_oauth_expected_state', 'expected_state');
+            badNonceEnv.sessionStorage.setItem('mse_oauth_expected_nonce', 'other_nonce');
+            executeScriptWithHook('src/keeper-early.js', '', badNonceEnv);
+            assert.strictEqual(badNonceEnv.sessionStorage.getItem('access_token'), null);
+            assert.strictEqual(badNonceEnv.localStorage.getItem('mse_auth_backup'), null);
         });
     });
 
@@ -1478,7 +1523,11 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     recordUpdateDismiss,
                     recordUpdateOutsideClick,
                     shouldShowSurvey,
-                    isQuestionAnswerValid
+                    isQuestionAnswerValid,
+                    createSilentOAuthRequest,
+                    applyRefreshedTokens,
+                    resolveSafeSurveyWebhookUrl,
+                    DEFAULT_SURVEY_WEBHOOK_URL
                 };
             }`;
             executeScriptWithHook('src/injected.js', hook, env);
@@ -1591,6 +1640,63 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(hooks.isQuestionAnswerValid(false, new Set(['__custom__']), 'Мой ответ'), true);
             // Множественный выбор: стандартная опция + пустой кастом -> валидно
             assert.strictEqual(hooks.isQuestionAnswerValid(true, new Set(['Вариант 1', '__custom__']), ''), true);
+        });
+
+        test('OAuth state/nonce валидация в Session Keeper: приём валидных и отклонение поддельных токенов', () => {
+            const req1 = hooks.createSilentOAuthRequest();
+            const req2 = hooks.createSilentOAuthRequest();
+            assert.ok(req1.state.length >= 32 && req1.nonce.length >= 32, 'state и nonce должны быть криптостойкими');
+            assert.notStrictEqual(req1.state, req2.state, 'Каждый запрос должен генерировать уникальный state');
+            assert.notStrictEqual(req1.nonce, req2.nonce, 'Каждый запрос должен генерировать уникальный nonce');
+
+            const expSec = Math.floor(Date.now() / 1000) + 3600;
+            const validIdPayload = Buffer.from(JSON.stringify({ sub: 'stud-1', nonce: req1.nonce, exp: expSec })).toString('base64url');
+            const validIdToken = `h.${validIdPayload}.s`;
+
+            // 1. Валидный callback с совпадающими state и nonce
+            const validParams = new URLSearchParams(`access_token=acc_ok&id_token=${validIdToken}&state=${req1.state}&expires_in=3600`);
+            const okResult = hooks.applyRefreshedTokens(validParams, { expectedState: req1.state, expectedNonce: req1.nonce });
+            assert.ok(okResult, 'Валидные токены должны приниматься');
+            assert.strictEqual(okResult.accessToken, 'acc_ok');
+            assert.strictEqual(env.sessionStorage.getItem('access_token'), 'acc_ok');
+
+            // 2. Отклонение при подмене state (CSRF)
+            env.sessionStorage.clear();
+            env.localStorage.clear();
+            const forgedStateParams = new URLSearchParams(`access_token=acc_csrf&id_token=${validIdToken}&state=forged_state&expires_in=3600`);
+            assert.strictEqual(hooks.applyRefreshedTokens(forgedStateParams, { expectedState: req1.state, expectedNonce: req1.nonce }), null);
+            assert.strictEqual(env.sessionStorage.getItem('access_token'), null);
+            assert.strictEqual(env.localStorage.getItem('mse_auth_backup'), null);
+
+            // 3. Отклонение при несовпадении nonce в id_token
+            const forgedNonceId = `h.${Buffer.from(JSON.stringify({ sub: 'stud-1', nonce: 'wrong_nonce', exp: expSec })).toString('base64url')}.s`;
+            const forgedNonceParams = new URLSearchParams(`access_token=acc_replay&id_token=${forgedNonceId}&state=${req1.state}&expires_in=3600`);
+            assert.strictEqual(hooks.applyRefreshedTokens(forgedNonceParams, { expectedState: req1.state, expectedNonce: req1.nonce }), null);
+            assert.strictEqual(env.sessionStorage.getItem('access_token'), null);
+
+            // 4. Отклонение при отсутствии ожидаемых state/nonce
+            assert.strictEqual(hooks.applyRefreshedTokens(validParams, {}), null);
+        });
+
+        test('resolveSafeSurveyWebhookUrl: допускает только HTTPS Google Apps Script и отклоняет сторонние URL', () => {
+            const validGoogleHook = 'https://script.google.com/macros/s/AKfycb123456/exec';
+            assert.strictEqual(hooks.resolveSafeSurveyWebhookUrl(validGoogleHook), validGoogleHook);
+
+            const badUrls = [
+                'https://evil.example.com/steal',
+                'http://script.google.com/macros/s/insecure/exec',
+                'https://script.google.com/other/path',
+                'https://script.google.com.evil.com/macros/s/spoof/exec',
+                'javascript:alert(1)',
+                ''
+            ];
+            badUrls.forEach(badUrl => {
+                assert.strictEqual(
+                    hooks.resolveSafeSurveyWebhookUrl(badUrl),
+                    hooks.DEFAULT_SURVEY_WEBHOOK_URL,
+                    `Недоверенный URL "${badUrl}" обязан откатываться к DEFAULT_SURVEY_WEBHOOK_URL`
+                );
+            });
         });
     });
 

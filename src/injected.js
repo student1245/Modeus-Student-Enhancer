@@ -355,6 +355,7 @@
                     localStorage.removeItem(key);
                 }
             });
+            document.dispatchEvent(new CustomEvent('mse:clear-survey-cache'));
             logger.survey('Кэш опроса и флаги скрытия очищены.');
             return true;
         } catch {
@@ -556,10 +557,17 @@
     const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
     const normalizeName = name => name ? name.trim().replace(/\s+/g, ' ').replace(/ё/g, 'е').replace(/Ё/g, 'Е').normalize() : '';
 
-    // Безопасное экранирование HTML для защиты от XSS
-    const escapeHtml = (str) => (
-        sharedUtils?.escapeHtml ? sharedUtils.escapeHtml(str) : String(str ?? '')
-    );
+    // Безопасное экранирование HTML для защиты от XSS (с полноценным fallback без sharedUtils)
+    const escapeHtml = (str) => {
+        if (sharedUtils?.escapeHtml) return sharedUtils.escapeHtml(str);
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    };
 
     const getToastIconHtml = (type) => {
         if (type === 'success') {
@@ -826,11 +834,22 @@
         }
     }
 
-    function buildOAuthUrl() {
+    function generateCryptoToken(byteLength = 16) {
+        const cryptoApi = (typeof window !== 'undefined' && window.crypto) || (typeof globalThis !== 'undefined' && globalThis.crypto);
+        if (!cryptoApi || typeof cryptoApi.getRandomValues !== 'function') {
+            throw new Error('Web Crypto API (getRandomValues) недоступен');
+        }
+        const bytes = new Uint8Array(byteLength);
+        cryptoApi.getRandomValues(bytes);
+        return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function createSilentOAuthRequest() {
         const redirectUri = encodeURIComponent(OAUTH_REDIRECT_URI);
-        const nonce = Math.random().toString(36).substring(2);
-        const state = Math.random().toString(36).substring(2);
-        return `${OAUTH_AUTH_URL}?response_type=id_token%20token&client_id=${OAUTH_CLIENT_ID}&state=${state}&redirect_uri=${redirectUri}&scope=openid&nonce=${nonce}`;
+        const nonce = generateCryptoToken(16);
+        const state = generateCryptoToken(16);
+        const url = `${OAUTH_AUTH_URL}?response_type=id_token%20token&client_id=${OAUTH_CLIENT_ID}&state=${encodeURIComponent(state)}&redirect_uri=${redirectUri}&scope=openid&nonce=${encodeURIComponent(nonce)}`;
+        return { url, state, nonce };
     }
 
     function createSilentRefresherIframe(url) {
@@ -854,11 +873,45 @@
         return null;
     }
 
-    function applyRefreshedTokens(params) {
+    function validateOAuthCallbackParams(params, { expectedState, expectedNonce } = {}) {
+        if (!params || typeof params.get !== 'function') {
+            return { valid: false, reason: 'отсутствуют параметры OAuth-ответа' };
+        }
+        if (!expectedState || !expectedNonce) {
+            return { valid: false, reason: 'отсутствуют ожидаемые state/nonce для проверки' };
+        }
+
+        const returnedState = params.get('state');
+        if (!returnedState || returnedState !== expectedState) {
+            return { valid: false, reason: 'несовпадение параметра state (возможна CSRF-подмена)' };
+        }
+
         const accessToken = params.get('access_token');
-        if (!accessToken) return null;
+        if (!accessToken) {
+            return { valid: false, reason: 'отсутствует access_token' };
+        }
 
         const idToken = params.get('id_token');
+        if (!idToken) {
+            return { valid: false, reason: 'отсутствует id_token для проверки nonce' };
+        }
+
+        const idClaims = parseJwt(idToken);
+        if (!idClaims?.nonce || idClaims.nonce !== expectedNonce) {
+            return { valid: false, reason: 'несовпадение nonce в id_token' };
+        }
+
+        return { valid: true, accessToken, idToken, idClaims };
+    }
+
+    function applyRefreshedTokens(params, expected = {}) {
+        const validation = validateOAuthCallbackParams(params, expected);
+        if (!validation.valid) {
+            logger.warn(`[MSE Session] Отклонены OAuth-токены: ${validation.reason}`);
+            return null;
+        }
+
+        const { accessToken, idToken, idClaims } = validation;
         const expiresIn = Number(params.get('expires_in') || 3600);
         const sessionState = params.get('session_state');
         const oldToken = sessionStorage.getItem('access_token');
@@ -868,15 +921,13 @@
         sessionStorage.setItem('access_token', accessToken);
         sessionStorage.setItem('access_token_stored_at', String(now));
         sessionStorage.setItem('expires_at', String(expiresAt));
-        if (idToken) {
-            sessionStorage.setItem('id_token', idToken);
-            const idClaims = parseJwt(idToken);
-            if (idClaims?.exp) {
-                sessionStorage.setItem('id_token_expires_at', String(idClaims.exp * 1000));
-                sessionStorage.setItem('id_token_claims_obj', JSON.stringify(idClaims));
-                sessionStorage.setItem('id_token_stored_at', String(now));
-            }
+        sessionStorage.setItem('id_token', idToken);
+        if (idClaims?.exp) {
+            sessionStorage.setItem('id_token_expires_at', String(idClaims.exp * 1000));
+            sessionStorage.setItem('id_token_claims_obj', JSON.stringify(idClaims));
+            sessionStorage.setItem('id_token_stored_at', String(now));
         }
+        sessionStorage.setItem('nonce', expected.expectedNonce);
         if (sessionState) sessionStorage.setItem('session_state', sessionState);
 
         saveAuthTokensBackup();
@@ -943,8 +994,13 @@
             logger.session('Сессия скоро истекает. Запуск скрытого iframe для фонового продления...');
 
             let iframeEl;
+            let expectedState;
+            let expectedNonce;
             try {
-                iframeEl = createSilentRefresherIframe(buildOAuthUrl());
+                const oauthReq = createSilentOAuthRequest();
+                expectedState = oauthReq.state;
+                expectedNonce = oauthReq.nonce;
+                iframeEl = createSilentRefresherIframe(oauthReq.url);
             } catch (err) {
                 logger.error('[MSE Session] Ошибка вставки iframe рефрешера:', err);
                 cleanupSilentRefresh();
@@ -958,9 +1014,11 @@
                 const params = extractHashParamsFromIframe(iframeEl);
                 if (params) {
                     resolved = true;
-                    const tokenResult = applyRefreshedTokens(params);
+                    const tokenResult = applyRefreshedTokens(params, { expectedState, expectedNonce });
                     if (tokenResult) {
                         handleRefreshedSessionSuccess(tokenResult);
+                    } else {
+                        recordRefreshFailure('[MSE Session] Отклонен ответ фонового рефреша: невалидные state/nonce');
                     }
                     cleanupSilentRefresh();
                 }
@@ -1099,14 +1157,6 @@
             triggerSilentRefresh();
         }
     }
-
-    try {
-        if (window.location.hash.includes('access_token=')) {
-            const hashStr = window.location.hash.replace(/^#/, '');
-            const params = new URLSearchParams(hashStr);
-            applyRefreshedTokens(params);
-        }
-    } catch { }
 
     saveAuthTokensBackup();
     sessionHealthInterval = setInterval(monitorSessionHealth, SESSION_CHECK_INTERVAL_MS);
@@ -1665,7 +1715,7 @@
             feedbackDiv.id = ID_FEEDBACK_FOOTER;
             feedbackDiv.innerHTML = `
                 <div class="mse-feedback-title">Баги и отзывы (Enhancer):</div>
-                <a class="mse-feedback-link" href="${FEEDBACK_BOT_URL}" target="_blank">
+                <a class="mse-feedback-link" href="${FEEDBACK_BOT_URL}" target="_blank" rel="noopener noreferrer">
                     Telegram: @Theguestroom_bot
                 </a>
             `;
@@ -3146,7 +3196,7 @@
                 </div>
                 ${highlightsHtml}
                 <div class="vp-actions">
-                    <a href="${escapeHtml(releaseUrl)}" target="_blank" rel="noopener" class="vp-btn-download">
+                    <a href="${escapeHtml(releaseUrl)}" target="_blank" rel="noopener noreferrer" class="vp-btn-download">
                         <span>Скачать обновление</span>
                         ${externalIcon}
                     </a>
@@ -3593,6 +3643,31 @@
         }
     };
 
+    const ALLOWED_SURVEY_WEBHOOK_PREFIX = 'https://script.google.com/macros/s/';
+
+    /**
+     * Валидирует URL вебхука опроса (допускаются только HTTPS-эндпоинты Google Apps Script).
+     * При несовпадении возвращает доверенный DEFAULT_SURVEY_WEBHOOK_URL.
+     * @param {*} candidateUrl
+     * @returns {string}
+     */
+    const resolveSafeSurveyWebhookUrl = (candidateUrl) => {
+        if (typeof candidateUrl === 'string' && candidateUrl.startsWith(ALLOWED_SURVEY_WEBHOOK_PREFIX)) {
+            try {
+                const parsed = new URL(candidateUrl);
+                if (parsed.protocol === 'https:' && parsed.hostname === 'script.google.com' && parsed.pathname.startsWith('/macros/s/')) {
+                    return candidateUrl;
+                }
+            } catch {
+                // Невалидный URL отклоняется
+            }
+        }
+        if (candidateUrl) {
+            logger.warn(`Отклонён недоверенный webhookUrl опроса, используется URL по умолчанию.`);
+        }
+        return DEFAULT_SURVEY_WEBHOOK_URL;
+    };
+
     /**
      * Отправляет анонимную метрику взаимодействия с опросом в Google Apps Script.
      * Флаг mode: 'no-cors' предотвращает блокировку браузером при HTTP 302 переадресации Google.
@@ -3602,7 +3677,7 @@
      * @returns {Promise<boolean>}
      */
     const sendSurveyMetric = async (action, answers = {}) => {
-        const webhookUrl = surveyConfig?.webhookUrl || DEFAULT_SURVEY_WEBHOOK_URL;
+        const webhookUrl = resolveSafeSurveyWebhookUrl(surveyConfig?.webhookUrl);
         if (!webhookUrl) {
             logger.survey('URL вебхука не настроен, отправка метрики пропущена.');
             return false;
@@ -4965,7 +5040,7 @@
         totalTd.addEventListener('dblclick', (event) => {
             event.stopPropagation();
             if (totalTd.dataset.mseLostMode === '1') {
-                totalTd.innerHTML = totalTd.dataset.mseOrigText;
+                totalTd.textContent = totalTd.dataset.mseOrigText;
                 totalTd.dataset.mseLostMode = '0';
                 return;
             }

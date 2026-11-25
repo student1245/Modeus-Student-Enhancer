@@ -14,6 +14,15 @@
         'nonce'
     ];
 
+    const SESSION_KEY_OAUTH_STATE = 'mse_oauth_expected_state';
+    const SESSION_KEY_OAUTH_NONCE = 'mse_oauth_expected_nonce';
+
+    function generateCryptoToken(byteLength = 16) {
+        const bytes = new Uint8Array(byteLength);
+        crypto.getRandomValues(bytes);
+        return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+
     function parseJwtPayload(token) {
         if (!token || typeof token !== 'string') return null;
         try {
@@ -69,60 +78,73 @@
         try {
             localStorage.removeItem('mse_auth_backup');
             sessionStorage.clear();
-            const n = Math.random().toString(36).substring(2);
-            sessionStorage.setItem('nonce', n);
-            const authUrl = `https://auth.modeus.org/oauth2/authorize?response_type=id_token%20token&client_id=sKir7YQnOUu4G0eCfn3tTxnBfzca&state=${n}&redirect_uri=${encodeURIComponent('https://utmn.modeus.org/')}&scope=openid&nonce=${n}&prompt=login`;
+            const state = generateCryptoToken(16);
+            const nonce = generateCryptoToken(16);
+            sessionStorage.setItem(SESSION_KEY_OAUTH_STATE, state);
+            sessionStorage.setItem(SESSION_KEY_OAUTH_NONCE, nonce);
+            sessionStorage.setItem('nonce', nonce);
+            const authUrl = `https://auth.modeus.org/oauth2/authorize?response_type=id_token%20token&client_id=sKir7YQnOUu4G0eCfn3tTxnBfzca&state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent('https://utmn.modeus.org/')}&scope=openid&nonce=${encodeURIComponent(nonce)}&prompt=login`;
             window.location.replace(authUrl);
         } catch { }
         return;
     }
 
-    // 2. Перехват и ранее сохранение токенов из хэша (#access_token=...) ДО запуска Angular
+    // 2. Перехват и раннее сохранение токенов из хэша (#access_token=...) ДО запуска Angular
+    // Срабатывает ТОЛЬКО для собственного OAuth-запроса MSE при наличии и совпадении state и nonce
     if (window.location.hash.includes('access_token=')) {
         try {
-            const hashStr = window.location.hash.replace(/^#/, '');
-            const params = new URLSearchParams(hashStr);
-            const accessToken = params.get('access_token');
-            if (accessToken) {
+            const expectedState = sessionStorage.getItem(SESSION_KEY_OAUTH_STATE);
+            const expectedNonce = sessionStorage.getItem(SESSION_KEY_OAUTH_NONCE);
+
+            if (expectedState && expectedNonce) {
+                sessionStorage.removeItem(SESSION_KEY_OAUTH_STATE);
+                sessionStorage.removeItem(SESSION_KEY_OAUTH_NONCE);
+
+                const hashStr = window.location.hash.replace(/^#/, '');
+                const params = new URLSearchParams(hashStr);
+                const accessToken = params.get('access_token');
+                const returnedState = params.get('state');
                 const idToken = params.get('id_token');
-                const expiresIn = Number(params.get('expires_in') || 3600);
-                const sessionState = params.get('session_state');
-                const now = Date.now();
-                const expiresAt = now + expiresIn * 1000;
+                const claims = idToken ? parseJwtPayload(idToken) : null;
 
-                sessionStorage.setItem('access_token', accessToken);
-                sessionStorage.setItem('access_token_stored_at', String(now));
-                sessionStorage.setItem('expires_at', String(expiresAt));
+                const isStateValid = Boolean(returnedState && returnedState === expectedState);
+                const isNonceValid = Boolean(idToken && claims?.nonce && claims.nonce === expectedNonce);
 
-                let claims = null;
-                if (idToken) {
+                if (!isStateValid || !isNonceValid) {
+                    console.warn('[MSE Keeper] Отклонены OAuth-токены из хэша: несовпадение state или nonce');
+                } else if (accessToken) {
+                    const expiresIn = Number(params.get('expires_in') || 3600);
+                    const sessionState = params.get('session_state');
+                    const now = Date.now();
+                    const expiresAt = now + expiresIn * 1000;
+
+                    sessionStorage.setItem('access_token', accessToken);
+                    sessionStorage.setItem('access_token_stored_at', String(now));
+                    sessionStorage.setItem('expires_at', String(expiresAt));
                     sessionStorage.setItem('id_token', idToken);
-                    claims = parseJwtPayload(idToken);
+
                     if (claims?.exp) {
                         sessionStorage.setItem('id_token_expires_at', String(claims.exp * 1000));
                         sessionStorage.setItem('id_token_claims_obj', JSON.stringify(claims));
                         sessionStorage.setItem('id_token_stored_at', String(now));
                     }
-                }
-                if (sessionState) {
-                    sessionStorage.setItem('session_state', sessionState);
-                }
-                const nonce = claims?.nonce || sessionStorage.getItem('nonce') || '';
-                if (nonce) {
-                    sessionStorage.setItem('nonce', nonce);
-                }
+                    if (sessionState) {
+                        sessionStorage.setItem('session_state', sessionState);
+                    }
+                    sessionStorage.setItem('nonce', expectedNonce);
 
-                const backupData = {};
-                AUTH_STORAGE_KEYS.forEach(key => {
-                    const val = sessionStorage.getItem(key);
-                    if (val !== null) backupData[key] = val;
-                });
-                localStorage.setItem('mse_auth_backup', JSON.stringify(backupData));
-                console.log('[MSE Keeper] Токены из хэша успешно сохранены в sessionStorage');
+                    const backupData = {};
+                    AUTH_STORAGE_KEYS.forEach(key => {
+                        const val = sessionStorage.getItem(key);
+                        if (val !== null) backupData[key] = val;
+                    });
+                    localStorage.setItem('mse_auth_backup', JSON.stringify(backupData));
+                    console.log('[MSE Keeper] Токены из хэша успешно сохранены в sessionStorage');
 
-                // Немедленно очищаем URL от хэша, чтобы Angular увидел чистый '/'
-                // и не запускал валидацию кастомного state в tryLoginImplicitFlow
-                history.replaceState(null, '', '/');
+                    // Немедленно очищаем URL от хэша, чтобы Angular увидел чистый '/'
+                    // и не запускал валидацию кастомного state в tryLoginImplicitFlow
+                    history.replaceState(null, '', '/');
+                }
             }
         } catch (e) {
             console.warn('[MSE Keeper] Ошибка парсинга токенов из хэша:', e);

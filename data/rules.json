@@ -17,6 +17,11 @@
         },
         "condition": {
             "urlFilter": "||fs.utmn.ru",
+            "initiatorDomains": [
+                "utmn.modeus.org",
+                "auth.modeus.org",
+                "fs.utmn.ru"
+            ],
             "resourceTypes": [
                 "sub_frame"
             ]
@@ -29,10 +34,6 @@
             "type": "modifyHeaders",
             "responseHeaders": [
                 {
-                    "header": "content-security-policy",
-                    "operation": "remove"
-                },
-                {
                     "header": "x-frame-options",
                     "operation": "remove"
                 }
@@ -40,6 +41,11 @@
         },
         "condition": {
             "urlFilter": "||auth.modeus.org",
+            "initiatorDomains": [
+                "utmn.modeus.org",
+                "auth.modeus.org",
+                "fs.utmn.ru"
+            ],
             "resourceTypes": [
                 "sub_frame"
             ]
