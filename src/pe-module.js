@@ -21,6 +21,7 @@ window.MSE_PE = (function () {
     const SCROLLBAR_MIN_THUMB_PX = 28;
     const SCROLLBAR_INIT_DELAY_MS = 50;
     const FRIEND_FOCUS_DELAY_MS = 50;
+
     let courses = [];
     let sportsSet = new Set();
     let campusesSet = new Set();
@@ -747,7 +748,7 @@ window.MSE_PE = (function () {
 
         const isSameDisciplines = userList.length > 0 &&
             userList.length === friendList.length &&
-            userList.every((d, i) => d === friendList[i]);
+            userList.every((discipline, index) => discipline === friendList[index]);
 
         if (isSameDisciplines) {
             return createBusyCardHtml('У обоих пары', userList);
@@ -1304,230 +1305,239 @@ window.MSE_PE = (function () {
         }
     }
 
+    function buildPeMultiselectHtml(containerId, labelId, defaultLabel, listId, filterType) {
+        return `<div class="select-wrap custom-multiselect" id="${containerId}"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="${containerId}"><span class="ms-label" id="${labelId}">${defaultLabel}</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="${filterType}" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="${filterType}" data-val="false">Сбросить</span></div><div class="ms-list-wrap"><div class="ms-list" id="${listId}"></div></div></div></div>`;
+    }
+
+    function buildPeFilterPillHtml(id, labelText, isActiveByDefault) {
+        const activeClass = isActiveByDefault ? ' active' : '';
+        return `
+            <button type="button" class="pill-check${activeClass}" id="${id}">
+                <span class="check-box">
+                    ${getSvgIcon('check', { size: 11, strokeWidth: 3 })}
+                </span>
+                <span>${labelText}</span>
+            </button>`;
+    }
+
+    function buildPeOverlayHtml() {
+        return `
+            <div class="container">
+                <div class="header-panel">
+                    <h2>Умный подбор физкультуры</h2>
+                    <button type="button" class="modal-close-btn" id="mse-pe-close" title="Закрыть страницу">
+                        ${getSvgIcon('x', { size: 16, strokeWidth: 2 })}
+                    </button>
+                    <div class="filters-group">
+                        ${buildPeMultiselectHtml('pe-sportMultiSelect', 'pe-sportLabel', 'Все виды спорта', 'pe-sportOptionsList', 'sport')}
+                        ${buildPeMultiselectHtml('pe-campusMultiSelect', 'pe-campusLabel', 'Все корпуса', 'pe-campusOptionsList', 'campus')}
+                        <div class="toolbar-divider"></div>
+                        ${buildPeFilterPillHtml('pe-considerSchedule', 'Учитывать пары', true)}
+                        ${buildPeFilterPillHtml('pe-onlyAvailable', 'Только где есть места', true)}
+                        ${buildPeFilterPillHtml('pe-onlyMySections', 'Мои записи', false)}
+                        <div class="toolbar-divider"></div>
+                        <div class="pe-friend-container" id="pe-friendContainer">
+                            <button type="button" class="pe-friend-toggle-btn" id="pe-friendToggleBtn" title="Сравнить пары с другом (поиск по ФИО)">
+                                ${getSvgIcon('search', { size: 15, strokeWidth: 2 })}
+                            </button>
+                            <div class="pe-friend-popover" id="pe-friendPopover">
+                                <div id="pe-friendWrapper" class="pe-friend-wrapper">
+                                    <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)...">
+                                    <button type="button" id="pe-friendBtn">Поиск</button>
+                                </div>
+                                <div id="pe-friendDropdown" class="pe-friend-dropdown" style="display: none;"></div>
+                            </div>
+                        </div>
+                        <button type="button" class="reset-btn" id="pe-reset-filters-btn" title="Сбросить все фильтры">
+                            ${getSvgIcon('rotate-ccw', { size: 14, strokeWidth: 2 })}
+                            <span>Сбросить</span>
+                        </button>
+                    </div>
+                </div>
+                <table><thead><tr><th>Пара</th><th>ПН</th><th>ВТ</th><th>СР</th><th>ЧТ</th><th>ПТ</th><th>СБ</th></tr></thead><tbody id="pe-tableBody"></tbody></table>
+            </div>
+            <div id="mse-pe-modal-overlay"><div id="mse-pe-modal"><div id="mse-pe-modal-header" class="m-header"><div><div id="mse-pe-mTitle">Спорт</div><div id="mse-pe-mSubtitle"></div></div><button id="mse-pe-modal-close-btn" class="sec-modal-close-btn" aria-label="Закрыть">${getSvgIcon('x', { size: 16, strokeWidth: 2 })}</button></div><div id="mse-pe-modal-body"></div></div></div>`;
+    }
+
+    function renderPeFriendsDropdown(friendDropdown) {
+        if (!friendDropdown) return;
+        const friends = readStoredFriends();
+        if (!friends.length) {
+            friendDropdown.style.display = 'none';
+            friendDropdown.innerHTML = '';
+            return;
+        }
+        friendDropdown.innerHTML = `
+            <div class="pe-friend-dropdown-title">Ваши друзья:</div>
+            <div class="pe-friend-list-wrap">
+                <div class="pe-friend-dropdown-list">
+                    ${friends.map(friend => `
+                        <div class="pe-friend-item" data-name="${escapeHtml(friend.fullName)}">
+                            ${getSvgIcon('user', { size: 12, strokeWidth: 2 })}
+                            <span class="pe-friend-item-name">${escapeHtml(friend.fullName)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+        friendDropdown.style.display = 'block';
+        const list = friendDropdown.querySelector('.pe-friend-dropdown-list');
+        if (list) attachSmoothScrollbar(list);
+    }
+
+    function togglePeFriendPopover(forceOpen) {
+        const friendContainer = document.getElementById('pe-friendContainer');
+        if (!friendContainer) return;
+        const shouldOpen = typeof forceOpen === 'boolean'
+            ? forceOpen
+            : !friendContainer.classList.contains('is-popover-open');
+        friendContainer.classList.toggle('is-popover-open', shouldOpen);
+        if (!shouldOpen) return;
+
+        renderPeFriendsDropdown(document.getElementById('pe-friendDropdown'));
+        const friendInput = document.getElementById('pe-friendInput');
+        if (friendInput) {
+            setTimeout(() => {
+                friendInput.focus();
+                if (!friendInput.readOnly && typeof friendInput.select === 'function') friendInput.select();
+            }, FRIEND_FOCUS_DELAY_MS);
+        }
+    }
+
+    function bindPeFriendSearchControls() {
+        const friendContainer = document.getElementById('pe-friendContainer');
+        const friendToggleBtn = document.getElementById('pe-friendToggleBtn');
+        const friendInput = document.getElementById('pe-friendInput');
+        const friendBtn = document.getElementById('pe-friendBtn');
+        const friendDropdown = document.getElementById('pe-friendDropdown');
+
+        friendToggleBtn?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            togglePeFriendPopover();
+        });
+
+        friendDropdown?.addEventListener('click', (event) => {
+            const item = event.target.closest('.pe-friend-item');
+            if (!item || !friendInput) return;
+            friendInput.value = item.dataset.name;
+            window.MSE_PE_loadFriend();
+            togglePeFriendPopover(false);
+        });
+
+        friendInput?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                window.MSE_PE_loadFriend();
+                togglePeFriendPopover(false);
+            }
+        });
+
+        friendBtn?.addEventListener('click', () => {
+            if (friendSchedule) {
+                window.MSE_PE_clearFriend();
+            } else {
+                window.MSE_PE_loadFriend();
+                togglePeFriendPopover(false);
+            }
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && friendContainer?.classList.contains('is-popover-open')) {
+                togglePeFriendPopover(false);
+                if (friendToggleBtn) friendToggleBtn.focus();
+            }
+        });
+    }
+
+    function bindPeOverlayControls(overlay) {
+        document.getElementById('mse-pe-close').addEventListener('click', () => {
+            overlay.style.display = 'none';
+        });
+        document.getElementById('pe-reset-filters-btn').addEventListener('click', () => {
+            MSE_PE.resetFilters();
+        });
+        ['pe-considerSchedule', 'pe-onlyAvailable', 'pe-onlyMySections'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            btn.addEventListener('click', () => {
+                setFilterActive(id, !btn.classList.contains('active'));
+                renderGrid();
+            });
+        });
+
+        bindPeFriendSearchControls();
+
+        const friendContainer = document.getElementById('pe-friendContainer');
+        overlay.addEventListener('click', (event) => {
+            if (friendContainer?.classList.contains('is-popover-open') && !friendContainer.contains(event.target)) {
+                togglePeFriendPopover(false);
+            }
+            const busyCard = event.target.closest('.busy-card.is-expandable');
+            if (busyCard) {
+                busyCard.classList.toggle('expanded');
+                return;
+            }
+            const toggleBtn = event.target.closest('[data-action="toggle-multiselect"]');
+            if (toggleBtn) {
+                togglePeMultiSelect(toggleBtn.dataset.target);
+                return;
+            }
+            const selectAllBtn = event.target.closest('[data-action="select-all"]');
+            if (selectAllBtn) {
+                const { type, val } = selectAllBtn.dataset;
+                selectAllOptions(type, val === 'true');
+            }
+        });
+
+        const modalOverlay = document.getElementById('mse-pe-modal-overlay');
+        modalOverlay?.addEventListener('click', (event) => {
+            if (event.target === modalOverlay) window.closePeModal(event);
+        });
+        document.getElementById('mse-pe-modal-close-btn')?.addEventListener('click', () => {
+            window.closePeModal();
+        });
+
+        document.getElementById('mse-pe-modal-body')?.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-action]');
+            if (!btn || btn.disabled) return;
+            const { action, teamId, oldTeamId, targetModuleId } = btn.dataset;
+            if (action === 'enroll') apiToggleAction(teamId, true);
+            else if (action === 'unenroll') apiToggleAction(teamId, false);
+            else if (action === 'swap') apiSwapAction(teamId, oldTeamId, targetModuleId);
+        });
+    }
+
+    function applyDefaultFiltersState() {
+        setFilterActive('pe-onlyAvailable', true);
+        setFilterActive('pe-onlyMySections', false);
+        setFilterActive('pe-considerSchedule', true);
+    }
+
     return {
         apiToggle: apiToggleAction,
         apiSwap: apiSwapAction,
         openModal: function (modulesData, scheduleData, campaignId, studentId, teacherReviews) {
-            allModules = modulesData; currentSchedule = scheduleData; apiCampaignId = campaignId; apiStudentId = studentId; localTeacherReviews = teacherReviews;
+            allModules = modulesData;
+            currentSchedule = scheduleData;
+            apiCampaignId = campaignId;
+            apiStudentId = studentId;
+            localTeacherReviews = teacherReviews;
             parseData();
+
             if (!document.getElementById('mse-pe-overlay')) {
-                const overlay = document.createElement('div'); overlay.id = 'mse-pe-overlay';
-
-                overlay.innerHTML = `
-                    <div class="container">
-                        <div class="header-panel">
-                            <h2>Умный подбор физкультуры</h2>
-                            <button type="button" class="modal-close-btn" id="mse-pe-close" title="Закрыть страницу">
-                                ${getSvgIcon('x', { size: 16, strokeWidth: 2 })}
-                            </button>
-                            <div class="filters-group">
-                                <div class="select-wrap custom-multiselect" id="pe-sportMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-sportMultiSelect"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="sport" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="sport" data-val="false">Сбросить</span></div><div class="ms-list-wrap"><div class="ms-list" id="pe-sportOptionsList"></div></div></div></div>
-                                <div class="select-wrap custom-multiselect" id="pe-campusMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-campusMultiSelect"><span class="ms-label" id="pe-campusLabel">Все корпуса</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="campus" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="campus" data-val="false">Сбросить</span></div><div class="ms-list-wrap"><div class="ms-list" id="pe-campusOptionsList"></div></div></div></div>
-                                <div class="toolbar-divider"></div>
-                                <button type="button" class="pill-check active" id="pe-considerSchedule">
-                                    <span class="check-box">
-                                        ${getSvgIcon('check', { size: 11, strokeWidth: 3 })}
-                                    </span>
-                                    <span>Учитывать пары</span>
-                                </button>
-                                <button type="button" class="pill-check active" id="pe-onlyAvailable">
-                                    <span class="check-box">
-                                        ${getSvgIcon('check', { size: 11, strokeWidth: 3 })}
-                                    </span>
-                                    <span>Только где есть места</span>
-                                </button>
-                                <button type="button" class="pill-check" id="pe-onlyMySections">
-                                    <span class="check-box">
-                                        ${getSvgIcon('check', { size: 11, strokeWidth: 3 })}
-                                    </span>
-                                    <span>Мои записи</span>
-                                </button>
-                                <div class="toolbar-divider"></div>
-                                <div class="pe-friend-container" id="pe-friendContainer">
-                                    <button type="button" class="pe-friend-toggle-btn" id="pe-friendToggleBtn" title="Сравнить пары с другом (поиск по ФИО)">
-                                        ${getSvgIcon('search', { size: 15, strokeWidth: 2 })}
-                                    </button>
-                                    <div class="pe-friend-popover" id="pe-friendPopover">
-                                        <div id="pe-friendWrapper" class="pe-friend-wrapper">
-                                            <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)...">
-                                            <button type="button" id="pe-friendBtn">Поиск</button>
-                                        </div>
-                                        <div id="pe-friendDropdown" class="pe-friend-dropdown" style="display: none;"></div>
-                                    </div>
-                                </div>
-                                <button type="button" class="reset-btn" id="pe-reset-filters-btn" title="Сбросить все фильтры">
-                                    ${getSvgIcon('rotate-ccw', { size: 14, strokeWidth: 2 })}
-                                    <span>Сбросить</span>
-                                </button>
-                            </div>
-                        </div>
-                        <table><thead><tr><th>Пара</th><th>ПН</th><th>ВТ</th><th>СР</th><th>ЧТ</th><th>ПТ</th><th>СБ</th></tr></thead><tbody id="pe-tableBody"></tbody></table>
-                    </div>
-                    <div id="mse-pe-modal-overlay"><div id="mse-pe-modal"><div id="mse-pe-modal-header" class="m-header"><div><div id="mse-pe-mTitle">Спорт</div><div id="mse-pe-mSubtitle"></div></div><button id="mse-pe-modal-close-btn" class="sec-modal-close-btn" aria-label="Закрыть">${getSvgIcon('x', { size: 16, strokeWidth: 2 })}</button></div><div id="mse-pe-modal-body"></div></div></div>`;
+                const overlay = document.createElement('div');
+                overlay.id = 'mse-pe-overlay';
+                overlay.innerHTML = buildPeOverlayHtml();
                 document.body.appendChild(overlay);
-
-                document.getElementById('mse-pe-close').addEventListener('click', () => { overlay.style.display = 'none'; });
-                document.getElementById('pe-reset-filters-btn').addEventListener('click', function () {
-                    MSE_PE.resetFilters();
-                });
-                ['pe-considerSchedule', 'pe-onlyAvailable', 'pe-onlyMySections'].forEach(id => {
-                    const btn = document.getElementById(id);
-                    if (btn) {
-                        btn.addEventListener('click', () => {
-                            const isActive = !btn.classList.contains('active');
-                            setFilterActive(id, isActive);
-                            renderGrid();
-                        });
-                    }
-                });
-
-                const friendContainer = document.getElementById('pe-friendContainer');
-                const friendToggleBtn = document.getElementById('pe-friendToggleBtn');
-                const friendInput = document.getElementById('pe-friendInput');
-                const friendBtn = document.getElementById('pe-friendBtn');
-                const friendDropdown = document.getElementById('pe-friendDropdown');
-
-                function renderFriendsDropdown() {
-                    if (!friendDropdown) return;
-                    const friends = readStoredFriends();
-                    if (!friends || !friends.length) {
-                        friendDropdown.style.display = 'none';
-                        friendDropdown.innerHTML = '';
-                        return;
-                    }
-                    friendDropdown.innerHTML = `
-                        <div class="pe-friend-dropdown-title">Ваши друзья:</div>
-                        <div class="pe-friend-list-wrap">
-                            <div class="pe-friend-dropdown-list">
-                                ${friends.map(f => `
-                                    <div class="pe-friend-item" data-name="${escapeHtml(f.fullName)}">
-                                        ${getSvgIcon('user', { size: 12, strokeWidth: 2 })}
-                                        <span class="pe-friend-item-name">${escapeHtml(f.fullName)}</span>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-                    `;
-                    friendDropdown.style.display = 'block';
-                    const list = friendDropdown.querySelector('.pe-friend-dropdown-list');
-                    if (list) attachSmoothScrollbar(list);
-                }
-
-                function toggleFriendPopover(forceOpen) {
-                    if (!friendContainer) return;
-                    const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : !friendContainer.classList.contains('is-popover-open');
-                    friendContainer.classList.toggle('is-popover-open', shouldOpen);
-                    if (shouldOpen) {
-                        renderFriendsDropdown();
-                        if (friendInput) {
-                            setTimeout(() => {
-                                friendInput.focus();
-                                if (!friendInput.readOnly && typeof friendInput.select === 'function') friendInput.select();
-                            }, 50);
-                        }
-                    }
-                }
-
-                if (friendToggleBtn) {
-                    friendToggleBtn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        toggleFriendPopover();
-                    });
-                }
-
-                if (friendDropdown) {
-                    friendDropdown.addEventListener('click', (e) => {
-                        const item = e.target.closest('.pe-friend-item');
-                        if (!item) return;
-                        const name = item.dataset.name;
-                        if (friendInput) {
-                            friendInput.value = name;
-                            window.MSE_PE_loadFriend();
-                            toggleFriendPopover(false);
-                        }
-                    });
-                }
-
-                if (friendInput) {
-                    friendInput.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter') {
-                            window.MSE_PE_loadFriend();
-                            toggleFriendPopover(false);
-                        }
-                    });
-                }
-                if (friendBtn) {
-                    friendBtn.addEventListener('click', () => {
-                        if (friendSchedule) {
-                            window.MSE_PE_clearFriend();
-                        } else {
-                            window.MSE_PE_loadFriend();
-                            toggleFriendPopover(false);
-                        }
-                    });
-                }
-
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape' && friendContainer && friendContainer.classList.contains('is-popover-open')) {
-                        toggleFriendPopover(false);
-                        if (friendToggleBtn) friendToggleBtn.focus();
-                    }
-                });
-
-                overlay.addEventListener('click', (e) => {
-                    if (friendContainer && friendContainer.classList.contains('is-popover-open')) {
-                        if (!friendContainer.contains(e.target)) {
-                            toggleFriendPopover(false);
-                        }
-                    }
-                    const busyCard = e.target.closest('.busy-card.is-expandable');
-                    if (busyCard) {
-                        busyCard.classList.toggle('expanded');
-                        return;
-                    }
-                    const toggleBtn = e.target.closest('[data-action="toggle-multiselect"]');
-                    if (toggleBtn) {
-                        togglePeMultiSelect(toggleBtn.dataset.target);
-                        return;
-                    }
-                    const selectAllBtn = e.target.closest('[data-action="select-all"]');
-                    if (selectAllBtn) {
-                        const { type, val } = selectAllBtn.dataset;
-                        selectAllOptions(type, val === 'true');
-                        return;
-                    }
-                });
-
-                const modalOverlay = document.getElementById('mse-pe-modal-overlay');
-                if (modalOverlay) {
-                    modalOverlay.addEventListener('click', (e) => {
-                        if (e.target === modalOverlay) window.closePeModal(e);
-                    });
-                }
-                const modalCloseBtn = document.getElementById('mse-pe-modal-close-btn');
-                if (modalCloseBtn) {
-                    modalCloseBtn.addEventListener('click', () => { window.closePeModal(); });
-                }
-
-                const modalBody = document.getElementById('mse-pe-modal-body');
-                if (modalBody) {
-                    modalBody.addEventListener('click', (e) => {
-                        const btn = e.target.closest('[data-action]');
-                        if (!btn || btn.disabled) return;
-                        const { action, teamId, oldTeamId, targetModuleId } = btn.dataset;
-                        if (action === 'enroll') apiToggleAction(teamId, true);
-                        else if (action === 'unenroll') apiToggleAction(teamId, false);
-                        else if (action === 'swap') apiSwapAction(teamId, oldTeamId, targetModuleId);
-                    });
-                }
+                bindPeOverlayControls(overlay);
             }
-            setFilterActive('pe-onlyAvailable', true);
-            setFilterActive('pe-onlyMySections', false);
-            setFilterActive('pe-considerSchedule', true);
+
+            applyDefaultFiltersState();
             window.MSE_PE_clearFriend();
             initMultiSelects();
-            document.getElementById('mse-pe-overlay').style.display = 'block';
-            attachSmoothScrollbar(document.getElementById('mse-pe-overlay'));
+
+            const overlay = document.getElementById('mse-pe-overlay');
+            overlay.style.display = 'block';
+            attachSmoothScrollbar(overlay);
             const modalBody = document.getElementById('mse-pe-modal-body');
             if (modalBody) attachSmoothScrollbar(modalBody);
             renderGrid();
@@ -1537,13 +1547,10 @@ window.MSE_PE = (function () {
         resetFilters: function () {
             selectAllOptions('sport', true);
             selectAllOptions('campus', true);
-            setFilterActive('pe-onlyAvailable', true);
-            setFilterActive('pe-onlyMySections', false);
-            setFilterActive('pe-considerSchedule', true);
+            applyDefaultFiltersState();
             collapsedRows.clear();
             window.MSE_PE_clearFriend();
-            const friendContainer = document.getElementById('pe-friendContainer');
-            if (friendContainer) friendContainer.classList.remove('is-popover-open');
+            togglePeFriendPopover(false);
             renderGrid();
         }
     };
