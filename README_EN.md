@@ -2,7 +2,7 @@
 
 [🇷🇺 Русский](readme.md) | 🇬🇧 English
 
-![Version](https://img.shields.io/badge/version-2.2.5-blue.svg)
+[![Latest Release](https://img.shields.io/github/v/release/student1245/Modeus-Student-Enhancer?label=version&color=16a34a)](https://github.com/student1245/Modeus-Student-Enhancer/releases/latest)
 ![Chromium](https://img.shields.io/badge/Chromium-Chrome%20%7C%20Edge%20%7C%20Yandex%20%7C%20Opera%20%7C%20Brave-4285F4?logo=googlechrome&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-UTMN%20Modeus-orange.svg)
 ![Manifest](https://img.shields.io/badge/manifest-v3-green.svg)
