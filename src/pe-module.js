@@ -16,6 +16,11 @@ window.MSE_PE = (function () {
         })() : null);
 
     const STORAGE_KEY_FRIENDS = 'mse_friends_list';
+    const BOOKING_API_BASE = 'https://utmn.modeus.org/course-unit-booking/api/v1/students';
+    const PEOPLE_SEARCH_API_URL = 'https://utmn.modeus.org/schedule-calendar-v2/api/people/persons/search';
+    const SCROLLBAR_MIN_THUMB_PX = 28;
+    const SCROLLBAR_INIT_DELAY_MS = 50;
+    const FRIEND_FOCUS_DELAY_MS = 50;
     let courses = [];
     let sportsSet = new Set();
     let campusesSet = new Set();
@@ -68,6 +73,104 @@ window.MSE_PE = (function () {
             : []
     );
 
+    function syncOverlayTrackPosition(track, scrollEl, isOverlay) {
+        if (!isOverlay) return;
+        const header = scrollEl.querySelector('.header-panel');
+        const headerH = header ? header.offsetHeight : 0;
+        track.style.setProperty('top', `${headerH + 4}px`, 'important');
+    }
+
+    function createSmoothScrollbarDom(scrollEl, container, isOverlay) {
+        const track = document.createElement('div');
+        track.className = 'mse-scroll-track' + (isOverlay ? ' mse-scroll-track-fixed' : '');
+        syncOverlayTrackPosition(track, scrollEl, isOverlay);
+
+        const thumb = document.createElement('div');
+        thumb.className = 'mse-scroll-thumb';
+        track.appendChild(thumb);
+        if (container) {
+            container.appendChild(track);
+        }
+        return { track, thumb };
+    }
+
+    function bindTrackClickScroll(scrollEl, track, thumb, update) {
+        track.addEventListener('mousedown', (event) => {
+            if (event.target === thumb) return;
+            const trackRect = track.getBoundingClientRect();
+            const clickY = event.clientY - trackRect.top;
+            const thumbH = thumb.offsetHeight || SCROLLBAR_MIN_THUMB_PX;
+            const targetThumbTop = clickY - thumbH / 2;
+            const maxThumbTop = track.clientHeight - thumbH;
+            const ratio = Math.max(0, Math.min(1, targetThumbTop / (maxThumbTop || 1)));
+            const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
+            scrollEl.scrollTop = ratio * maxScrollTop;
+            update();
+        });
+    }
+
+    function bindThumbDragScroll(scrollEl, track, thumb) {
+        let activeMoveHandler = null;
+        let activeUpHandler = null;
+
+        const stopDrag = () => {
+            track.classList.remove('dragging');
+            if (typeof document !== 'undefined' && document.body) {
+                document.body.classList.remove('mse-scrollbar-dragging');
+            }
+            if (activeMoveHandler && typeof window !== 'undefined') {
+                window.removeEventListener('mousemove', activeMoveHandler);
+            }
+            if (activeUpHandler && typeof window !== 'undefined') {
+                window.removeEventListener('mouseup', activeUpHandler);
+            }
+            activeMoveHandler = null;
+            activeUpHandler = null;
+        };
+
+        thumb.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            track.classList.add('dragging');
+            if (typeof document !== 'undefined' && document.body) {
+                document.body.classList.add('mse-scrollbar-dragging');
+            }
+
+            const startY = event.clientY;
+            const startTop = parseFloat(thumb.style.top) || 0;
+            const maxThumbTop = track.clientHeight - (thumb.offsetHeight || SCROLLBAR_MIN_THUMB_PX);
+            const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
+
+            activeMoveHandler = (moveEvent) => {
+                const deltaY = moveEvent.clientY - startY;
+                const newTop = Math.max(0, Math.min(maxThumbTop, startTop + deltaY));
+                const ratio = maxThumbTop > 0 ? newTop / maxThumbTop : 0;
+                scrollEl.scrollTop = ratio * maxScrollTop;
+                thumb.style.top = `${newTop}px`;
+            };
+            activeUpHandler = stopDrag;
+
+            window.addEventListener('mousemove', activeMoveHandler);
+            window.addEventListener('mouseup', activeUpHandler);
+        });
+
+        return stopDrag;
+    }
+
+    function observeScrollContainerResize(scrollEl, isOverlay, update) {
+        if (typeof ResizeObserver === 'undefined') return null;
+        const resizeObserver = new ResizeObserver(() => update());
+        resizeObserver.observe(scrollEl);
+        if (scrollEl.firstElementChild) {
+            resizeObserver.observe(scrollEl.firstElementChild);
+        }
+        if (isOverlay) {
+            const header = scrollEl.querySelector('.header-panel');
+            if (header) resizeObserver.observe(header);
+        }
+        return resizeObserver;
+    }
+
     /**
      * Плавный GPU-скроллбар (Вариант S5) с масштабированием 2px -> 6px (scaleX)
      * @param {HTMLElement} scrollEl - Прокручиваемый элемент
@@ -86,36 +189,16 @@ window.MSE_PE = (function () {
         const container = isOverlay ? scrollEl : (scrollEl.parentElement || scrollEl);
 
         if (!isOverlay && container && typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
-            const pos = window.getComputedStyle(container).position;
-            if (pos === 'static') {
+            if (window.getComputedStyle(container).position === 'static') {
                 container.style.position = 'relative';
             }
         }
 
-        const track = document.createElement('div');
-        track.className = 'mse-scroll-track' + (isOverlay ? ' mse-scroll-track-fixed' : '');
-
-        if (isOverlay) {
-            const header = scrollEl.querySelector('.header-panel');
-            const headerH = header ? header.offsetHeight : 0;
-            track.style.setProperty('top', `${headerH + 4}px`, 'important');
-        }
-
-        const thumb = document.createElement('div');
-        thumb.className = 'mse-scroll-thumb';
-        track.appendChild(thumb);
-        if (container) {
-            container.appendChild(track);
-        }
+        const { track, thumb } = createSmoothScrollbarDom(scrollEl, container, isOverlay);
 
         function update() {
             if (!scrollEl.isConnected || !track.isConnected) return;
-
-            if (isOverlay) {
-                const header = scrollEl.querySelector('.header-panel');
-                const headerH = header ? header.offsetHeight : 0;
-                track.style.setProperty('top', `${headerH + 4}px`, 'important');
-            }
+            syncOverlayTrackPosition(track, scrollEl, isOverlay);
 
             const scrollH = scrollEl.scrollHeight;
             const clientH = scrollEl.clientHeight;
@@ -130,81 +213,19 @@ window.MSE_PE = (function () {
             track.style.opacity = '';
             track.style.pointerEvents = '';
 
-            const thumbH = Math.max(28, Math.round(trackH * (clientH / scrollH)));
+            const thumbH = Math.max(SCROLLBAR_MIN_THUMB_PX, Math.round(trackH * (clientH / scrollH)));
             const maxScrollTop = scrollH - clientH;
             const maxThumbTop = trackH - thumbH;
-            const scrollTop = scrollEl.scrollTop;
-            const thumbTop = maxScrollTop > 0 ? Math.round((scrollTop / maxScrollTop) * maxThumbTop) : 0;
+            const thumbTop = maxScrollTop > 0 ? Math.round((scrollEl.scrollTop / maxScrollTop) * maxThumbTop) : 0;
 
             thumb.style.height = `${thumbH}px`;
             thumb.style.top = `${thumbTop}px`;
         }
 
         scrollEl.addEventListener('scroll', update, { passive: true });
-
-        // Быстрая прокрутка по клику на дорожку
-        track.addEventListener('mousedown', (e) => {
-            if (e.target === thumb) return;
-            const trackRect = track.getBoundingClientRect();
-            const clickY = e.clientY - trackRect.top;
-            const thumbH = thumb.offsetHeight || 28;
-            const targetThumbTop = clickY - thumbH / 2;
-            const maxThumbTop = track.clientHeight - thumbH;
-            const ratio = Math.max(0, Math.min(1, targetThumbTop / (maxThumbTop || 1)));
-            const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
-            scrollEl.scrollTop = ratio * maxScrollTop;
-            update();
-        });
-
-        // Перетаскивание ползунка мышью
-        thumb.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            track.classList.add('dragging');
-            if (typeof document !== 'undefined' && document.body) {
-                document.body.classList.add('mse-scrollbar-dragging');
-            }
-
-            const startY = e.clientY;
-            const startTop = parseFloat(thumb.style.top) || 0;
-            const trackH = track.clientHeight;
-            const thumbH = thumb.offsetHeight || 28;
-            const maxThumbTop = trackH - thumbH;
-            const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
-
-            const onMouseMove = (moveEvent) => {
-                const deltaY = moveEvent.clientY - startY;
-                const newTop = Math.max(0, Math.min(maxThumbTop, startTop + deltaY));
-                const ratio = maxThumbTop > 0 ? newTop / maxThumbTop : 0;
-                scrollEl.scrollTop = ratio * maxScrollTop;
-                thumb.style.top = `${newTop}px`;
-            };
-
-            const onMouseUp = () => {
-                track.classList.remove('dragging');
-                if (typeof document !== 'undefined' && document.body) {
-                    document.body.classList.remove('mse-scrollbar-dragging');
-                }
-                window.removeEventListener('mousemove', onMouseMove);
-                window.removeEventListener('mouseup', onMouseUp);
-            };
-
-            window.addEventListener('mousemove', onMouseMove);
-            window.addEventListener('mouseup', onMouseUp);
-        });
-
-        let ro = null;
-        if (typeof ResizeObserver !== 'undefined') {
-            ro = new ResizeObserver(() => update());
-            ro.observe(scrollEl);
-            if (scrollEl.firstElementChild) {
-                ro.observe(scrollEl.firstElementChild);
-            }
-            if (isOverlay) {
-                const header = scrollEl.querySelector('.header-panel');
-                if (header) ro.observe(header);
-            }
-        }
+        bindTrackClickScroll(scrollEl, track, thumb, update);
+        const cleanupDrag = bindThumbDragScroll(scrollEl, track, thumb);
+        const resizeObserver = observeScrollContainerResize(scrollEl, isOverlay, update);
 
         update();
         if (typeof requestAnimationFrame !== 'undefined') {
@@ -213,15 +234,17 @@ window.MSE_PE = (function () {
                 requestAnimationFrame(update);
             });
         }
-        setTimeout(update, 50);
+        const initTimerId = setTimeout(update, SCROLLBAR_INIT_DELAY_MS);
 
         const instance = {
             track,
             thumb,
             update,
             destroy: function () {
+                clearTimeout(initTimerId);
+                cleanupDrag();
                 scrollEl.removeEventListener('scroll', update);
-                if (ro) ro.disconnect();
+                if (resizeObserver) resizeObserver.disconnect();
                 track.remove();
                 scrollEl.classList.remove('mse-has-smooth-scroll');
                 delete scrollEl._mseSmoothScrollbar;
@@ -259,7 +282,15 @@ window.MSE_PE = (function () {
     let currentModalDay = '';
     let currentModalTime = '';
 
-    const timeSlots = ['8:30', '10:15', '12:00', '14:00', '15:45', '17:30', '19:15'];
+    const PE_TIME_SLOTS = [
+        { label: '8:30', prefixes: ['8:30'], conflictKeys: ['8:30', '08:30'] },
+        { label: '10:15', prefixes: ['10:15'], conflictKeys: ['10:15'] },
+        { label: '12:00', prefixes: ['12:00', '12:05'], conflictKeys: ['12:00', '12:05'] },
+        { label: '14:00', prefixes: ['14:00', '14:05'], conflictKeys: ['14:00', '14:05'] },
+        { label: '15:45', prefixes: ['15:45', '15:55'], conflictKeys: ['15:45', '15:55'] },
+        { label: '17:30', prefixes: ['17:30', '17:40'], conflictKeys: ['17:30', '17:40'] },
+        { label: '19:15', prefixes: ['19:15', '19:20'], conflictKeys: ['19:15', '19:20'] }
+    ];
     const days = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ'];
 
     const dayFullNames = { 'ПН': 'Понедельник', 'ВТ': 'Вторник', 'СР': 'Среда', 'ЧТ': 'Четверг', 'ПТ': 'Пятница', 'СБ': 'Суббота' };
@@ -310,44 +341,25 @@ window.MSE_PE = (function () {
     function getSlotIndex(timeStr) {
         if (!timeStr) return -1;
         const clean = timeStr.trim().replace(/^0/, '');
-        if (clean.startsWith('8:30')) return 0;
-        if (clean.startsWith('10:15')) return 1;
-        if (clean.startsWith('12:00') || clean.startsWith('12:05')) return 2;
-        if (clean.startsWith('14:00') || clean.startsWith('14:05')) return 3;
-        if (clean.startsWith('15:45') || clean.startsWith('15:55')) return 4;
-        if (clean.startsWith('17:30') || clean.startsWith('17:40')) return 5;
-        if (clean.startsWith('19:15') || clean.startsWith('19:20')) return 6;
-        return -1;
+        return PE_TIME_SLOTS.findIndex(slot => slot.prefixes.some(prefix => clean.startsWith(prefix)));
+    }
+
+    function findScheduleConflict(scheduleMap, day, possibleKeys) {
+        if (!scheduleMap || !scheduleMap[day]) return null;
+        for (const timeKey of possibleKeys) {
+            if (scheduleMap[day][timeKey]) {
+                return scheduleMap[day][timeKey];
+            }
+        }
+        return null;
     }
 
     function getConflict(day, slotIdx) {
-        const slotTimes = [
-            ['8:30', '08:30'], ['10:15'], ['12:00', '12:05'],
-            ['14:00', '14:05'], ['15:45', '15:55'], ['17:30', '17:40'], ['19:15', '19:20']
-        ];
-        const possible = slotTimes[slotIdx] || [];
+        const possibleKeys = PE_TIME_SLOTS[slotIdx]?.conflictKeys || [];
+        const userConflict = findScheduleConflict(currentSchedule, day, possibleKeys);
+        const friendConflict = findScheduleConflict(friendSchedule, day, possibleKeys);
 
-        let userConflict = null;
-        if (currentSchedule && currentSchedule[day]) {
-            for (const t of possible) {
-                if (currentSchedule[day][t]) {
-                    userConflict = currentSchedule[day][t];
-                    break;
-                }
-            }
-        }
-
-        let frConflict = null;
-        if (friendSchedule && friendSchedule[day]) {
-            for (const t of possible) {
-                if (friendSchedule[day][t]) {
-                    frConflict = friendSchedule[day][t];
-                    break;
-                }
-            }
-        }
-
-        if (userConflict || frConflict) return { user: userConflict, friend: frConflict };
+        if (userConflict || friendConflict) return { user: userConflict, friend: friendConflict };
         return null;
     }
 
@@ -545,14 +557,14 @@ window.MSE_PE = (function () {
         const friends = readStoredFriends();
         const lowerQuery = name.toLowerCase();
         const friend = friends.find(
-            f => f && typeof f.fullName === 'string' && f.fullName.toLowerCase().includes(lowerQuery)
+            item => item && typeof item.fullName === 'string' && item.fullName.toLowerCase().includes(lowerQuery)
         );
         if (friend) return { id: friend.id, name: friend.fullName };
 
-        // 2. Если нет в друзьях — ищем через актуальное POST API Модеуса (как на скриншоте)
+        // 2. Если нет в друзьях — ищем через актуальное POST API Модеуса
         const token = sessionStorage.getItem('id_token');
         try {
-            const res = await fetch("https://utmn.modeus.org/schedule-calendar-v2/api/people/persons/search", {
+            const res = await fetch(PEOPLE_SEARCH_API_URL, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${token}`,
@@ -568,20 +580,54 @@ window.MSE_PE = (function () {
 
             if (res.ok) {
                 const data = await res.json();
-
-                // В зависимости от ответа API, люди могут лежать в массиве напрямую или в _embedded
                 const persons = data._embedded?.persons || data.items || (Array.isArray(data) ? data : []);
-
                 if (persons.length > 0) {
-                    // Берем первого наиболее подходящего человека
                     return { id: persons[0].id, name: persons[0].fullName };
                 }
             }
-        } catch (e) {
-            console.warn("Ошибка поиска через API:", e);
+        } catch (err) {
+            console.warn("Ошибка поиска через API:", err);
         }
 
         return null;
+    }
+
+    function formatFriendShortName(fullName) {
+        const parts = String(fullName || '').trim().split(/\s+/);
+        return parts[0] + ' ' + (parts[1]?.[0] || '') + '.';
+    }
+
+    function setFriendToggleButtonState(friendShortName) {
+        const toggleBtn = document.getElementById('pe-friendToggleBtn');
+        if (!toggleBtn) return;
+        const isActive = Boolean(friendShortName);
+        toggleBtn.classList.toggle('is-active', isActive);
+        toggleBtn.title = isActive
+            ? `Сравнить пары с: ${friendShortName} (нажмите для изменения/сброса)`
+            : 'Сравнить пары с другом (поиск по ФИО)';
+    }
+
+    function setFriendSearchUiState({ wrapper, input, btn }, isLoading, shortName = null) {
+        if (isLoading) {
+            btn.innerHTML = getSvgIcon('refresh-ccw', {
+                size: 14,
+                className: 'mse-spinning-icon'
+            });
+            btn.disabled = true;
+            input.disabled = true;
+            return;
+        }
+
+        btn.disabled = false;
+        input.disabled = false;
+        if (shortName) {
+            wrapper.classList.add('has-friend');
+            input.value = `С вами: ${shortName}`;
+            input.readOnly = true;
+            btn.innerText = "Сброс";
+        } else {
+            btn.innerText = "Поиск";
+        }
     }
 
     window.MSE_PE_loadFriend = async function () {
@@ -596,26 +642,17 @@ window.MSE_PE = (function () {
             return;
         }
 
-        btn.innerHTML = getSvgIcon('refresh-ccw', {
-            size: 14,
-            className: 'mse-spinning-icon'
-        });
-        btn.disabled = true;
-        input.disabled = true;
+        setFriendSearchUiState({ wrapper, input, btn }, true);
 
         try {
             const person = await getPersonIdByName(name);
             if (!person) {
                 showToast("Студент не найден. Проверьте ФИО или сначала добавьте его в друзья в главном календаре.", 'warning');
-                btn.innerText = "Поиск";
-                btn.disabled = false;
-                input.disabled = false;
+                setFriendSearchUiState({ wrapper, input, btn }, false);
                 return;
             }
 
-            const parts = person.name.trim().split(/\s+/);
-            friendNameForUI = parts[0] + ' ' + (parts[1]?.[0] || '') + '.';
-
+            friendNameForUI = formatFriendShortName(person.name);
             const token = sessionStorage.getItem('id_token');
             friendSchedule = sharedUtils?.fetchBlockedScheduleSlots
                 ? await sharedUtils.fetchBlockedScheduleSlots({
@@ -625,26 +662,12 @@ window.MSE_PE = (function () {
                 })
                 : {};
 
-            wrapper.classList.add('has-friend');
-            input.value = `С вами: ${friendNameForUI}`;
-            input.disabled = false;
-            input.readOnly = true;
-
-            btn.innerText = "Сброс";
-            btn.disabled = false;
-
-            const toggleBtn = document.getElementById('pe-friendToggleBtn');
-            if (toggleBtn) {
-                toggleBtn.classList.add('is-active');
-                toggleBtn.title = `Сравнить пары с: ${friendNameForUI} (нажмите для изменения/сброса)`;
-            }
-
+            setFriendSearchUiState({ wrapper, input, btn }, false, friendNameForUI);
+            setFriendToggleButtonState(friendNameForUI);
             renderGrid();
-        } catch (e) {
-            showToast("Ошибка при загрузке расписания друга: " + e.message, 'error');
-            btn.innerText = "Поиск";
-            btn.disabled = false;
-            input.disabled = false;
+        } catch (err) {
+            showToast("Ошибка при загрузке расписания друга: " + err.message, 'error');
+            setFriendSearchUiState({ wrapper, input, btn }, false);
         }
     };
 
@@ -659,15 +682,8 @@ window.MSE_PE = (function () {
             input.disabled = false;
         }
         if (wrapper) wrapper.classList.remove('has-friend');
-        if (btn) {
-            btn.innerText = 'Поиск';
-        }
-
-        const toggleBtn = document.getElementById('pe-friendToggleBtn');
-        if (toggleBtn) {
-            toggleBtn.classList.remove('is-active');
-            toggleBtn.title = 'Сравнить пары с другом (поиск по ФИО)';
-        }
+        if (btn) btn.innerText = 'Поиск';
+        setFriendToggleButtonState(null);
 
         friendSchedule = null;
         friendNameForUI = null;
@@ -795,16 +811,19 @@ window.MSE_PE = (function () {
             return true;
         });
 
-        timeSlots.forEach((time, tIdx) => {
-            const tr = document.createElement('tr'); const isCollapsed = collapsedRows.has(tIdx);
+        PE_TIME_SLOTS.forEach((slotConfig, slotIdx) => {
+            const time = slotConfig.label;
+            const tr = document.createElement('tr');
+            const isCollapsed = collapsedRows.has(slotIdx);
             if (isCollapsed) tr.className = 'row-collapsed';
-            const timeTd = document.createElement('td'); timeTd.className = 'time-cell';
-            timeTd.innerHTML = `${time}<span class="time-sub">${tIdx + 1} пара</span>`;
+            const timeTd = document.createElement('td');
+            timeTd.className = 'time-cell';
+            timeTd.innerHTML = `${time}<span class="time-sub">${slotIdx + 1} пара</span>`;
             timeTd.addEventListener('click', () => {
                 if (isCollapsed) {
-                    collapsedRows.delete(tIdx);
+                    collapsedRows.delete(slotIdx);
                 } else {
-                    collapsedRows.add(tIdx);
+                    collapsedRows.add(slotIdx);
                 }
                 renderGrid();
             });
@@ -819,7 +838,7 @@ window.MSE_PE = (function () {
                     return;
                 }
 
-                const conflict = getConflict(day, tIdx);
+                const conflict = getConflict(day, slotIdx);
                 if (considerSchedule && conflict) {
                     td.innerHTML = renderBusySlotHtml(conflict, friendNameForUI);
                     tr.appendChild(td);
@@ -832,12 +851,15 @@ window.MSE_PE = (function () {
                 const cellWrapper = document.createElement('div');
                 cellWrapper.className = 'card-group day-cell';
 
-                const slotItems = filtered.filter(c => c.day === day && c.slotIdx === tIdx);
+                const slotItems = filtered.filter(courseItem => courseItem.day === day && courseItem.slotIdx === slotIdx);
                 const clusters = {};
-                slotItems.forEach(i => { if (!clusters[i.sport]) clusters[i.sport] = []; clusters[i.sport].push(i); });
+                slotItems.forEach(courseItem => {
+                    if (!clusters[courseItem.sport]) clusters[courseItem.sport] = [];
+                    clusters[courseItem.sport].push(courseItem);
+                });
 
                 Object.keys(clusters).sort().forEach(sportName => {
-                    const card = createSportCardElement(sportName, clusters[sportName], day, time, tIdx);
+                    const card = createSportCardElement(sportName, clusters[sportName], day, time, slotIdx);
                     cellWrapper.appendChild(card);
                 });
                 cellWrap.appendChild(cellWrapper);
@@ -1093,135 +1115,145 @@ window.MSE_PE = (function () {
         renderGrid();
     }
 
-    async function apiToggleAction(teamId, isEnroll) {
-        let targetModuleId = null;
+    function buildBookingSelectedTeamsUrl(targetModuleId) {
+        return `${BOOKING_API_BASE}/${apiStudentId}/campaigns/${apiCampaignId}/student-campaign-menu/module-elements/${targetModuleId}/selected-teams`;
+    }
 
-        if (isEnroll) {
-            const validModuleIds = teamToModulesMap.get(teamId);
-            if (!validModuleIds || validModuleIds.size === 0) {
-                console.error('[MSE PE] Не удалось найти модуль для команды:', { teamId, allModules });
-                showToast('Не удалось определить модуль для выбранной секции.', 'error');
-                return;
-            }
-
-            // Ищем модули, в которых действительно доступна эта команда
-            const candidateModules = allModules.filter(mod => {
-                const mId = mod.moduleElementId || mod.id;
-                return validModuleIds.has(mId);
-            });
-
-            // Выбираем модуль, где еще не выбрана секция
-            const emptyModule = candidateModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
-
-            if (!emptyModule) {
-                console.warn('[MSE PE] Все доступные модули для этой секции уже заняты:', { teamId, candidateModules });
-                showToast('В модуле для этой секции уже выбрана другая команда. Сначала отпишитесь от неё.', 'warning');
-                return;
-            }
-
-            targetModuleId = emptyModule.moduleElementId || emptyModule.id;
-        } else {
-            // При отписке ищем модуль, где эта команда сейчас записана
-            const enrolledModule = allModules.find(mod => mod.selectedTeamIds && mod.selectedTeamIds.includes(teamId));
-            if (enrolledModule) {
-                targetModuleId = enrolledModule.moduleElementId || enrolledModule.id;
-            } else {
-                targetModuleId = enrolledTeamsMap.get(teamId);
-            }
-
-            if (!targetModuleId) {
-                console.error('[MSE PE] Не удалось найти модуль для отмены записи:', { teamId, enrolledTeamsMap: Array.from(enrolledTeamsMap.entries()) });
-                showToast('Не удалось определить модуль для отмены записи.', 'error');
-                return;
-            }
-        }
-
+    function setTeamActionButtonPending(teamId, label) {
         const btn = document.getElementById(`btn-team-${teamId}`);
         if (btn) {
             btn.disabled = true;
-            btn.innerText = "Отправка запроса...";
+            btn.innerText = label;
         }
+    }
 
+    function updateModuleSelectionState(targetModuleId, teamId, isEnroll) {
+        const modToUpdate = allModules.find(mod => (mod.moduleElementId || mod.id) === targetModuleId);
+        if (modToUpdate) {
+            if (isEnroll) {
+                modToUpdate.selectedTeamIds = [teamId];
+            } else {
+                modToUpdate.selectedTeamIds = modToUpdate.selectedTeamIds
+                    ? modToUpdate.selectedTeamIds.filter(id => id !== teamId)
+                    : [];
+            }
+        }
+        updateTeamAvailable(teamId, isEnroll ? -1 : 1);
+        if (isEnroll) {
+            enrolledTeamsMap.set(teamId, targetModuleId);
+        } else {
+            enrolledTeamsMap.delete(teamId);
+        }
+    }
+
+    async function sendBookingTeamRequest({ method, targetModuleId, teamId, startLogLabel, errorLogLabel, successLogLabel }) {
         const token = sessionStorage.getItem('id_token');
-        const url = `https://utmn.modeus.org/course-unit-booking/api/v1/students/${apiStudentId}/campaigns/${apiCampaignId}/student-campaign-menu/module-elements/${targetModuleId}/selected-teams`;
-        const method = isEnroll ? 'POST' : 'DELETE';
+        const url = buildBookingSelectedTeamsUrl(targetModuleId);
         const bodyData = [teamId];
 
-        // 1. Детальное логирование ПЕРЕД отправкой запроса
         console.log(
             '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
-            `Запрос на ${isEnroll ? 'запись' : 'отписку'}:`,
-            {
-                method,
-                url,
-                moduleId: targetModuleId,
-                teamId,
-                body: bodyData
-            }
+            startLogLabel,
+            { method, url, moduleId: targetModuleId, teamId, body: bodyData }
         );
 
-        try {
-            const res = await fetch(url, {
+        const res = await fetch(url, {
+            method,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(bodyData)
+        });
+
+        if (!res.ok) {
+            const rawResponse = await res.text();
+            let errorMsg = `HTTP ${res.status}`;
+            let errorJson = null;
+
+            try {
+                errorJson = JSON.parse(rawResponse);
+                if (errorJson.message) errorMsg = errorJson.message;
+            } catch {
+                // сырой текст ответа сервера
+            }
+
+            console.error(errorLogLabel, {
+                status: res.status,
+                statusText: res.statusText,
+                url,
                 method,
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify(bodyData)
+                moduleId: targetModuleId,
+                teamId,
+                sentBody: bodyData,
+                rawResponse,
+                parsedError: errorJson
             });
 
-            if (!res.ok) {
-                const rawResponse = await res.text();
-                let errorMsg = `HTTP ${res.status}`;
-                let errorJson = null;
+            throw new Error(errorMsg);
+        }
 
-                try {
-                    errorJson = JSON.parse(rawResponse);
-                    if (errorJson.message) errorMsg = errorJson.message;
-                } catch {
-                    // сырой текст
-                }
+        console.log(
+            '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
+            `${successLogLabel} (HTTP ${res.status}):`,
+            { moduleId: targetModuleId, teamId }
+        );
+    }
 
-                // 2. Полный контекст сбоя в console.error
-                console.error(
-                    '[MSE PE] Ошибка ответа сервера при бронировании:',
-                    {
-                        status: res.status,
-                        statusText: res.statusText,
-                        url,
-                        method,
-                        moduleId: targetModuleId,
-                        teamId,
-                        sentBody: bodyData,
-                        rawResponse,
-                        parsedError: errorJson
-                    }
-                );
-
-                throw new Error(errorMsg);
+    function resolveToggleTargetModuleId(teamId, isEnroll) {
+        if (!isEnroll) {
+            const enrolledModule = allModules.find(mod => mod.selectedTeamIds && mod.selectedTeamIds.includes(teamId));
+            const targetModuleId = enrolledModule
+                ? (enrolledModule.moduleElementId || enrolledModule.id)
+                : enrolledTeamsMap.get(teamId);
+            if (!targetModuleId) {
+                console.error('[MSE PE] Не удалось найти модуль для отмены записи:', {
+                    teamId,
+                    enrolledTeamsMap: Array.from(enrolledTeamsMap.entries())
+                });
+                showToast('Не удалось определить модуль для отмены записи.', 'error');
+                return null;
             }
+            return targetModuleId;
+        }
 
-            // Успешный ответ
-            console.log(
-                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
-                `Успешный ответ (HTTP ${res.status}) для ${isEnroll ? 'записи' : 'отмены'}:`,
-                { moduleId: targetModuleId, teamId }
-            );
+        const validModuleIds = teamToModulesMap.get(teamId);
+        if (!validModuleIds || validModuleIds.size === 0) {
+            console.error('[MSE PE] Не удалось найти модуль для команды:', { teamId, allModules });
+            showToast('Не удалось определить модуль для выбранной секции.', 'error');
+            return null;
+        }
 
-            const modToUpdate = allModules.find(m => (m.moduleElementId || m.id) === targetModuleId);
-            if (modToUpdate) {
-                if (isEnroll) {
-                    modToUpdate.selectedTeamIds = [teamId];
-                } else {
-                    modToUpdate.selectedTeamIds = modToUpdate.selectedTeamIds ? modToUpdate.selectedTeamIds.filter(id => id !== teamId) : [];
-                }
-            }
+        const candidateModules = allModules.filter(mod => validModuleIds.has(mod.moduleElementId || mod.id));
+        const emptyModule = candidateModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
+        if (!emptyModule) {
+            console.warn('[MSE PE] Все доступные модули для этой секции уже заняты:', { teamId, candidateModules });
+            showToast('В модуле для этой секции уже выбрана другая команда. Сначала отпишитесь от неё.', 'warning');
+            return null;
+        }
 
-            updateTeamAvailable(teamId, isEnroll ? -1 : 1);
+        return emptyModule.moduleElementId || emptyModule.id;
+    }
 
+    async function apiToggleAction(teamId, isEnroll) {
+        const targetModuleId = resolveToggleTargetModuleId(teamId, isEnroll);
+        if (!targetModuleId) return;
+
+        setTeamActionButtonPending(teamId, 'Отправка запроса...');
+
+        try {
+            await sendBookingTeamRequest({
+                method: isEnroll ? 'POST' : 'DELETE',
+                targetModuleId,
+                teamId,
+                startLogLabel: `Запрос на ${isEnroll ? 'запись' : 'отписку'}:`,
+                errorLogLabel: '[MSE PE] Ошибка ответа сервера при бронировании:',
+                successLogLabel: `Успешный ответ для ${isEnroll ? 'записи' : 'отмены'}`
+            });
+
+            updateModuleSelectionState(targetModuleId, teamId, isEnroll);
             syncAndRenderActiveViews();
-
             showToast(isEnroll ? 'Вы успешно записались в секцию!' : 'Запись успешно отменена.', 'success');
         } catch (err) {
             showToast(`Ошибка ${isEnroll ? 'записи' : 'отмены'}: ${err.message}`, 'error');
@@ -1230,154 +1262,41 @@ window.MSE_PE = (function () {
     }
 
     async function apiSwapAction(newTeamId, oldTeamId, targetModuleId) {
-        const btn = document.getElementById(`btn-team-${newTeamId}`);
-        if (btn) {
-            btn.disabled = true;
-            btn.innerText = "Перезапись (1/2: отписка)...";
-        }
-
-        const token = sessionStorage.getItem('id_token');
-        const endpointUrl = `https://utmn.modeus.org/course-unit-booking/api/v1/students/${apiStudentId}/campaigns/${apiCampaignId}/student-campaign-menu/module-elements/${targetModuleId}/selected-teams`;
+        setTeamActionButtonPending(newTeamId, 'Перезапись (1/2: отписка)...');
 
         try {
-            // ШАГ 1: Отмена старой записи (DELETE)
-            console.log(
-                '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
-                'Запрос на перезапись [1/2] - Отмена старой секции (DELETE):',
-                {
+            try {
+                await sendBookingTeamRequest({
                     method: 'DELETE',
-                    url: endpointUrl,
-                    moduleId: targetModuleId,
-                    oldTeamId,
-                    body: [oldTeamId]
-                }
-            );
-
-            const delRes = await fetch(endpointUrl, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify([oldTeamId])
-            });
-
-            if (!delRes.ok) {
-                const rawResponse = await delRes.text();
-                let errorMsg = `HTTP ${delRes.status}`;
-                let errorJson = null;
-                try {
-                    errorJson = JSON.parse(rawResponse);
-                    if (errorJson.message) errorMsg = errorJson.message;
-                } catch {
-                    // сырой текст
-                }
-
-                console.error(
-                    '[MSE PE] Ошибка ответа сервера при отмене старой секции (шаг 1 перезаписи):',
-                    {
-                        status: delRes.status,
-                        statusText: delRes.statusText,
-                        url: endpointUrl,
-                        method: 'DELETE',
-                        moduleId: targetModuleId,
-                        oldTeamId,
-                        sentBody: [oldTeamId],
-                        rawResponse,
-                        parsedError: errorJson
-                    }
-                );
-
-                throw new Error(`Не удалось отписаться от старой секции: ${errorMsg}`);
+                    targetModuleId,
+                    teamId: oldTeamId,
+                    startLogLabel: 'Запрос на перезапись [1/2] - Отмена старой секции (DELETE):',
+                    errorLogLabel: '[MSE PE] Ошибка ответа сервера при отмене старой секции (шаг 1 перезаписи):',
+                    successLogLabel: 'Успешный ответ для отмены старой секции [1/2]'
+                });
+            } catch (stepOneErr) {
+                throw new Error(`Не удалось отписаться от старой секции: ${stepOneErr.message}`);
             }
 
-            console.log(
-                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
-                `Успешный ответ (HTTP ${delRes.status}) для отмены старой секции [1/2]:`,
-                { moduleId: targetModuleId, oldTeamId }
-            );
+            updateModuleSelectionState(targetModuleId, oldTeamId, false);
+            setTeamActionButtonPending(newTeamId, 'Перезапись (2/2: запись)...');
 
-            // Синхронизация состояния после отписки
-            const modToUpdate = allModules.find(m => (m.moduleElementId || m.id) === targetModuleId);
-            if (modToUpdate) {
-                modToUpdate.selectedTeamIds = modToUpdate.selectedTeamIds ? modToUpdate.selectedTeamIds.filter(id => id !== oldTeamId) : [];
-            }
-            updateTeamAvailable(oldTeamId, 1);
-            enrolledTeamsMap.delete(oldTeamId);
-
-            // ШАГ 2: Запись в новую секцию (POST)
-            if (btn) {
-                btn.innerText = "Перезапись (2/2: запись)...";
-            }
-
-            console.log(
-                '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
-                'Запрос на перезапись [2/2] - Запись в новую секцию (POST):',
-                {
+            try {
+                await sendBookingTeamRequest({
                     method: 'POST',
-                    url: endpointUrl,
-                    moduleId: targetModuleId,
-                    newTeamId,
-                    body: [newTeamId]
-                }
-            );
-
-            const postRes = await fetch(endpointUrl, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify([newTeamId])
-            });
-
-            if (!postRes.ok) {
-                const rawResponse = await postRes.text();
-                let errorMsg = `HTTP ${postRes.status}`;
-                let errorJson = null;
-                try {
-                    errorJson = JSON.parse(rawResponse);
-                    if (errorJson.message) errorMsg = errorJson.message;
-                } catch {
-                    // сырой текст
-                }
-
-                console.error(
-                    '[MSE PE] Ошибка ответа сервера при записи в новую секцию (шаг 2 перезаписи):',
-                    {
-                        status: postRes.status,
-                        statusText: postRes.statusText,
-                        url: endpointUrl,
-                        method: 'POST',
-                        moduleId: targetModuleId,
-                        newTeamId,
-                        sentBody: [newTeamId],
-                        rawResponse,
-                        parsedError: errorJson
-                    }
-                );
-
+                    targetModuleId,
+                    teamId: newTeamId,
+                    startLogLabel: 'Запрос на перезапись [2/2] - Запись в новую секцию (POST):',
+                    errorLogLabel: '[MSE PE] Ошибка ответа сервера при записи в новую секцию (шаг 2 перезаписи):',
+                    successLogLabel: 'Успешный ответ для записи в новую секцию [2/2]'
+                });
+            } catch (stepTwoErr) {
                 syncAndRenderActiveViews();
-
-                throw new Error(`Старая запись отменена, но записаться в новую секцию не удалось: ${errorMsg}`);
+                throw new Error(`Старая запись отменена, но записаться в новую секцию не удалось: ${stepTwoErr.message}`);
             }
 
-            console.log(
-                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
-                `Успешный ответ (HTTP ${postRes.status}) для записи в новую секцию [2/2]:`,
-                { moduleId: targetModuleId, newTeamId }
-            );
-
-            if (modToUpdate) {
-                modToUpdate.selectedTeamIds = [newTeamId];
-            }
-            updateTeamAvailable(newTeamId, -1);
-            enrolledTeamsMap.set(newTeamId, targetModuleId);
-
+            updateModuleSelectionState(targetModuleId, newTeamId, true);
             syncAndRenderActiveViews();
-
             showToast('Вы успешно перезаписались в секцию!', 'success');
         } catch (err) {
             showToast(`Ошибка перезаписи: ${err.message}`, 'error');
