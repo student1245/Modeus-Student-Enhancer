@@ -435,19 +435,41 @@ describe('Шаг 3: Живые геометрические и визуальн�
         assert.strictEqual(metrics.positionStyle, 'static');
     });
 
-    test('6. Кастомный скроллбар 6px, опросник, тосты и чистота консоли (0 runtime-ошибок)', async (t) => {
+    test('6. Плавный GPU-скроллбар (scaleX), CSS-фолбэк 6px, опросник, тосты и чистота консоли (0 runtime-ошибок)', async (t) => {
         if (!chromeOnline) {
             t.skip('Debug Chrome недоступен на порту 9222. Тест пропущен.');
             return;
         }
 
         const metrics = await cdp.evaluateExpression(`
-            // Проверка ширины кастомного скроллбара
+            // 1. Проверка чистого CSS-фолбэка 6px на элементе без .mse-has-smooth-scroll
+            const fallbackDiv = document.createElement('div');
+            fallbackDiv.className = 'day-cell';
+            fallbackDiv.style.cssText = 'width: 100px; height: 100px; overflow-y: scroll; position: absolute; left: -9999px;';
+            fallbackDiv.innerHTML = '<div style="height: 500px; width: 100%;">Фолбэк</div>';
+            document.body.appendChild(fallbackDiv);
+            const fallbackScrollbarWidth = fallbackDiv.offsetWidth - fallbackDiv.clientWidth;
+            fallbackDiv.remove();
+
+            // 2. Проверка GPU-скроллбара на #mse-pe-modal-body
             const body = document.querySelector('#mse-pe-modal-body');
             body.style.maxHeight = '120px';
             body.style.overflowY = 'scroll';
             body.innerHTML = '<div style="height: 500px; width: 100%;">Длинный контент</div>';
-            const scrollbarWidth = body.offsetWidth - body.clientWidth;
+
+            if (window.MSE_attachSmoothScrollbar) {
+                window.MSE_attachSmoothScrollbar(body);
+            }
+            if (body._mseSmoothScrollbar) {
+                body._mseSmoothScrollbar.update();
+            }
+
+            const modal = document.querySelector('#mse-pe-modal');
+            const track = modal ? modal.querySelector('.mse-scroll-track') : null;
+            const thumb = track ? track.querySelector('.mse-scroll-thumb') : null;
+            const hasSmoothClass = body.classList.contains('mse-has-smooth-scroll');
+            const thumbWidth = thumb ? thumb.offsetWidth : 0;
+            const thumbTransform = thumb ? getComputedStyle(thumb).transform : '';
 
             // Вызов реальных функций показа тоста и опросника
             window.MSE_showToast('Тестовое уведомление MSE', 'success');
@@ -465,21 +487,31 @@ describe('Шаг 3: Живые геометрические и визуальн�
             const survey = document.querySelector('#mse-survey-popup');
 
             return {
-                scrollbarWidth,
+                fallbackScrollbarWidth,
+                hasSmoothClass,
+                hasTrack: Boolean(track),
+                thumbWidth,
+                thumbTransform,
                 toastMounted: Boolean(toast),
                 surveyMounted: Boolean(survey),
                 runtimeErrors: window.__mse_page_errors || []
             };
         `);
 
-        // Кастомный скроллбар pe-styles.css имеет ширину ровно 6px
-        assert.strictEqual(metrics.scrollbarWidth, 6, 'Ширина скроллбара в модалке должна составлять ровно 6px');
+        // Чистый CSS-фолбэк без .mse-has-smooth-scroll имеет ширину ровно 6px
+        assert.strictEqual(metrics.fallbackScrollbarWidth, 6, 'CSS-фолбэк скроллбара должен иметь ширину ровно 6px');
+
+        // Модальное тело использует GPU-скроллбар
+        assert.strictEqual(metrics.hasSmoothClass, true, 'Контейнер должен иметь класс .mse-has-smooth-scroll');
+        assert.strictEqual(metrics.hasTrack, true, 'Дорожка .mse-scroll-track должна быть смонтирована');
+        assert.strictEqual(metrics.thumbWidth, 6, 'Базовая ширина ползунка .mse-scroll-thumb должна составлять ровно 6px');
+        assert.ok(metrics.thumbTransform.includes('0.35') || metrics.thumbTransform.includes('0.34') || metrics.thumbTransform === 'none', 'В покое ползунок масштабирован scaleX(0.35)');
 
         // Компоненты тоста и опросника успешно смонтированы
         assert.strictEqual(metrics.toastMounted, true, 'Тост-уведомление должно быть смонтировано');
         assert.strictEqual(metrics.surveyMounted, true, 'Опросник должен быть смонтирован');
 
-        // На странице не произошло ни одной runtime-ошибки
+        // На странице не произошло ни одной runtime-ошибок
         assert.deepStrictEqual(metrics.runtimeErrors, [], 'В консоли браузера не должно быть runtime-ошибок');
     });
 
@@ -1180,6 +1212,32 @@ describe('Шаг 3: Живые геометрические и визуальн�
                     };
                 }
 
+                // 4. Проверка бокового скроллбара оверлея под шапкой
+                const overlayTrack = overlay.querySelector('.mse-scroll-track-fixed');
+                const rOverlayTrack = overlayTrack ? overlayTrack.getBoundingClientRect() : null;
+                const isTrackBelowHeader = rOverlayTrack ? (rOverlayTrack.top >= rHeader.bottom - 1) : true;
+
+                // 5. Проверка переполненной ячейки и ее скроллбара
+                let cellScrollCheck = null;
+                const cellWraps = Array.from(overlay.querySelectorAll('.day-cell-wrap'));
+                for (const wrap of cellWraps) {
+                    const scrollEl = wrap.querySelector('.day-cell');
+                    if (scrollEl && scrollEl.scrollHeight > scrollEl.clientHeight + 2) {
+                        const track = wrap.querySelector('.mse-scroll-track');
+                        const thumb = track ? track.querySelector('.mse-scroll-thumb') : null;
+                        const rThumb = thumb ? thumb.getBoundingClientRect() : null;
+                        const compThumb = thumb ? getComputedStyle(thumb) : null;
+                        cellScrollCheck = {
+                            found: true,
+                            trackFound: Boolean(track),
+                            thumbFound: Boolean(thumb),
+                            thumbHeight: rThumb ? rThumb.height : 0,
+                            thumbOpacity: compThumb ? parseFloat(compThumb.opacity) : 0
+                        };
+                        break;
+                    }
+                }
+
                 return {
                     isSingleRow,
                     h2TopPadding,
@@ -1190,12 +1248,20 @@ describe('Шаг 3: Живые геометрические и визуальн�
                     scrollDiff,
                     isFiltersOneLine,
                     toggleDisplay,
-                    cardCheck
+                    cardCheck,
+                    isTrackBelowHeader,
+                    cellScrollCheck
                 };
             `);
 
             assert.strictEqual(data.scrollDiff, 0, `На ширине ${w}px должен быть строго 0px горизонтального скролла`);
             assert.strictEqual(data.isFiltersOneLine, true, `На ширине ${w}px фильтры должны располагаться строго в 1 строку`);
+            assert.strictEqual(data.isTrackBelowHeader, true, `На ширине ${w}px боковой скроллбар оверлея должен начинаться под шапкой`);
+            if (data.cellScrollCheck) {
+                assert.strictEqual(data.cellScrollCheck.trackFound, true, `На ширине ${w}px дорожка скролла ячейки должна быть смонтирована`);
+                assert.ok(data.cellScrollCheck.thumbHeight >= 28, `На ширине ${w}px высота ползунка ячейки должна быть >= 28px`);
+                assert.ok(data.cellScrollCheck.thumbOpacity >= 0.6, `На ширине ${w}px ползунок ячейки должен быть виден в покое (opacity >= 0.6)`);
+            }
 
             if (w > 1640) {
                 assert.strictEqual(data.isSingleRow, true, `На ширине ${w}px (> 1640px) шапка должна быть в одну строку`);
@@ -1221,7 +1287,7 @@ describe('Шаг 3: Живые геометрические и визуальн�
             assert.ok(data.cardCheck.countDistance <= 6, `На ширине ${w}px счетчик групп .sc-count должен стоять вплотную к названию спорта (зазор ${data.cardCheck.countDistance}px <= 6px)`);
         }
 
-        // 4. Проверка открытия и закрытия поповера друга на 1000px
+        // 4. Проверка открытия и закрытия поповера друга на 1000px и скроллбара списка друзей
         await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false });
         const popoverRes = await cdp.evaluateExpression(`
             const toggleBtn = document.getElementById('pe-friendToggleBtn');
@@ -1234,6 +1300,11 @@ describe('Шаг 3: Живые геометрические и визуальн�
             const displayAfter = getComputedStyle(popover).display;
             const isOpenClass = container.classList.contains('is-popover-open');
             const itemsCount = dropdown ? dropdown.querySelectorAll('.pe-friend-item').length : 0;
+            const dropdownList = dropdown ? dropdown.querySelector('.pe-friend-dropdown-list') : null;
+            const track = dropdown ? dropdown.querySelector('.mse-scroll-track') : null;
+            const thumb = track ? track.querySelector('.mse-scroll-thumb') : null;
+            const hasListScrollbar = dropdownList ? (dropdownList.scrollHeight > dropdownList.clientHeight) : false;
+            const thumbWidth = thumb ? thumb.offsetWidth : (dropdownList ? dropdownList.offsetWidth - dropdownList.clientWidth : 0);
 
             // Нажатие Escape
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -1245,6 +1316,9 @@ describe('Шаг 3: Живые геометрические и визуальн�
                 displayAfter,
                 isOpenClass,
                 itemsCount,
+                hasListScrollbar,
+                hasTrack: Boolean(track),
+                thumbWidth,
                 displayAfterEsc,
                 isOpenAfterEsc
             };
@@ -1254,6 +1328,9 @@ describe('Шаг 3: Живые геометрические и визуальн�
         assert.strictEqual(popoverRes.displayAfter, 'flex', 'Поповер должен стать видимым после клика');
         assert.strictEqual(popoverRes.isOpenClass, true, 'Контейнер должен получить класс is-popover-open');
         assert.strictEqual(popoverRes.itemsCount, 6, 'В выпадающем списке должны отрендериться 6 друзей из localStorage');
+        assert.strictEqual(popoverRes.hasListScrollbar, true, 'Список друзей должен иметь активный скроллбар при переполнении');
+        assert.strictEqual(popoverRes.hasTrack, true, 'Дорожка .mse-scroll-track списка друзей должна быть смонтирована');
+        assert.strictEqual(popoverRes.thumbWidth, 6, 'Ширина ползунка .mse-scroll-thumb списка друзей должна составлять ровно 6px');
         assert.strictEqual(popoverRes.displayAfterEsc, 'none', 'Поповер должен закрыться при нажатии Escape');
         assert.strictEqual(popoverRes.isOpenAfterEsc, false, 'Класс is-popover-open должен сняться при закрытии');
 

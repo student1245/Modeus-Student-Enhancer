@@ -758,23 +758,26 @@ body.mse-active {
 
     .selected-dropdown::-webkit-scrollbar,
     #selected-students-container::-webkit-scrollbar,
+    #search-suggestions::-webkit-scrollbar,
     .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar,
     .p-multiselect-items-wrapper::-webkit-scrollbar {
-        width: 4px;
-        height: 4px;
+        width: 6px;
+        height: 6px;
     }
 
     .selected-dropdown::-webkit-scrollbar-button,
     #selected-students-container::-webkit-scrollbar-button,
+    #search-suggestions::-webkit-scrollbar-button,
     .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-button,
     .p-multiselect-items-wrapper::-webkit-scrollbar-button {
-        display: none;
-        width: 0;
-        height: 0;
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
     }
 
     .selected-dropdown::-webkit-scrollbar-track,
     #selected-students-container::-webkit-scrollbar-track,
+    #search-suggestions::-webkit-scrollbar-track,
     .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-track,
     .p-multiselect-items-wrapper::-webkit-scrollbar-track {
         background: transparent;
@@ -782,17 +785,28 @@ body.mse-active {
 
     .selected-dropdown::-webkit-scrollbar-thumb,
     #selected-students-container::-webkit-scrollbar-thumb,
+    #search-suggestions::-webkit-scrollbar-thumb,
     .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-thumb,
     .p-multiselect-items-wrapper::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
+        background-color: #94a3b8;
         border-radius: 99px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+        transition: background-color 0.15s ease;
     }
 
     .selected-dropdown::-webkit-scrollbar-thumb:hover,
+    .selected-dropdown::-webkit-scrollbar-thumb:active,
     #selected-students-container::-webkit-scrollbar-thumb:hover,
+    #selected-students-container::-webkit-scrollbar-thumb:active,
+    #search-suggestions::-webkit-scrollbar-thumb:hover,
+    #search-suggestions::-webkit-scrollbar-thumb:active,
     .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-thumb:hover,
-    .p-multiselect-items-wrapper::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
+    .p-multiselect-panel .p-multiselect-items-wrapper::-webkit-scrollbar-thumb:active,
+    .p-multiselect-wrapper::-webkit-scrollbar-thumb:hover,
+    .p-multiselect-wrapper::-webkit-scrollbar-thumb:active {
+        background-color: #64748b;
+        border: 1px solid transparent;
     }
 
     .selected-item,

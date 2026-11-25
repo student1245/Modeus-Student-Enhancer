@@ -20,9 +20,9 @@
 #mse-pe-overlay *::-webkit-scrollbar-button,
 #mse-pe-section-modal-overlay::-webkit-scrollbar-button,
 #mse-pe-section-modal-overlay *::-webkit-scrollbar-button {
-    display: none;
-    width: 0;
-    height: 0;
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
 }
 
 #mse-pe-overlay::-webkit-scrollbar-track {
@@ -30,12 +30,17 @@
 }
 
 #mse-pe-overlay::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background-color: rgba(100, 116, 139, var(--mse-sb-alpha));
     border-radius: 99px;
+    border: 1.5px solid transparent;
+    background-clip: content-box;
+    transition: background-color 0.15s ease;
 }
 
-#mse-pe-overlay::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+#mse-pe-overlay::-webkit-scrollbar-thumb:hover,
+#mse-pe-overlay::-webkit-scrollbar-thumb:active {
+    background-color: rgba(71, 85, 105, 0.85);
+    border: 1.5px solid transparent;
 }
 
 #mse-pe-overlay * {
@@ -49,8 +54,8 @@
     border-radius: 7px;
     border: 1px solid #cbd5e1;
     background: #ffffff;
-    color: #475569;
-    display: flex;
+    color: #64748b;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
@@ -64,6 +69,7 @@
     background: #f1f5f9;
     color: #0f172a;
     border-color: #94a3b8;
+    transform: scale(1.05);
 }
 
 #mse-pe-overlay .container {
@@ -211,7 +217,7 @@
 
 .clean-select:hover {
     border-color: #94a3b8;
-    background: #ffffff;
+    background: #f8fafc;
 }
 
 .select-chevron {
@@ -361,9 +367,16 @@
     text-decoration: underline;
 }
 
+.ms-list-wrap {
+    position: relative;
+    width: 100%;
+    min-height: 0;
+    flex: 1;
+}
+
 #mse-pe-overlay .ms-list {
     overflow-y: auto;
-    padding: 4px 0;
+    padding: 4px 12px 4px 4px;
     max-height: 260px;
 }
 
@@ -371,7 +384,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 10px;
+    padding: 6px 8px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 12px;
     transition: background 0.1s;
@@ -390,21 +404,21 @@
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
-    min-width: 950px;
+    min-width: 0;
 }
 
 #mse-pe-overlay th {
     background: #f1f5f9;
-    padding: 8px;
-    text-align: left;
+    padding: 8px 6px;
+    text-align: center;
     border: 1px solid #e2e8f0;
-    color: #64748b;
+    color: #475569;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 #mse-pe-overlay th:first-child {
-    width: 72px;
+    width: 64px;
     text-align: center;
 }
 
@@ -416,11 +430,11 @@
 }
 
 #mse-pe-overlay .time-cell {
-    width: 72px;
+    width: 64px;
     background: #f8fafc;
     text-align: center;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 12.5px;
     color: #0f172a;
     cursor: pointer;
     user-select: none;
@@ -471,54 +485,180 @@
     height: 28px !important;
 }
 
-/* Скроллбары внутри ячеек дней недели и фильтров (без стрелок-треугольников) */
+/* ==========================================================================
+   Плавный GPU-скроллбар (Вариант S5) с масштабированием 2px -> 6px (scaleX)
+   ========================================================================== */
+.mse-has-smooth-scroll {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}
+
+.mse-has-smooth-scroll::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+/* Контейнер ячейки дня, изолирующий скроллбар от таблицы */
+.day-cell-wrap {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+}
+
+/* Дорожка скролла */
+.mse-scroll-track {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    right: 2px;
+    width: 10px;
+    z-index: 25;
+    cursor: pointer;
+    user-select: none;
+    pointer-events: auto;
+    transition: opacity 0.2s ease;
+}
+
+.mse-scroll-track.mse-scroll-track-fixed {
+    position: fixed !important;
+    bottom: 4px !important;
+    right: 2px !important;
+    width: 10px !important;
+    z-index: 25 !important; /* Строго ниже шапки .header-panel (у нее z-index: 30) */
+}
+
+/* Ползунок скроллбара (максимальная ширина строго 6px) */
+.mse-scroll-thumb {
+    position: absolute;
+    right: 1px;
+    width: 6px;
+    border-radius: 99px;
+    background-color: #94a3b8;
+    opacity: 0.65; /* Чётко виден сразу в покое без наведения */
+    transform: scaleX(0.35); /* В покое ~2.1px */
+    transform-origin: right center;
+    transition:
+        transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+        background-color 0.2s ease,
+        opacity 0.2s ease;
+    will-change: transform, top, height;
+}
+
+/* При наведении на родительскую ячейку/контейнер */
+:hover > .mse-scroll-track .mse-scroll-thumb,
+.day-cell-wrap:hover .mse-scroll-thumb,
+.day-cell:hover .mse-scroll-thumb,
+.slot-cell:hover .mse-scroll-thumb,
+.card-group:hover .mse-scroll-thumb,
+.ms-list-wrap:hover .mse-scroll-thumb,
+.ms-dropdown:hover .mse-scroll-thumb,
+.pe-friend-list-wrap:hover .mse-scroll-thumb,
+.pe-friend-dropdown:hover .mse-scroll-thumb,
+#mse-pe-modal:hover .mse-scroll-thumb,
+#mse-pe-overlay:hover > .mse-scroll-track .mse-scroll-thumb {
+    opacity: 0.85;
+    transform: scaleX(0.55); /* ~3.3px */
+}
+
+/* При наведении на саму дорожку скролла или при перетаскивании */
+.mse-scroll-track:hover .mse-scroll-thumb,
+.mse-scroll-track.dragging .mse-scroll-thumb {
+    opacity: 1;
+    background-color: #475569;
+    transform: scaleX(1); /* Плавное расширение ровно до 6px! */
+}
+
+body.mse-scrollbar-dragging {
+    user-select: none !important;
+}
+
+/* Чистый CSS-фолбэк скроллбара 6px для элементов без .mse-has-smooth-scroll */
+#mse-pe-overlay::-webkit-scrollbar,
 .day-cell::-webkit-scrollbar,
 #mse-pe-overlay .day-cell::-webkit-scrollbar,
 #mse-pe-overlay .card-group::-webkit-scrollbar,
 #mse-pe-overlay .slot-cell::-webkit-scrollbar,
 #mse-pe-overlay .ms-list::-webkit-scrollbar,
-.ms-list::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+.ms-list::-webkit-scrollbar,
+.pe-friend-dropdown-list::-webkit-scrollbar,
+#pe-friendDropdown::-webkit-scrollbar,
+#mse-pe-modal-body::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
 }
 
+#mse-pe-overlay::-webkit-scrollbar-button,
+#mse-pe-overlay *::-webkit-scrollbar-button,
+#mse-pe-section-modal-overlay::-webkit-scrollbar-button,
+#mse-pe-section-modal-overlay *::-webkit-scrollbar-button,
 .day-cell::-webkit-scrollbar-button,
 #mse-pe-overlay .day-cell::-webkit-scrollbar-button,
 #mse-pe-overlay .card-group::-webkit-scrollbar-button,
 #mse-pe-overlay .slot-cell::-webkit-scrollbar-button,
 #mse-pe-overlay .ms-list::-webkit-scrollbar-button,
-.ms-list::-webkit-scrollbar-button {
-    display: none;
-    width: 0;
-    height: 0;
+.ms-list::-webkit-scrollbar-button,
+.pe-friend-dropdown-list::-webkit-scrollbar-button,
+#pe-friendDropdown::-webkit-scrollbar-button,
+#mse-pe-modal-body::-webkit-scrollbar-button {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
 }
 
+#mse-pe-overlay::-webkit-scrollbar-track,
 .day-cell::-webkit-scrollbar-track,
 #mse-pe-overlay .day-cell::-webkit-scrollbar-track,
 #mse-pe-overlay .card-group::-webkit-scrollbar-track,
 #mse-pe-overlay .slot-cell::-webkit-scrollbar-track,
 #mse-pe-overlay .ms-list::-webkit-scrollbar-track,
-.ms-list::-webkit-scrollbar-track {
+.ms-list::-webkit-scrollbar-track,
+.pe-friend-dropdown-list::-webkit-scrollbar-track,
+#pe-friendDropdown::-webkit-scrollbar-track,
+#mse-pe-modal-body::-webkit-scrollbar-track {
     background: transparent;
 }
 
+#mse-pe-overlay::-webkit-scrollbar-thumb,
 .day-cell::-webkit-scrollbar-thumb,
 #mse-pe-overlay .day-cell::-webkit-scrollbar-thumb,
 #mse-pe-overlay .card-group::-webkit-scrollbar-thumb,
 #mse-pe-overlay .slot-cell::-webkit-scrollbar-thumb,
 #mse-pe-overlay .ms-list::-webkit-scrollbar-thumb,
-.ms-list::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+.ms-list::-webkit-scrollbar-thumb,
+.pe-friend-dropdown-list::-webkit-scrollbar-thumb,
+#pe-friendDropdown::-webkit-scrollbar-thumb,
+#mse-pe-modal-body::-webkit-scrollbar-thumb {
+    background-color: #94a3b8;
     border-radius: 99px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    transition: background-color 0.15s ease;
 }
 
+#mse-pe-overlay::-webkit-scrollbar-thumb:hover,
+#mse-pe-overlay::-webkit-scrollbar-thumb:active,
 .day-cell::-webkit-scrollbar-thumb:hover,
+.day-cell::-webkit-scrollbar-thumb:active,
 #mse-pe-overlay .day-cell::-webkit-scrollbar-thumb:hover,
+#mse-pe-overlay .day-cell::-webkit-scrollbar-thumb:active,
 #mse-pe-overlay .card-group::-webkit-scrollbar-thumb:hover,
+#mse-pe-overlay .card-group::-webkit-scrollbar-thumb:active,
 #mse-pe-overlay .slot-cell::-webkit-scrollbar-thumb:hover,
+#mse-pe-overlay .slot-cell::-webkit-scrollbar-thumb:active,
 #mse-pe-overlay .ms-list::-webkit-scrollbar-thumb:hover,
-.ms-list::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+#mse-pe-overlay .ms-list::-webkit-scrollbar-thumb:active,
+.ms-list::-webkit-scrollbar-thumb:hover,
+.ms-list::-webkit-scrollbar-thumb:active,
+.pe-friend-dropdown-list::-webkit-scrollbar-thumb:hover,
+.pe-friend-dropdown-list::-webkit-scrollbar-thumb:active,
+#pe-friendDropdown::-webkit-scrollbar-thumb:hover,
+#pe-friendDropdown::-webkit-scrollbar-thumb:active,
+#mse-pe-modal-body::-webkit-scrollbar-thumb:hover,
+#mse-pe-modal-body::-webkit-scrollbar-thumb:active {
+    background-color: #64748b;
+    border: 1px solid transparent;
 }
 
 #mse-pe-overlay .card-group {
@@ -526,7 +666,7 @@
     flex-direction: column;
     max-height: 380px;
     overflow-y: auto;
-    padding: 3px 2px;
+    padding: 3px 12px 3px 3px;
 }
 
 /* Карточки видов спорта внутри ячеек */
@@ -574,6 +714,7 @@
     margin-right: 5px;
     flex-shrink: 0;
     vertical-align: -2px;
+    align-self: center;
 }
 
 .sc-top {
@@ -747,6 +888,7 @@
     justify-content: space-between;
     gap: 4px;
     margin-bottom: 4px;
+    min-width: 0;
 }
 
 .busy-header-left {
@@ -759,6 +901,10 @@
     background: rgba(226, 232, 240, 0.85);
     padding: 1px 6px;
     border-radius: 4px;
+    min-width: 0;
+    max-width: calc(100% - 18px);
+    overflow: hidden;
+    white-space: nowrap;
 }
 
 .busy-header-left span:last-child {
@@ -926,30 +1072,6 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-}
-
-#mse-pe-modal-body::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-#mse-pe-modal-body::-webkit-scrollbar-button {
-    display: none;
-    width: 0;
-    height: 0;
-}
-
-#mse-pe-modal-body::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-#mse-pe-modal-body::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 99px;
-}
-
-#mse-pe-modal-body::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
 }
 
 /* Карточка конкретной секции в модальном окне */
@@ -1219,13 +1341,6 @@
 .replace-hint strong {
     color: #b45309;
     font-weight: 600;
-}
-
-
-@media (max-width: 1000px) {
-    #mse-pe-overlay table {
-        min-width: 0;
-    }
 }
 
 /* --- Панель поиска друга и адаптивная кнопка-лупа с поповером --- */

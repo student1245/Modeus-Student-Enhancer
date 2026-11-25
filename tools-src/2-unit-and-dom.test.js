@@ -1437,11 +1437,8 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.ok(html.includes('busy-title'));
             assert.ok(html.includes('Философия (лекция)'));
         });
-    
 
-        
-
-        test('openModal / DOM: разметка полноэкранного окна и закрытие в header-panel', () => {
+        test('openModal / DOM: разметка полноэкранного окна, закрытие в header-panel и поповер поиска друга', () => {
             env.window.MSE_PE.openModal([], {}, 'camp-1', 'stud-1', new Map());
 
             const overlay = env.document.getElementById('mse-pe-overlay');
@@ -1457,12 +1454,27 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.ok(closeBtn, 'Кнопка закрытия #mse-pe-close должна быть смонтирована');
             assert.strictEqual(closeBtn.parentElement, headerPanel, 'Кнопка закрытия обязана монтироваться внутри .header-panel');
 
+            // Элементы поиска друга
             const friendContainer = env.document.getElementById('pe-friendContainer');
-            assert.ok(friendContainer, '#pe-friendContainer должен присутствовать в DOM');
             const friendToggleBtn = env.document.getElementById('pe-friendToggleBtn');
-            assert.ok(friendToggleBtn, 'Кнопка-лупа друга #pe-friendToggleBtn должна присутствовать в DOM');
             const friendPopover = env.document.getElementById('pe-friendPopover');
-            assert.ok(friendPopover, 'Поповер друга #pe-friendPopover должен присутствовать в DOM');
+            const friendInput = env.document.getElementById('pe-friendInput');
+            const friendBtn = env.document.getElementById('pe-friendBtn');
+            const friendDropdown = env.document.getElementById('pe-friendDropdown');
+
+            assert.ok(friendContainer, '#pe-friendContainer должен существовать');
+            assert.ok(friendToggleBtn, 'Кнопка-лупа #pe-friendToggleBtn должна существовать');
+            assert.ok(friendPopover, '#pe-friendPopover должен существовать');
+            assert.ok(friendInput, '#pe-friendInput должен существовать внутри поповера');
+            assert.ok(friendBtn, '#pe-friendBtn должен существовать внутри поповера');
+            assert.ok(friendDropdown, '#pe-friendDropdown должен существовать внутри поповера');
+
+            // Проверка открытия/закрытия поповера по клику на кнопку-лупу
+            assert.strictEqual(friendContainer.classList.contains('is-popover-open'), false);
+            friendToggleBtn.click();
+            assert.strictEqual(friendContainer.classList.contains('is-popover-open'), true);
+            friendToggleBtn.click();
+            assert.strictEqual(friendContainer.classList.contains('is-popover-open'), false);
         });
     });
 

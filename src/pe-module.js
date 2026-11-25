@@ -44,6 +44,174 @@ window.MSE_PE = (function () {
             .replace(/'/g, '&#039;');
     };
 
+    /**
+     * Плавный GPU-скроллбар (Вариант S5) с масштабированием 2px -> 6px (scaleX)
+     * @param {HTMLElement} scrollEl - Прокручиваемый элемент
+     * @returns {{ update: Function, destroy: Function, track: HTMLElement, thumb: HTMLElement }|null}
+     */
+    function attachSmoothScrollbar(scrollEl) {
+        if (!scrollEl || (typeof HTMLElement !== 'undefined' ? !(scrollEl instanceof HTMLElement) : (!scrollEl || scrollEl.nodeType !== 1))) return null;
+        if (scrollEl._mseSmoothScrollbar) {
+            scrollEl._mseSmoothScrollbar.update();
+            return scrollEl._mseSmoothScrollbar;
+        }
+
+        scrollEl.classList.add('mse-has-smooth-scroll');
+
+        const isOverlay = scrollEl.id === 'mse-pe-overlay' || (typeof document !== 'undefined' && scrollEl === document.body);
+        const container = isOverlay ? scrollEl : (scrollEl.parentElement || scrollEl);
+
+        if (!isOverlay && container && typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+            const pos = window.getComputedStyle(container).position;
+            if (pos === 'static') {
+                container.style.position = 'relative';
+            }
+        }
+
+        const track = document.createElement('div');
+        track.className = 'mse-scroll-track' + (isOverlay ? ' mse-scroll-track-fixed' : '');
+
+        if (isOverlay) {
+            const header = scrollEl.querySelector('.header-panel');
+            const headerH = header ? header.offsetHeight : 0;
+            track.style.setProperty('top', `${headerH + 4}px`, 'important');
+        }
+
+        const thumb = document.createElement('div');
+        thumb.className = 'mse-scroll-thumb';
+        track.appendChild(thumb);
+        if (container) {
+            container.appendChild(track);
+        }
+
+        function update() {
+            if (!scrollEl.isConnected || !track.isConnected) return;
+
+            if (isOverlay) {
+                const header = scrollEl.querySelector('.header-panel');
+                const headerH = header ? header.offsetHeight : 0;
+                track.style.setProperty('top', `${headerH + 4}px`, 'important');
+            }
+
+            const scrollH = scrollEl.scrollHeight;
+            const clientH = scrollEl.clientHeight;
+            const trackH = track.clientHeight || (container ? container.clientHeight - 8 : 0);
+
+            if (scrollH <= clientH + 1 || clientH <= 0 || trackH <= 0) {
+                track.style.opacity = '0';
+                track.style.pointerEvents = 'none';
+                return;
+            }
+
+            track.style.opacity = '';
+            track.style.pointerEvents = '';
+
+            const thumbH = Math.max(28, Math.round(trackH * (clientH / scrollH)));
+            const maxScrollTop = scrollH - clientH;
+            const maxThumbTop = trackH - thumbH;
+            const scrollTop = scrollEl.scrollTop;
+            const thumbTop = maxScrollTop > 0 ? Math.round((scrollTop / maxScrollTop) * maxThumbTop) : 0;
+
+            thumb.style.height = `${thumbH}px`;
+            thumb.style.top = `${thumbTop}px`;
+        }
+
+        scrollEl.addEventListener('scroll', update, { passive: true });
+
+        // Быстрая прокрутка по клику на дорожку
+        track.addEventListener('mousedown', (e) => {
+            if (e.target === thumb) return;
+            const trackRect = track.getBoundingClientRect();
+            const clickY = e.clientY - trackRect.top;
+            const thumbH = thumb.offsetHeight || 28;
+            const targetThumbTop = clickY - thumbH / 2;
+            const maxThumbTop = track.clientHeight - thumbH;
+            const ratio = Math.max(0, Math.min(1, targetThumbTop / (maxThumbTop || 1)));
+            const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
+            scrollEl.scrollTop = ratio * maxScrollTop;
+            update();
+        });
+
+        // Перетаскивание ползунка мышью
+        thumb.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            track.classList.add('dragging');
+            if (typeof document !== 'undefined' && document.body) {
+                document.body.classList.add('mse-scrollbar-dragging');
+            }
+
+            const startY = e.clientY;
+            const startTop = parseFloat(thumb.style.top) || 0;
+            const trackH = track.clientHeight;
+            const thumbH = thumb.offsetHeight || 28;
+            const maxThumbTop = trackH - thumbH;
+            const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
+
+            const onMouseMove = (moveEvent) => {
+                const deltaY = moveEvent.clientY - startY;
+                const newTop = Math.max(0, Math.min(maxThumbTop, startTop + deltaY));
+                const ratio = maxThumbTop > 0 ? newTop / maxThumbTop : 0;
+                scrollEl.scrollTop = ratio * maxScrollTop;
+                thumb.style.top = `${newTop}px`;
+            };
+
+            const onMouseUp = () => {
+                track.classList.remove('dragging');
+                if (typeof document !== 'undefined' && document.body) {
+                    document.body.classList.remove('mse-scrollbar-dragging');
+                }
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+            };
+
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
+
+        let ro = null;
+        if (typeof ResizeObserver !== 'undefined') {
+            ro = new ResizeObserver(() => update());
+            ro.observe(scrollEl);
+            if (scrollEl.firstElementChild) {
+                ro.observe(scrollEl.firstElementChild);
+            }
+            if (isOverlay) {
+                const header = scrollEl.querySelector('.header-panel');
+                if (header) ro.observe(header);
+            }
+        }
+
+        update();
+        if (typeof requestAnimationFrame !== 'undefined') {
+            requestAnimationFrame(() => {
+                update();
+                requestAnimationFrame(update);
+            });
+        }
+        setTimeout(update, 50);
+
+        const instance = {
+            track,
+            thumb,
+            update,
+            destroy: function () {
+                scrollEl.removeEventListener('scroll', update);
+                if (ro) ro.disconnect();
+                track.remove();
+                scrollEl.classList.remove('mse-has-smooth-scroll');
+                delete scrollEl._mseSmoothScrollbar;
+            }
+        };
+
+        scrollEl._mseSmoothScrollbar = instance;
+        return instance;
+    }
+
+    if (typeof window !== 'undefined') {
+        window.MSE_attachSmoothScrollbar = attachSmoothScrollbar;
+    }
+
     function updateTeamAvailable(teamId, delta) {
         allModules.forEach(mod => {
             if (mod.cycles && Array.isArray(mod.cycles)) {
@@ -286,6 +454,7 @@ window.MSE_PE = (function () {
             }
             container.appendChild(label);
         });
+        attachSmoothScrollbar(container);
     }
 
     function updateButtonLabel(type) {
@@ -665,6 +834,9 @@ window.MSE_PE = (function () {
                     return;
                 }
 
+                const cellWrap = document.createElement('div');
+                cellWrap.className = 'day-cell-wrap';
+
                 const cellWrapper = document.createElement('div');
                 cellWrapper.className = 'card-group day-cell';
 
@@ -676,12 +848,25 @@ window.MSE_PE = (function () {
                     const card = createSportCardElement(sportName, clusters[sportName], day, time, tIdx);
                     cellWrapper.appendChild(card);
                 });
-                td.appendChild(cellWrapper);
+                cellWrap.appendChild(cellWrapper);
+                td.appendChild(cellWrap);
                 tr.appendChild(td);
+                attachSmoothScrollbar(cellWrapper);
             });
             tbody.appendChild(tr);
         });
         updateBusyCardsExpandability();
+        if (typeof requestAnimationFrame !== 'undefined') {
+            requestAnimationFrame(() => {
+                const overlay = document.getElementById('mse-pe-overlay');
+                if (overlay) {
+                    overlay.querySelectorAll('.mse-has-smooth-scroll').forEach(el => {
+                        if (el._mseSmoothScrollbar) el._mseSmoothScrollbar.update();
+                    });
+                    if (overlay._mseSmoothScrollbar) overlay._mseSmoothScrollbar.update();
+                }
+            });
+        }
     }
 
     function updateBusyCardsExpandability() {
@@ -750,6 +935,7 @@ window.MSE_PE = (function () {
         currentModalGroup.forEach(item => {
             body.appendChild(createSectionCardElement(item));
         });
+        attachSmoothScrollbar(body);
     }
 
     function getSlotPillHtml(avail, total) {
@@ -1225,8 +1411,8 @@ window.MSE_PE = (function () {
                                 ${getSvgIcon('x', { size: 16, strokeWidth: 2 })}
                             </button>
                             <div class="filters-group">
-                                <div class="select-wrap custom-multiselect" id="pe-sportMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-sportMultiSelect"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="sport" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="sport" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-sportOptionsList"></div></div></div>
-                                <div class="select-wrap custom-multiselect" id="pe-campusMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-campusMultiSelect"><span class="ms-label" id="pe-campusLabel">Все корпуса</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="campus" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="campus" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-campusOptionsList"></div></div></div>
+                                <div class="select-wrap custom-multiselect" id="pe-sportMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-sportMultiSelect"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="sport" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="sport" data-val="false">Сбросить</span></div><div class="ms-list-wrap"><div class="ms-list" id="pe-sportOptionsList"></div></div></div></div>
+                                <div class="select-wrap custom-multiselect" id="pe-campusMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-campusMultiSelect"><span class="ms-label" id="pe-campusLabel">Все корпуса</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="campus" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="campus" data-val="false">Сбросить</span></div><div class="ms-list-wrap"><div class="ms-list" id="pe-campusOptionsList"></div></div></div></div>
                                 <div class="toolbar-divider"></div>
                                 <button type="button" class="pill-check active" id="pe-considerSchedule">
                                     <span class="check-box">
@@ -1249,21 +1435,22 @@ window.MSE_PE = (function () {
                                 <div class="toolbar-divider"></div>
                                 <div class="pe-friend-container" id="pe-friendContainer">
                                     <button type="button" class="pe-friend-toggle-btn" id="pe-friendToggleBtn" title="Сравнить пары с другом (поиск по ФИО)">
-                                        ${getSvgIcon('search', { size: 14, strokeWidth: 2.2 })}
+                                        ${getSvgIcon('search', { size: 15, strokeWidth: 2 })}
                                     </button>
                                     <div class="pe-friend-popover" id="pe-friendPopover">
-                                        <div class="pe-friend-wrapper" id="pe-friendWrapper">
-                                            <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)..." autocomplete="off">
+                                        <div id="pe-friendWrapper" class="pe-friend-wrapper">
+                                            <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)...">
                                             <button type="button" id="pe-friendBtn">Поиск</button>
                                         </div>
-                                        <div class="pe-friend-dropdown" id="pe-friendDropdown"></div>
+                                        <div id="pe-friendDropdown" class="pe-friend-dropdown" style="display: none;"></div>
                                     </div>
                                 </div>
                                 <button type="button" class="reset-btn" id="pe-reset-filters-btn" title="Сбросить все фильтры">
                                     ${getSvgIcon('rotate-ccw', { size: 14, strokeWidth: 2 })}
                                     <span>Сбросить</span>
                                 </button>
-                            </div></div>
+                            </div>
+                        </div>
                         <table><thead><tr><th>Пара</th><th>ПН</th><th>ВТ</th><th>СР</th><th>ЧТ</th><th>ПТ</th><th>СБ</th></tr></thead><tbody id="pe-tableBody"></tbody></table>
                     </div>
                     <div id="mse-pe-modal-overlay"><div id="mse-pe-modal"><div id="mse-pe-modal-header" class="m-header"><div><div id="mse-pe-mTitle">Спорт</div><div id="mse-pe-mSubtitle"></div></div><button id="mse-pe-modal-close-btn" class="sec-modal-close-btn" aria-label="Закрыть">${getSvgIcon('x', { size: 16, strokeWidth: 2 })}</button></div><div id="mse-pe-modal-body"></div></div></div>`;
@@ -1313,6 +1500,8 @@ window.MSE_PE = (function () {
                             </div>
                         `;
                         friendDropdown.style.display = 'block';
+                        const list = friendDropdown.querySelector('.pe-friend-dropdown-list');
+                        if (list) attachSmoothScrollbar(list);
                     } catch {
                         friendDropdown.style.display = 'none';
                     }
@@ -1427,8 +1616,12 @@ window.MSE_PE = (function () {
             window.MSE_PE_clearFriend();
             initMultiSelects();
             document.getElementById('mse-pe-overlay').style.display = 'block';
+            attachSmoothScrollbar(document.getElementById('mse-pe-overlay'));
+            const modalBody = document.getElementById('mse-pe-modal-body');
+            if (modalBody) attachSmoothScrollbar(modalBody);
             renderGrid();
         },
+        attachSmoothScrollbar: attachSmoothScrollbar,
         selectAll: selectAllOptions,
         resetFilters: function () {
             selectAllOptions('sport', true);
