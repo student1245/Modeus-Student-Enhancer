@@ -223,6 +223,7 @@ describe('Шаг 3: Живые геометрические и визуальн�
 
         // 3. Загрузка реальных модулей расширения
         await cdp.evaluateScript(readProjectFile('src/icons.js'));
+        await cdp.evaluateScript(readProjectFile('src/shared-utils.js'));
         await cdp.evaluateScript(preparePeModuleWithHooks());
         await cdp.evaluateScript(prepareInjectedWithHooks());
 

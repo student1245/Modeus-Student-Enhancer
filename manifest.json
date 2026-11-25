@@ -73,6 +73,7 @@
     {
       "resources": [
         "src/icons.js",
+        "src/shared-utils.js",
         "src/injected.js",
         "src/pe-module.js",
         "buildings.json",

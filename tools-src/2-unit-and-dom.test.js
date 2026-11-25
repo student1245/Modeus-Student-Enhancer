@@ -574,6 +574,12 @@ function createMockEnvironment(initialUrl = 'https://utmn.modeus.org/') {
 // --- Загрузчик модулей с инъекцией хуков в памяти (Approach A) ---
 
 function executeScriptWithHook(relPath, hookAssignment, env) {
+    const context = vm.createContext(env);
+    if ((relPath.includes('pe-module.js') || relPath.includes('injected.js')) && !env.MSE_SHARED) {
+        const sharedCode = fs.readFileSync(path.join(ROOT_DIR, 'src/shared-utils.js'), 'utf8');
+        new vm.Script(sharedCode, { filename: 'src/shared-utils.js' }).runInContext(context);
+    }
+
     const absPath = path.join(ROOT_DIR, relPath);
     const code = fs.readFileSync(absPath, 'utf8');
 
@@ -596,7 +602,6 @@ function executeScriptWithHook(relPath, hookAssignment, env) {
         );
     }
 
-    const context = vm.createContext(env);
     new vm.Script(instrumentedCode, { filename: relPath }).runInContext(context);
     return env;
 }

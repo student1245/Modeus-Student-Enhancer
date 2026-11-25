@@ -116,7 +116,7 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
     });
 
     test('Тест 2: Изоляция миров Chromium (Isolated World vs Main World, Раздел 1.2)', () => {
-        const mainWorldScripts = ['src/injected.js', 'src/pe-module.js', 'src/icons.js'];
+        const mainWorldScripts = ['src/injected.js', 'src/pe-module.js', 'src/icons.js', 'src/shared-utils.js'];
         const manifest = parseJsonFile('manifest.json');
         const modeusIsolatedScripts = manifest.content_scripts?.find(cs => cs.js?.includes('src/content.js'))?.js || [];
 
@@ -251,6 +251,7 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
         const runtimeSources = [
             'src/injected.js',
             'src/pe-module.js',
+            'src/shared-utils.js',
             'src/content.js',
             'src/keeper-early.js',
             'src/sso-autologin.js',
@@ -325,7 +326,7 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
 
     test('Тест 6: Детектор неиспользуемых функций в src/*.js и проверка verify-icons.js', () => {
         // 1. Проверка неиспользуемых именованных функций
-        const srcFiles = ['src/injected.js', 'src/pe-module.js', 'src/content.js', 'src/keeper-early.js', 'src/sso-autologin.js', 'src/icons.js'];
+        const srcFiles = ['src/injected.js', 'src/pe-module.js', 'src/shared-utils.js', 'src/content.js', 'src/keeper-early.js', 'src/sso-autologin.js', 'src/icons.js'];
 
         srcFiles.forEach(fileRel => {
             const cleanCode = stripComments(readProjectFile(fileRel));

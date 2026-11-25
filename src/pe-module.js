@@ -7,6 +7,14 @@ window.MSE_PE = (function () {
             }
         })() : () => '');
 
+    const sharedUtils = (typeof window !== 'undefined' && window.MSE_SHARED)
+        ? window.MSE_SHARED
+        : (typeof require !== 'undefined' ? (function () {
+            try { return require('./shared-utils.js'); } catch (_) {
+                try { return require(require('path').resolve(process.cwd(), 'src/shared-utils.js')); } catch (__) { return null; }
+            }
+        })() : null);
+
     const STORAGE_KEY_FRIENDS = 'mse_friends_list';
     let courses = [];
     let sportsSet = new Set();
@@ -27,14 +35,24 @@ window.MSE_PE = (function () {
     let localTeacherReviews = new Map();
 
     const showToast = (message, type = 'info') => {
-        if (typeof window.showToast === 'function') {
+        if (sharedUtils && typeof sharedUtils.notifyUser === 'function') {
+            sharedUtils.notifyUser(message, type);
+            return;
+        }
+        if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
             window.showToast(message, type);
-        } else {
-            alert(message);
+            return;
+        }
+        if (typeof console !== 'undefined') {
+            const method = type === 'error' ? 'error' : 'warn';
+            console[method]('[MSE PE]', message);
         }
     };
 
     const escapeHtml = (str) => {
+        if (sharedUtils && typeof sharedUtils.escapeHtml === 'function') {
+            return sharedUtils.escapeHtml(str);
+        }
         if (str == null) return '';
         return String(str)
             .replace(/&/g, '&amp;')
@@ -43,6 +61,12 @@ window.MSE_PE = (function () {
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
     };
+
+    const readStoredFriends = () => (
+        sharedUtils && typeof sharedUtils.readFriendsList === 'function'
+            ? sharedUtils.readFriendsList(STORAGE_KEY_FRIENDS)
+            : []
+    );
 
     /**
      * Плавный GPU-скроллбар (Вариант S5) с масштабированием 2px -> 6px (scaleX)
@@ -518,15 +542,10 @@ window.MSE_PE = (function () {
 
     async function getPersonIdByName(name) {
         // 1. Сначала ищем в локальных друзьях (мгновенно)
-        let friends = [];
-        try {
-            const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY_FRIENDS) || '[]');
-            if (Array.isArray(parsed)) friends = parsed;
-        } catch {
-            friends = [];
-        }
+        const friends = readStoredFriends();
+        const lowerQuery = name.toLowerCase();
         const friend = friends.find(
-            f => f && typeof f.fullName === 'string' && f.fullName.toLowerCase().includes(name.toLowerCase())
+            f => f && typeof f.fullName === 'string' && f.fullName.toLowerCase().includes(lowerQuery)
         );
         if (friend) return { id: friend.id, name: friend.fullName };
 
@@ -598,41 +617,13 @@ window.MSE_PE = (function () {
             friendNameForUI = parts[0] + ' ' + (parts[1]?.[0] || '') + '.';
 
             const token = sessionStorage.getItem('id_token');
-            const now = new Date();
-            const future = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
-
-            const schedRes = await fetch("https://utmn.modeus.org/schedule-calendar-v2/api/calendar/events/search?tz=Asia/Tyumen", {
-                method: "POST",
-                headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
-                body: JSON.stringify({ size: 500, timeMin: now.toISOString(), timeMax: future.toISOString(), attendeePersonId: [person.id] })
-            });
-            if (!schedRes.ok) {
-                throw new Error(`HTTP ${schedRes.status}`);
-            }
-            const eventsData = await schedRes.json();
-            const events = eventsData._embedded?.events || [];
-
-            friendSchedule = {};
-            const dayMap = { 1: 'ПН', 2: 'ВТ', 3: 'СР', 4: 'ЧТ', 5: 'ПТ', 6: 'СБ' };
-
-            events.forEach(ev => {
-                if (!ev?.name || !ev?.startsAtLocal || ev.name.toLowerCase().includes('физическая культура')) return;
-                const d = new Date(ev.startsAtLocal);
-                const day = dayMap[d.getDay()];
-                if (!day) return;
-
-                const timePart = ev.startsAtLocal.split('T')[1];
-                if (!timePart) return;
-                let time = timePart.substring(0, 5);
-                if (time.startsWith('0')) time = time.substring(1);
-
-                if (!friendSchedule[day]) friendSchedule[day] = {};
-                if (friendSchedule[day][time]) {
-                    if (!friendSchedule[day][time].includes(ev.name)) friendSchedule[day][time] += `<br>+ ${ev.name}`;
-                } else {
-                    friendSchedule[day][time] = ev.name;
-                }
-            });
+            friendSchedule = sharedUtils?.fetchBlockedScheduleSlots
+                ? await sharedUtils.fetchBlockedScheduleSlots({
+                    token,
+                    personId: person.id,
+                    fetchFn: (typeof window !== 'undefined' && window.fetch) ? window.fetch.bind(window) : fetch
+                })
+                : {};
 
             wrapper.classList.add('has-friend');
             input.value = `С вами: ${friendNameForUI}`;
@@ -721,10 +712,22 @@ window.MSE_PE = (function () {
         `;
     }
 
+    function normalizeConflictDisciplines(conflictEntry) {
+        if (Array.isArray(conflictEntry)) {
+            return [...new Set(conflictEntry.map(name => String(name || '').trim()).filter(Boolean))].sort();
+        }
+        if (typeof conflictEntry === 'string') {
+            return [...new Set(conflictEntry.split('<br>+ ').map(str => str.trim()).filter(Boolean))].sort();
+        }
+        if (conflictEntry && typeof conflictEntry === 'object' && conflictEntry.title) {
+            return [String(conflictEntry.title).trim()].filter(Boolean);
+        }
+        return [];
+    }
+
     function renderBusySlotHtml(conflict, friendName) {
-        const parseDisciplines = str => (str || '').split('<br>+ ').map(s => s.trim()).filter(Boolean).sort();
-        const userList = parseDisciplines(conflict.user);
-        const friendList = parseDisciplines(conflict.friend);
+        const userList = normalizeConflictDisciplines(conflict.user);
+        const friendList = normalizeConflictDisciplines(conflict.friend);
 
         const isSameDisciplines = userList.length > 0 &&
             userList.length === friendList.length &&
@@ -735,10 +738,10 @@ window.MSE_PE = (function () {
         }
 
         let cardsHtml = '';
-        if (conflict.user) {
+        if (userList.length > 0) {
             cardsHtml += createBusyCardHtml('У вас пара', userList);
         }
-        if (conflict.friend) {
+        if (friendList.length > 0) {
             const friendLabel = `У друга (${escapeHtml(friendName || 'друг')})`;
             cardsHtml += createBusyCardHtml(friendLabel, friendList);
         }
@@ -1467,32 +1470,28 @@ window.MSE_PE = (function () {
 
                 function renderFriendsDropdown() {
                     if (!friendDropdown) return;
-                    try {
-                        const friends = JSON.parse(localStorage.getItem(STORAGE_KEY_FRIENDS) || '[]');
-                        if (!friends || !friends.length) {
-                            friendDropdown.style.display = 'none';
-                            friendDropdown.innerHTML = '';
-                            return;
-                        }
-                        friendDropdown.innerHTML = `
-                            <div class="pe-friend-dropdown-title">Ваши друзья:</div>
-                            <div class="pe-friend-list-wrap">
-                                <div class="pe-friend-dropdown-list">
-                                    ${friends.map(f => `
-                                        <div class="pe-friend-item" data-name="${escapeHtml(f.fullName)}">
-                                            ${getSvgIcon('user', { size: 12, strokeWidth: 2 })}
-                                            <span class="pe-friend-item-name">${escapeHtml(f.fullName)}</span>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            </div>
-                        `;
-                        friendDropdown.style.display = 'block';
-                        const list = friendDropdown.querySelector('.pe-friend-dropdown-list');
-                        if (list) attachSmoothScrollbar(list);
-                    } catch {
+                    const friends = readStoredFriends();
+                    if (!friends || !friends.length) {
                         friendDropdown.style.display = 'none';
+                        friendDropdown.innerHTML = '';
+                        return;
                     }
+                    friendDropdown.innerHTML = `
+                        <div class="pe-friend-dropdown-title">Ваши друзья:</div>
+                        <div class="pe-friend-list-wrap">
+                            <div class="pe-friend-dropdown-list">
+                                ${friends.map(f => `
+                                    <div class="pe-friend-item" data-name="${escapeHtml(f.fullName)}">
+                                        ${getSvgIcon('user', { size: 12, strokeWidth: 2 })}
+                                        <span class="pe-friend-item-name">${escapeHtml(f.fullName)}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                    friendDropdown.style.display = 'block';
+                    const list = friendDropdown.querySelector('.pe-friend-dropdown-list');
+                    if (list) attachSmoothScrollbar(list);
                 }
 
                 function toggleFriendPopover(forceOpen) {

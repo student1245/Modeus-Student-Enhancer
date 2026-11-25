@@ -7,6 +7,14 @@
             }
         })() : () => '');
 
+    const sharedUtils = (typeof window !== 'undefined' && window.MSE_SHARED)
+        ? window.MSE_SHARED
+        : (typeof require !== 'undefined' ? (function () {
+            try { return require('./shared-utils.js'); } catch (_) {
+                try { return require(require('path').resolve(process.cwd(), 'src/shared-utils.js')); } catch (__) { return null; }
+            }
+        })() : null);
+
     const META_VERSION = 'modeus-enhancer-version';
     const CURRENT_VERSION = document.querySelector(`meta[name="${META_VERSION}"]`)?.content || '0.0.0';
     const STORAGE_KEY_DEBUG = 'mse_debug'; // Флаг режима отладки (1 / true)
@@ -24,15 +32,7 @@
     );
 
     // Динамическая проверка флага отладки (runtime без перезагрузки)
-    const isDebug = () => {
-        try {
-            return localStorage.getItem(STORAGE_KEY_DEBUG) === 'true' ||
-                localStorage.getItem(STORAGE_KEY_DEBUG) === '1' ||
-                window.__MSE_DEBUG__ === true;
-        } catch {
-            return window.__MSE_DEBUG__ === true;
-        }
-    };
+    const isDebug = () => (sharedUtils?.isDebug ? sharedUtils.isDebug() : false);
 
     // Форматирование системного таймштампа выполнения с миллисекундами (ЧЧ:ММ:СС.ммм)
     const formatLogTimestamp = () => {
@@ -93,36 +93,14 @@
     };
 
     // Безопасное декодирование Base64 в UTF-8 без устаревших escape/unescape
-    const decodeBase64Utf8 = (base64) => {
-        try {
-            const binary = atob(base64);
-            const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-            return new TextDecoder('utf-8').decode(bytes);
-        } catch {
-            try {
-                const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, '=');
-                const binary = atob(padded);
-                const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-                return new TextDecoder('utf-8').decode(bytes);
-            } catch {
-                return '';
-            }
-        }
-    };
+    const decodeBase64Utf8 = (base64) => (
+        sharedUtils?.decodeBase64Utf8 ? sharedUtils.decodeBase64Utf8(base64) : ''
+    );
 
     // Безопасный парсинг JWT-токена с поддержкой UTF-8 в payload
-    const parseJwt = (token) => {
-        try {
-            if (!token || typeof token !== 'string') return {};
-            let payload = token.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
-            if (!payload) return {};
-            while (payload.length % 4) payload += '=';
-            return JSON.parse(decodeBase64Utf8(payload));
-        } catch (e) {
-            logger.warn('Ошибка парсинга JWT:', e);
-            return {};
-        }
-    };
+    const parseJwt = (token) => (
+        sharedUtils?.parseJwt ? sharedUtils.parseJwt(token, logger.warn) : {}
+    );
 
     // Форматирование секунд в читаемый интервал (~X ч Y мин или ~X мин Y сек)
     const formatDuration = (totalSeconds) => {
@@ -586,15 +564,9 @@
     const normalizeName = name => name ? name.trim().replace(/\s+/g, ' ').replace(/ё/g, 'е').replace(/Ё/g, 'Е').normalize() : '';
 
     // Безопасное экранирование HTML для защиты от XSS
-    const escapeHtml = (str) => {
-        if (str === null || str === undefined) return '';
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    };
+    const escapeHtml = (str) => (
+        sharedUtils?.escapeHtml ? sharedUtils.escapeHtml(str) : String(str ?? '')
+    );
 
     const getToastIconHtml = (type) => {
         if (type === 'success') {
@@ -1319,13 +1291,13 @@
     initDatabases();
 
     const getFriends = () => {
-        try {
-            return JSON.parse(localStorage.getItem(STORAGE_KEY_FRIENDS) || '[]');
-        } catch (e) {
-            logger.warn('Ошибка чтения списка друзей из localStorage', e);
-            localStorage.removeItem(STORAGE_KEY_FRIENDS);
-            return [];
+        if (sharedUtils?.readFriendsList) {
+            return sharedUtils.readFriendsList(STORAGE_KEY_FRIENDS, (err) => {
+                logger.warn('Ошибка чтения списка друзей из localStorage', err);
+                try { localStorage.removeItem(STORAGE_KEY_FRIENDS); } catch { }
+            });
         }
+        return [];
     };
 
     const saveFriends = (friends) => {
@@ -5166,43 +5138,15 @@
     };
 
     const fetchPeBlockedScheduleSlots = async (token) => {
-        const personId = parseJwt(token).person_id || parseJwt(token).sub;
-        const now = new Date();
-        const future = new Date(now.getTime() + PE_SCHEDULE_DAYS * 24 * 60 * 60 * 1000);
-
-        const schedRes = await fetch(API_CALENDAR_SEARCH, {
-            method: 'POST',
-            headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
-            body: JSON.stringify({ size: 500, timeMin: now.toISOString(), timeMax: future.toISOString(), attendeePersonId: [personId] })
+        const claims = parseJwt(token);
+        const personId = claims.person_id || claims.sub;
+        return sharedUtils.fetchBlockedScheduleSlots({
+            token,
+            personId,
+            apiUrl: API_CALENDAR_SEARCH,
+            daysAhead: PE_SCHEDULE_DAYS,
+            fetchFn: (typeof window !== 'undefined' && window.fetch) ? window.fetch.bind(window) : fetch
         });
-        if (!schedRes.ok) {
-            throw new Error(`HTTP ${schedRes.status}`);
-        }
-        const eventsData = await schedRes.json();
-        const events = eventsData._embedded?.events || [];
-
-        const blockedSlots = {};
-        const dayMap = { 1: 'ПН', 2: 'ВТ', 3: 'СР', 4: 'ЧТ', 5: 'ПТ', 6: 'СБ' };
-
-        events.forEach(ev => {
-            if (!ev?.name || !ev?.startsAtLocal || ev.name.toLowerCase().includes('физическая культура')) return;
-            const d = new Date(ev.startsAtLocal);
-            const day = dayMap[d.getDay()];
-            if (!day) return;
-
-            const timePart = ev.startsAtLocal.split('T')[1];
-            if (!timePart) return;
-            let time = timePart.substring(0, 5);
-            if (time.startsWith('0')) time = time.substring(1);
-
-            if (!blockedSlots[day]) blockedSlots[day] = {};
-            if (blockedSlots[day][time]) {
-                if (!blockedSlots[day][time].includes(ev.name)) blockedSlots[day][time] += `<br>+ ${ev.name}`;
-            } else {
-                blockedSlots[day][time] = ev.name;
-            }
-        });
-        return blockedSlots;
     };
 
     const handleSmartPickerClick = async (banner) => {
