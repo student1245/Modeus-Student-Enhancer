@@ -1002,4 +1002,261 @@ describe('Шаг 3: Живые геометрические и визуальн�
 
         await cdp.send('Emulation.clearDeviceMetricsOverride');
     });
+
+    test('10. Адаптивность физкультуры: полноэкранный режим без серых полей, 0px горизонтального скролла на 1000px, кнопка-лупа друга и двухстрочные карточки', async (t) => {
+        if (!chromeOnline) {
+            t.skip('Debug Chrome недоступен на порту 9222. Тест пропущен.');
+            return;
+        }
+
+        // 1. Монтируем реалистичные данные в окно физкультуры
+        await cdp.evaluateScript(`
+            const mockModules = [
+                {
+                    moduleElementId: 'mod-1',
+                    name: 'Элективные дисциплины по физической культуре и спорту',
+                    selectedTeamIds: ['team-volleyball-enrolled'],
+                    cycles: [
+                        {
+                            teams: [
+                                {
+                                    id: 'team-ofp-1',
+                                    name: 'ФК: Общая физическая подготовка (4) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                    teachers: ['Иванов И. И.'],
+                                    available: 15,
+                                    limit: 20
+                                },
+                                {
+                                    id: 'team-basketball-1',
+                                    name: 'ФК: Баскетбол (2) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                    teachers: ['Смирнов С. С.'],
+                                    available: 5,
+                                    limit: 20
+                                },
+                                {
+                                    id: 'team-football-1',
+                                    name: 'ФК: Мини-футбол (2) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                    teachers: ['Кузнецов К. К.'],
+                                    available: 8,
+                                    limit: 20
+                                },
+                                {
+                                    id: 'team-swimming-1',
+                                    name: 'ФК: Плавание (1) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                    teachers: ['Попов П. П.'],
+                                    available: 4,
+                                    limit: 15
+                                },
+                                {
+                                    id: 'team-badminton-1',
+                                    name: 'ФК: Бадминтон (1) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                    teachers: ['Соколов С. С.'],
+                                    available: 3,
+                                    limit: 12
+                                },
+                                {
+                                    id: 'team-tennis-1',
+                                    name: 'ФК: Настольный теннис (2) ПН 10:15 СК Олимпия (ул. Пржевальского, 37)',
+                                    teachers: ['Петров П. П.'],
+                                    available: 1,
+                                    limit: 10
+                                },
+                                {
+                                    id: 'team-volleyball-enrolled',
+                                    name: 'ФК: Волейбол (2) ВТ 12:00 СОК Зодчий (ул. Луначарского, 2, корп. 5)',
+                                    teachers: ['Сидорова А. С.'],
+                                    available: 0,
+                                    limit: 25
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ];
+
+            localStorage.setItem('mse_friends_list', JSON.stringify([
+                { personId: 'p-1', fullName: 'Иванов Иван' },
+                { personId: 'p-2', fullName: 'Константинопольский Константин' },
+                { personId: 'p-3', fullName: 'Петров Петр' },
+                { personId: 'p-4', fullName: 'Сидоров Сидор' },
+                { personId: 'p-5', fullName: 'Кузнецов Алексей' },
+                { personId: 'p-6', fullName: 'Смирнов Дмитрий' }
+            ]));
+
+            window.MSE_PE.openModal(mockModules, {}, 'camp-1', 'stud-1', new Map());
+        `);
+
+        // 2. Проверка размещения кнопки закрытия внутри header-panel и крупного заголовка H2
+        const headerMetrics = await cdp.evaluateExpression(`
+            const overlay = document.getElementById('mse-pe-overlay');
+            const container = overlay ? overlay.querySelector('.container') : null;
+            const header = overlay ? overlay.querySelector('.header-panel') : null;
+            const closeBtn = document.getElementById('mse-pe-close');
+            const h2 = header ? header.querySelector('h2') : null;
+            const h2Computed = h2 ? getComputedStyle(h2) : null;
+
+            const rHeader = header ? header.getBoundingClientRect() : null;
+            const rClose = closeBtn ? closeBtn.getBoundingClientRect() : null;
+
+            return {
+                isInsideHeader: !!(closeBtn && header && header.contains(closeBtn)),
+                containerMarginLeft: container ? getComputedStyle(container).marginLeft : null,
+                containerMarginRight: container ? getComputedStyle(container).marginRight : null,
+                closeInsideBounds: !!(rHeader && rClose && rClose.right <= rHeader.right + 2 && rClose.top >= rHeader.top - 2 && rClose.bottom <= rHeader.bottom + 2),
+                h2FontSize: h2Computed ? parseFloat(h2Computed.fontSize) : 0,
+                h2FontWeight: h2Computed ? h2Computed.fontWeight : ''
+            };
+        `);
+        assert.strictEqual(headerMetrics.isInsideHeader, true, 'Кнопка закрытия обязана монтироваться внутри .header-panel');
+        assert.strictEqual(headerMetrics.containerMarginLeft, '0px', 'Контейнер не должен иметь боковых маржинов');
+        assert.strictEqual(headerMetrics.containerMarginRight, '0px', 'Контейнер не должен иметь боковых маржинов');
+        assert.strictEqual(headerMetrics.closeInsideBounds, true, 'Кнопка закрытия должна оставаться строго в границах шапки');
+        assert.ok(headerMetrics.h2FontSize >= 22, `Размер шрифта заголовка должен быть не менее 22px (фактический: ${headerMetrics.h2FontSize}px)`);
+        assert.strictEqual(headerMetrics.h2FontWeight, '700', 'Жирность заголовка должна быть 700');
+
+        // 3. Матрица разрешений: [1750, 1440, 1290, 1121, 1000]
+        const viewports = [1750, 1440, 1290, 1121, 1000];
+        for (const w of viewports) {
+            await cdp.send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: false });
+            await new Promise(r => setTimeout(r, 40));
+
+            const data = await cdp.evaluateExpression(`
+                const overlay = document.getElementById('mse-pe-overlay');
+                const container = overlay.querySelector('.container');
+                const header = overlay.querySelector('.header-panel');
+                const h2 = header.querySelector('h2');
+                const closeBtn = document.getElementById('mse-pe-close');
+                const filtersGroup = overlay.querySelector('.filters-group');
+                const table = overlay.querySelector('table');
+                const friendToggleBtn = document.getElementById('pe-friendToggleBtn');
+
+                const rHeader = header.getBoundingClientRect();
+                const rH2 = h2.getBoundingClientRect();
+                const rClose = closeBtn.getBoundingClientRect();
+                const rFilters = filtersGroup.getBoundingClientRect();
+
+                const windowCenterX = window.innerWidth / 2;
+                const h2CenterX = rH2.left + rH2.width / 2;
+                const filtersCenterX = rFilters.left + rFilters.width / 2;
+
+                const isSingleRow = (Math.abs(rH2.top - rFilters.top) < 15);
+                const h2TopPadding = Math.round(rH2.top - rHeader.top);
+                const closeTopPadding = Math.round(rClose.top - rHeader.top);
+                const closeRightDist = Math.round(rHeader.right - rClose.right);
+
+                // 1. Проверка отсутствия горизонтального скролла
+                const scrollDiff = Math.max(0, overlay.scrollWidth - overlay.clientWidth, container.scrollWidth - container.clientWidth);
+
+                // 2. Проверка, что фильтры в одну строку
+                const filterItems = Array.from(filtersGroup.children).filter(c => getComputedStyle(c).display !== 'none');
+                const itemTops = filterItems.map(c => Math.round(c.getBoundingClientRect().top));
+                const itemBottoms = filterItems.map(c => Math.round(c.getBoundingClientRect().bottom));
+                const isFiltersOneLine = (Math.max(...itemTops) < Math.min(...itemBottoms));
+
+                // 3. Проверка кнопки-лупы друга
+                const toggleDisplay = friendToggleBtn ? getComputedStyle(friendToggleBtn).display : 'none';
+
+                // 4. Проверка двухстрочной карточки
+                const card = table.querySelector('.sport-card');
+                let cardCheck = null;
+                if (card) {
+                    const topRow = card.querySelector('.sc-top');
+                    const bottomRow = card.querySelector('.sc-bottom');
+                    const titleText = card.querySelector('.sc-title-text');
+                    const countEl = card.querySelector('.sc-count');
+                    const slotsEl = card.querySelector('.sc-slots');
+
+                    const rTop = topRow ? topRow.getBoundingClientRect() : null;
+                    const rBottom = bottomRow ? bottomRow.getBoundingClientRect() : null;
+                    const rTitle = titleText ? titleText.getBoundingClientRect() : null;
+                    const rCount = countEl ? countEl.getBoundingClientRect() : null;
+                    const distance = (rTitle && rCount) ? (rCount.left - rTitle.right) : 999;
+
+                    cardCheck = {
+                        hasTwoRows: !!(topRow && bottomRow && rTop && rBottom && rTop.bottom <= rBottom.top + 1),
+                        slotsInBottomRow: !!(bottomRow && bottomRow.contains(slotsEl)),
+                        countVisible: !!(countEl && rCount && rCount.width > 0),
+                        countDistance: Math.round(distance * 10) / 10
+                    };
+                }
+
+                return {
+                    isSingleRow,
+                    h2TopPadding,
+                    closeTopPadding,
+                    closeRightDist,
+                    h2CenterDiff: Math.abs(h2CenterX - windowCenterX),
+                    filtersCenterDiff: Math.abs(filtersCenterX - windowCenterX),
+                    scrollDiff,
+                    isFiltersOneLine,
+                    toggleDisplay,
+                    cardCheck
+                };
+            `);
+
+            assert.strictEqual(data.scrollDiff, 0, `На ширине ${w}px должен быть строго 0px горизонтального скролла`);
+            assert.strictEqual(data.isFiltersOneLine, true, `На ширине ${w}px фильтры должны располагаться строго в 1 строку`);
+
+            if (w > 1640) {
+                assert.strictEqual(data.isSingleRow, true, `На ширине ${w}px (> 1640px) шапка должна быть в одну строку`);
+                assert.ok(data.h2TopPadding >= 18, `На ширине ${w}px сверху должен быть воздух (padding >= 18px, факт: ${data.h2TopPadding}px)`);
+            } else {
+                assert.strictEqual(data.isSingleRow, false, `На ширине ${w}px (<= 1640px) шапка должна переходить в две строки`);
+                assert.ok(data.h2CenterDiff <= 10, `На ширине ${w}px заголовок h2 должен быть отцентрирован по горизонтали (дельта: ${data.h2CenterDiff}px <= 10px)`);
+                assert.ok(data.filtersCenterDiff <= 10, `На ширине ${w}px панель фильтров должна быть отцентрирована по горизонтали (дельта: ${data.filtersCenterDiff}px <= 10px)`);
+                assert.ok(data.closeTopPadding >= 16 && data.closeTopPadding <= 24, `На ширине ${w}px кнопка [x] должна быть в правом верхнем углу (top: ${data.closeTopPadding}px)`);
+                assert.ok(data.closeRightDist <= 25, `На ширине ${w}px кнопка [x] должна быть прижата к правому краю (right: ${data.closeRightDist}px)`);
+            }
+
+            if (w <= 1240) {
+                assert.notStrictEqual(data.toggleDisplay, 'none', `На ширине ${w}px (<=1240) кнопка-лупа друга должна быть видима`);
+            } else {
+                assert.strictEqual(data.toggleDisplay, 'none', `На ширине ${w}px (>1240) кнопка-лупа должна быть скрыта`);
+            }
+
+            assert.ok(data.cardCheck, `На ширине ${w}px карточка спорта должна существовать`);
+            assert.strictEqual(data.cardCheck.hasTwoRows, true, `На ширине ${w}px карточка должна иметь две строки`);
+            assert.strictEqual(data.cardCheck.slotsInBottomRow, true, `На ширине ${w}px свободные места должны быть на второй строке`);
+            assert.strictEqual(data.cardCheck.countVisible, true, `На ширине ${w}px счетчик групп .sc-count должен быть виден`);
+            assert.ok(data.cardCheck.countDistance <= 6, `На ширине ${w}px счетчик групп .sc-count должен стоять вплотную к названию спорта (зазор ${data.cardCheck.countDistance}px <= 6px)`);
+        }
+
+        // 4. Проверка открытия и закрытия поповера друга на 1000px
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false });
+        const popoverRes = await cdp.evaluateExpression(`
+            const toggleBtn = document.getElementById('pe-friendToggleBtn');
+            const container = document.getElementById('pe-friendContainer');
+            const popover = document.getElementById('pe-friendPopover');
+            const dropdown = document.getElementById('pe-friendDropdown');
+
+            const displayBefore = getComputedStyle(popover).display;
+            toggleBtn.click();
+            const displayAfter = getComputedStyle(popover).display;
+            const isOpenClass = container.classList.contains('is-popover-open');
+            const itemsCount = dropdown ? dropdown.querySelectorAll('.pe-friend-item').length : 0;
+
+            // Нажатие Escape
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            const displayAfterEsc = getComputedStyle(popover).display;
+            const isOpenAfterEsc = container.classList.contains('is-popover-open');
+
+            return {
+                displayBefore,
+                displayAfter,
+                isOpenClass,
+                itemsCount,
+                displayAfterEsc,
+                isOpenAfterEsc
+            };
+        `);
+
+        assert.strictEqual(popoverRes.displayBefore, 'none', 'Поповер должен быть скрыт до клика');
+        assert.strictEqual(popoverRes.displayAfter, 'flex', 'Поповер должен стать видимым после клика');
+        assert.strictEqual(popoverRes.isOpenClass, true, 'Контейнер должен получить класс is-popover-open');
+        assert.strictEqual(popoverRes.itemsCount, 6, 'В выпадающем списке должны отрендериться 6 друзей из localStorage');
+        assert.strictEqual(popoverRes.displayAfterEsc, 'none', 'Поповер должен закрыться при нажатии Escape');
+        assert.strictEqual(popoverRes.isOpenAfterEsc, false, 'Класс is-popover-open должен сняться при закрытии');
+
+        await cdp.send('Emulation.clearDeviceMetricsOverride');
+    });
 });

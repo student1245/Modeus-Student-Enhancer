@@ -477,6 +477,12 @@ window.MSE_PE = (function () {
             btn.innerText = "Сброс";
             btn.disabled = false;
 
+            const toggleBtn = document.getElementById('pe-friendToggleBtn');
+            if (toggleBtn) {
+                toggleBtn.classList.add('is-active');
+                toggleBtn.title = `Сравнить пары с: ${friendNameForUI} (нажмите для изменения/сброса)`;
+            }
+
             renderGrid();
         } catch (e) {
             showToast("Ошибка при загрузке расписания друга: " + e.message, 'error');
@@ -505,6 +511,12 @@ window.MSE_PE = (function () {
             btn.style.setProperty('color', '#475569', 'important');
             btn.style.setProperty('border-left-color', '#cbd5e1', 'important');
             btn.innerText = 'Поиск';
+        }
+
+        const toggleBtn = document.getElementById('pe-friendToggleBtn');
+        if (toggleBtn) {
+            toggleBtn.classList.remove('is-active');
+            toggleBtn.title = 'Сравнить пары с другом (поиск по ФИО)';
         }
 
         friendSchedule = null;
@@ -1235,9 +1247,17 @@ window.MSE_PE = (function () {
                                     <span>Мои записи</span>
                                 </button>
                                 <div class="toolbar-divider"></div>
-                                <div id="pe-friendWrapper" style="display: flex !important; align-items: center !important; background: #ffffff !important; border: 1px solid #cbd5e1 !important; border-radius: 6px !important; height: 32px !important; overflow: hidden !important; margin-left: auto !important; width: 260px !important; flex-shrink: 0 !important; box-sizing: border-box !important;">
-                                    <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)..." style="border: none !important; outline: none !important; font-size: 12px !important; padding: 0 10px !important; background: transparent !important; color: #0f172a !important; height: 100% !important; margin: 0 !important; font-family: inherit !important; flex-grow: 1 !important; min-width: 0 !important; box-sizing: border-box !important;">
-                                    <button id="pe-friendBtn" style="background: #f8fafc !important; color: #475569 !important; border: none !important; border-left: 1px solid #cbd5e1 !important; padding: 0 !important; cursor: pointer !important; font-size: 12px !important; font-weight: 600 !important; height: 100% !important; margin: 0 !important; width: 70px !important; flex-shrink: 0 !important; box-sizing: border-box !important; appearance: none !important; -webkit-appearance: none !important; border-radius: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important;">Поиск</button>
+                                <div class="pe-friend-container" id="pe-friendContainer">
+                                    <button type="button" class="pe-friend-toggle-btn" id="pe-friendToggleBtn" title="Сравнить пары с другом (поиск по ФИО)">
+                                        ${getSvgIcon('search', { size: 14, strokeWidth: 2.2 })}
+                                    </button>
+                                    <div class="pe-friend-popover" id="pe-friendPopover">
+                                        <div class="pe-friend-wrapper" id="pe-friendWrapper">
+                                            <input type="text" id="pe-friendInput" placeholder="Сравнить пары с (ФИО)..." autocomplete="off">
+                                            <button type="button" id="pe-friendBtn">Поиск</button>
+                                        </div>
+                                        <div class="pe-friend-dropdown" id="pe-friendDropdown"></div>
+                                    </div>
                                 </div>
                                 <button type="button" class="reset-btn" id="pe-reset-filters-btn" title="Сбросить все фильтры">
                                     ${getSvgIcon('rotate-ccw', { size: 14, strokeWidth: 2 })}
@@ -1264,24 +1284,107 @@ window.MSE_PE = (function () {
                     }
                 });
 
+                const friendContainer = document.getElementById('pe-friendContainer');
+                const friendToggleBtn = document.getElementById('pe-friendToggleBtn');
                 const friendInput = document.getElementById('pe-friendInput');
-                if (friendInput) {
-                    friendInput.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter') window.MSE_PE_loadFriend();
+                const friendBtn = document.getElementById('pe-friendBtn');
+                const friendDropdown = document.getElementById('pe-friendDropdown');
+
+                function renderFriendsDropdown() {
+                    if (!friendDropdown) return;
+                    try {
+                        const friends = JSON.parse(localStorage.getItem(STORAGE_KEY_FRIENDS) || '[]');
+                        if (!friends || !friends.length) {
+                            friendDropdown.style.display = 'none';
+                            friendDropdown.innerHTML = '';
+                            return;
+                        }
+                        friendDropdown.innerHTML = `
+                            <div class="pe-friend-dropdown-title">Ваши друзья:</div>
+                            <div class="pe-friend-list-wrap">
+                                <div class="pe-friend-dropdown-list">
+                                    ${friends.map(f => `
+                                        <div class="pe-friend-item" data-name="${escapeHtml(f.fullName)}">
+                                            ${getSvgIcon('user', { size: 12, strokeWidth: 2 })}
+                                            <span class="pe-friend-item-name">${escapeHtml(f.fullName)}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                        friendDropdown.style.display = 'block';
+                    } catch {
+                        friendDropdown.style.display = 'none';
+                    }
+                }
+
+                function toggleFriendPopover(forceOpen) {
+                    if (!friendContainer) return;
+                    const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : !friendContainer.classList.contains('is-popover-open');
+                    friendContainer.classList.toggle('is-popover-open', shouldOpen);
+                    if (shouldOpen) {
+                        renderFriendsDropdown();
+                        if (friendInput) {
+                            setTimeout(() => {
+                                friendInput.focus();
+                                if (!friendInput.readOnly && typeof friendInput.select === 'function') friendInput.select();
+                            }, 50);
+                        }
+                    }
+                }
+
+                if (friendToggleBtn) {
+                    friendToggleBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        toggleFriendPopover();
                     });
                 }
-                const friendBtn = document.getElementById('pe-friendBtn');
+
+                if (friendDropdown) {
+                    friendDropdown.addEventListener('click', (e) => {
+                        const item = e.target.closest('.pe-friend-item');
+                        if (!item) return;
+                        const name = item.dataset.name;
+                        if (friendInput) {
+                            friendInput.value = name;
+                            window.MSE_PE_loadFriend();
+                            toggleFriendPopover(false);
+                        }
+                    });
+                }
+
+                if (friendInput) {
+                    friendInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            window.MSE_PE_loadFriend();
+                            toggleFriendPopover(false);
+                        }
+                    });
+                }
                 if (friendBtn) {
                     friendBtn.addEventListener('click', () => {
                         if (friendSchedule) {
                             window.MSE_PE_clearFriend();
                         } else {
                             window.MSE_PE_loadFriend();
+                            toggleFriendPopover(false);
                         }
                     });
                 }
 
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && friendContainer && friendContainer.classList.contains('is-popover-open')) {
+                        toggleFriendPopover(false);
+                        if (friendToggleBtn) friendToggleBtn.focus();
+                    }
+                });
+
                 overlay.addEventListener('click', (e) => {
+                    if (friendContainer && friendContainer.classList.contains('is-popover-open')) {
+                        if (!friendContainer.contains(e.target)) {
+                            toggleFriendPopover(false);
+                        }
+                    }
                     const toggleBtn = e.target.closest('[data-action="toggle-multiselect"]');
                     if (toggleBtn) {
                         togglePeMultiSelect(toggleBtn.dataset.target);
@@ -1334,6 +1437,9 @@ window.MSE_PE = (function () {
             setFilterActive('pe-onlyMySections', false);
             setFilterActive('pe-considerSchedule', true);
             collapsedRows.clear();
+            window.MSE_PE_clearFriend();
+            const friendContainer = document.getElementById('pe-friendContainer');
+            if (friendContainer) friendContainer.classList.remove('is-popover-open');
             renderGrid();
         }
     };

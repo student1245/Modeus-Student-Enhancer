@@ -1456,6 +1456,13 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             const closeBtn = env.document.getElementById('mse-pe-close');
             assert.ok(closeBtn, 'Кнопка закрытия #mse-pe-close должна быть смонтирована');
             assert.strictEqual(closeBtn.parentElement, headerPanel, 'Кнопка закрытия обязана монтироваться внутри .header-panel');
+
+            const friendContainer = env.document.getElementById('pe-friendContainer');
+            assert.ok(friendContainer, '#pe-friendContainer должен присутствовать в DOM');
+            const friendToggleBtn = env.document.getElementById('pe-friendToggleBtn');
+            assert.ok(friendToggleBtn, 'Кнопка-лупа друга #pe-friendToggleBtn должна присутствовать в DOM');
+            const friendPopover = env.document.getElementById('pe-friendPopover');
+            assert.ok(friendPopover, 'Поповер друга #pe-friendPopover должен присутствовать в DOM');
         });
     });
 
