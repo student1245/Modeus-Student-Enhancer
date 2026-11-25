@@ -184,18 +184,13 @@
         };
     };
 
-    // Определение времени истечения суточного ID-токена (24 часа)
-    // Строго математически опирается на фактические метаданные (клейм exp) самого токена
+    // Определение времени истечения суточного ID-токена (24 часа) без скрытых мутаций хранилища
     const getMainTokenExpiresAt = (idToken) => {
         // 1. Приоритетный источник: клейм exp из метаданных самого id_token
         if (idToken) {
             const claims = parseJwt(idToken);
             if (typeof claims?.exp === 'number' && !isNaN(claims.exp)) {
-                const expiresAt = claims.exp * 1000;
-                try {
-                    sessionStorage.setItem('id_token_expires_at', String(expiresAt));
-                } catch { }
-                return expiresAt;
+                return claims.exp * 1000;
             }
         }
 
@@ -205,9 +200,7 @@
             if (claimsRaw) {
                 const claims = JSON.parse(claimsRaw);
                 if (typeof claims?.exp === 'number' && !isNaN(claims.exp)) {
-                    const expiresAt = claims.exp * 1000;
-                    sessionStorage.setItem('id_token_expires_at', String(expiresAt));
-                    return expiresAt;
+                    return claims.exp * 1000;
                 }
             }
         } catch { }
@@ -341,7 +334,7 @@
         }
         return null;
     };
-    window.MSE_checkSurvey = () => (typeof checkSurvey === 'function' ? checkSurvey() : false);
+    window.MSE_checkSurvey = () => (typeof showSurveyIfEligible === 'function' ? showSurveyIfEligible() : false);
     window.MSE_simulateSurvey = (customConfig = null) => (typeof simulateSurvey === 'function' ? simulateSurvey(customConfig) : false);
     // Предотвращает ReferenceError при буквальном копировании сигнатуры "window.MSE_simulateSurvey(customConfig)" в консоль
     if (typeof window.customConfig === 'undefined') {
@@ -911,21 +904,33 @@
         }
     }
 
-    function handleRefreshTimeout() {
-        cleanupSilentRefresh();
+    function recordRefreshFailure(warnMessage, { checkTokenBeforeBreaker = false } = {}) {
         refreshFailureCount++;
-        logger.warn(`[MSE Session] Тайм-аут фонового обновления токена (попытка ${refreshFailureCount}/${SESSION_MAX_REFRESH_ATTEMPTS})`);
+        if (warnMessage) {
+            logger.warn(warnMessage);
+        }
+        if (refreshFailureCount < SESSION_MAX_REFRESH_ATTEMPTS) return false;
 
-        if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
+        if (checkTokenBeforeBreaker) {
             const accessStatus = getAccessTokenStatus();
-            if (!accessStatus.hasToken || accessStatus.secondsLeft <= 0) {
-                triggerCircuitBreaker();
-            } else {
+            if (accessStatus.hasToken && accessStatus.secondsLeft > 0) {
                 logger.session(
                     `Лимит попыток (${SESSION_MAX_REFRESH_ATTEMPTS}) исчерпан, но токен еще активен (${accessStatus.secondsLeftFormatted} с). Отсрочка срабатывания Circuit Breaker до фактического истечения.`
                 );
+                return false;
             }
         }
+
+        triggerCircuitBreaker();
+        return true;
+    }
+
+    function handleRefreshTimeout() {
+        cleanupSilentRefresh();
+        recordRefreshFailure(
+            `[MSE Session] Тайм-аут фонового обновления токена (попытка ${refreshFailureCount + 1}/${SESSION_MAX_REFRESH_ATTEMPTS})`,
+            { checkTokenBeforeBreaker: true }
+        );
     }
 
     function executeSilentRefresh() {
@@ -937,23 +942,20 @@
 
             logger.session('Сессия скоро истекает. Запуск скрытого iframe для фонового продления...');
 
-            let ifr;
+            let iframeEl;
             try {
-                ifr = createSilentRefresherIframe(buildOAuthUrl());
-            } catch (e) {
-                logger.error('[MSE Session] Ошибка вставки iframe рефрешера:', e);
+                iframeEl = createSilentRefresherIframe(buildOAuthUrl());
+            } catch (err) {
+                logger.error('[MSE Session] Ошибка вставки iframe рефрешера:', err);
                 cleanupSilentRefresh();
-                refreshFailureCount++;
-                if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
-                    triggerCircuitBreaker();
-                }
+                recordRefreshFailure();
                 return;
             }
 
             let resolved = false;
             const checkTokens = () => {
                 if (resolved) return;
-                const params = extractHashParamsFromIframe(ifr);
+                const params = extractHashParamsFromIframe(iframeEl);
                 if (params) {
                     resolved = true;
                     const tokenResult = applyRefreshedTokens(params);
@@ -965,7 +967,7 @@
             };
 
             silentRefreshPollTimer = setInterval(checkTokens, SESSION_POLL_INTERVAL_MS);
-            ifr.onload = checkTokens;
+            iframeEl.onload = checkTokens;
 
             silentRefreshTimeoutTimer = setTimeout(() => {
                 if (!resolved) {
@@ -985,15 +987,11 @@
         if (isSilentRefreshing) {
             const elapsed = Date.now() - refreshStartedAt;
             if (elapsed > SESSION_STUCK_TIMEOUT_MS) {
-                logger.warn(
+                cleanupSilentRefresh();
+                const breakerTriggered = recordRefreshFailure(
                     `[MSE Session] Обнаружен зависший фоновый процесс (прошло ${(elapsed / 1000).toFixed(1)} сек., возможен сон ПК). Принудительный сброс.`
                 );
-                cleanupSilentRefresh();
-                refreshFailureCount++;
-                if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
-                    triggerCircuitBreaker();
-                    return;
-                }
+                if (breakerTriggered) return;
             } else {
                 logger.session('Запрос на продление отклонен: фоновый iframe уже запущен');
                 return;
@@ -1017,77 +1015,75 @@
         }
     }
 
-    // Мониторим здоровье токена каждые 20 секунд
-    function monitorSessionHealth() {
-        const now = Date.now();
-        const timeSinceLastCheck = now - lastHealthCheckTimestamp;
-        lastHealthCheckTimestamp = now;
-
-        // Обнаружение выхода из сна ПК или заморозки фоновой вкладки:
-        // Если прошло существенно больше периода проверки (например, >45 сек при интервале 20 сек)
-        if (timeSinceLastCheck > SESSION_CHECK_INTERVAL_MS * 2.25) {
-            logger.session(
-                `Обнаружен выход из спящего режима (простой ${(timeSinceLastCheck / 1000).toFixed(1)} сек.). Проверка и сброс состояния.`
-            );
-            if (isSilentRefreshing) {
-                cleanupSilentRefresh();
-            }
+    function handleSleepWakeupReset(timeSinceLastCheck) {
+        if (timeSinceLastCheck <= SESSION_CHECK_INTERVAL_MS * 2.25) return;
+        logger.session(
+            `Обнаружен выход из спящего режима (простой ${(timeSinceLastCheck / 1000).toFixed(1)} сек.). Проверка и сброс состояния.`
+        );
+        if (isSilentRefreshing) {
+            cleanupSilentRefresh();
         }
+    }
 
-        // Если предохранитель сработал — проверяем, не появился ли новый валидный токен (например, ручной логин в другой вкладке)
-        if (isCircuitBreakerOpen) {
-            const accessToken = sessionStorage.getItem('access_token');
-            const expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
-            if (accessToken && expiresAt > now + SESSION_REFRESH_THRESHOLD_SEC * 1000) {
-                logger.session('Обнаружен новый валидный токен. Восстановление работы после Circuit Breaker.');
-                resetCircuitBreaker();
-            } else {
-                return;
-            }
+    function tryRecoverFromCircuitBreaker(now) {
+        if (!isCircuitBreakerOpen) return true;
+        const accessToken = sessionStorage.getItem('access_token');
+        const expiresAt = Number(sessionStorage.getItem('expires_at') || 0);
+        if (accessToken && expiresAt > now + SESSION_REFRESH_THRESHOLD_SEC * 1000) {
+            logger.session('Обнаружен новый валидный токен. Восстановление работы после Circuit Breaker.');
+            resetCircuitBreaker();
+            return true;
         }
+        return false;
+    }
 
-        const isAutologinActive = document.querySelector('meta[name="modeus-sso-autologin"]')?.content === '1';
-
-        // Фатальный предохранитель: если основной суточный токен просрочен или отсутствует,
-        // фоновое silent-продление невозможно (требуется интерактивный вход в систему).
-        // Исключение: если активен автовход (ADR-005), скрытый iframe автоматически авторизуется на fs.utmn.ru!
-        const mainStatus = getMainTokenStatus();
+    function handleMainTokenLifetimeGuard(isAutologinActive, mainStatus) {
         if (!mainStatus.hasToken || mainStatus.secondsLeft <= 0) {
             if (isAutologinActive) {
                 logger.session(
                     `Основной токен истек (${formatTokenStatusSummary(mainStatus)}). Автовход активен (ADR-005): запуск фонового обновления 24ч+...`
                 );
                 triggerSilentRefresh();
-                return;
             } else {
                 logger.session(
                     `Основной токен истек или отсутствует (${formatTokenStatusSummary(mainStatus)}). Аварийная остановка фонового обновления.`
                 );
                 triggerCircuitBreaker();
-                return;
             }
+            return true;
         }
 
-        // Если суточный токен на исходе (< 60 с) и автовход активен — обновляем суточную сессию заранее
         if (isAutologinActive && mainStatus.secondsLeft <= SESSION_REFRESH_THRESHOLD_SEC) {
             logger.session(
                 `Основной суточный токен скоро истекает (${mainStatus.secondsLeftFormatted} с). Автовход активен (ADR-005): запуск фонового обновления 24ч+...`
             );
             triggerSilentRefresh();
-            return;
+            return true;
         }
 
-        const accessStatus = getAccessTokenStatus();
+        return false;
+    }
 
-        // Проверка логического предохранителя: если лимит попыток исчерпан И токен уже реально просрочен
+    // Мониторим здоровье токена каждые 20 секунд
+    function monitorSessionHealth() {
+        const now = Date.now();
+        const timeSinceLastCheck = now - lastHealthCheckTimestamp;
+        lastHealthCheckTimestamp = now;
+
+        handleSleepWakeupReset(timeSinceLastCheck);
+        if (!tryRecoverFromCircuitBreaker(now)) return;
+
+        const isAutologinActive = document.querySelector('meta[name="modeus-sso-autologin"]')?.content === '1';
+        const mainStatus = getMainTokenStatus();
+        if (handleMainTokenLifetimeGuard(isAutologinActive, mainStatus)) return;
+
+        const accessStatus = getAccessTokenStatus();
         if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS && (!accessStatus.hasToken || accessStatus.secondsLeft <= 0)) {
             triggerCircuitBreaker();
             return;
         }
 
         saveAuthTokensBackup();
-
-        // Если мы уже завели точный таймер ожидания дожигания токена — не лезем параллельно
         if (smartWaitTimer) return;
 
         if (!accessStatus.hasToken) {
@@ -1099,7 +1095,6 @@
             `Токен: ${formatTokenStatusSummary(accessStatus)} [порог: ${SESSION_REFRESH_THRESHOLD_SEC} с] | Основной: ${formatTokenStatusSummary(mainStatus)}`
         );
 
-        // Обновляем за 60 секунд до конца
         if (accessStatus.secondsLeft <= SESSION_REFRESH_THRESHOLD_SEC) {
             triggerSilentRefresh();
         }
@@ -1118,18 +1113,13 @@
 
     // Дополнительный предохранитель от сна ПК при возвращении пользователя на страницу
     const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible') {
-            const now = Date.now();
-            if (isSilentRefreshing && (now - refreshStartedAt > SESSION_STUCK_TIMEOUT_MS)) {
-                logger.warn(
-                    `[MSE Session] Вкладка активирована, фоновый рефреш завис (> ${(SESSION_STUCK_TIMEOUT_MS / 1000)} сек.). Сброс состояния.`
-                );
-                cleanupSilentRefresh();
-                refreshFailureCount++;
-                if (refreshFailureCount >= SESSION_MAX_REFRESH_ATTEMPTS) {
-                    triggerCircuitBreaker();
-                }
-            }
+        if (document.visibilityState !== 'visible') return;
+        const elapsed = Date.now() - refreshStartedAt;
+        if (isSilentRefreshing && elapsed > SESSION_STUCK_TIMEOUT_MS) {
+            cleanupSilentRefresh();
+            recordRefreshFailure(
+                `[MSE Session] Вкладка активирована, фоновый рефреш завис (> ${(SESSION_STUCK_TIMEOUT_MS / 1000)} сек.). Сброс состояния.`
+            );
         }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1275,9 +1265,6 @@
     document.addEventListener('mse:databases-updated', handleDatabasesUpdated);
 
     const printDatabaseStatus = () => {
-        if (!databaseState.buildings.loaded && !databaseState.reviews.loaded) {
-            initDatabases();
-        }
         const surveyStatus = databaseState.survey.loaded
             ? (surveyConfig?.enabled ? 'включен' : 'отключен')
             : 'не загружен';
@@ -1322,17 +1309,25 @@
         }
     };
 
+    const syncMyPersonIdCache = (personId) => {
+        if (!personId) return;
+        myPersonId = personId;
+        try {
+            localStorage.setItem(STORAGE_KEY_MY_PERSON_ID, personId);
+        } catch { }
+    };
+
     const getMyPersonId = () => {
         if (myPersonId) return myPersonId;
         try {
             const token = sessionStorage.getItem('id_token');
             if (token) {
                 const claims = parseJwt(token);
-                myPersonId = claims.person_id || claims.sub || null;
-                if (myPersonId) localStorage.setItem(STORAGE_KEY_MY_PERSON_ID, myPersonId);
+                const resolvedId = claims.person_id || claims.sub || null;
+                if (resolvedId) return resolvedId;
             }
         } catch { }
-        return myPersonId || localStorage.getItem(STORAGE_KEY_MY_PERSON_ID) || null;
+        return localStorage.getItem(STORAGE_KEY_MY_PERSON_ID) || null;
     };
 
     const getActiveCalendarPersonId = (myJwtPersonId) => {
@@ -1576,16 +1571,8 @@
         }
     };
 
-    const renderFriendsMenu = () => {
-        const mainMenuContainer = qs('modeus-main-menu p-panelmenu > .p-panelmenu.p-component');
-        if (!mainMenuContainer) { return; }
-
-        // Удаляем старые панели, если они были
-        qs(`#${ID_FRIENDS_MENU}`)?.remove();
-        qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
-
-        const friends = getFriends();
-        const addFriendBtnHTML = `
+    const buildFriendsMenuHtml = (friends) => {
+        const addFriendBtnHtml = `
             <li class="p-menuitem mse-add-friend-menuitem ng-star-inserted">
                 <a role="button" class="p-menuitem-link mse-add-friend-action" id="${ID_OPEN_ADD_FRIEND_BTN}" title="Добавить друга">
                     <span class="mse-add-friend-icon">${SVG_USER_PLUS}</span>
@@ -1593,7 +1580,7 @@
                 </a>
             </li>`;
 
-        const friendListHTML = friends.length > 0
+        const friendListHtml = friends.length > 0
             ? friends.map(friend => `
                 <li class="p-menuitem ng-star-inserted" style="position: relative;">
                     <a role="treeitem" class="p-menuitem-link ng-star-inserted" href="${generateFriendUrl(friend.id)}" title="${escapeHtml(friend.fullName)}">
@@ -1604,11 +1591,7 @@
             `).join('')
             : '<li class="p-menuitem ng-star-inserted"><a class="p-menuitem-link" style="opacity: 0.6; cursor: default;"><span class="p-menuitem-text">Нет друзей</span></a></li>';
 
-        // 1. Панель «Друзья» (цельная, нормальный выпадающий список)
-        const friendsMenuPanel = document.createElement('div');
-        friendsMenuPanel.id = ID_FRIENDS_MENU;
-        friendsMenuPanel.className = 'p-panelmenu-panel ng-star-inserted';
-        friendsMenuPanel.innerHTML = `
+        return `
             <div class="p-component p-panelmenu-header">
                 <a class="p-panelmenu-header-link ng-star-inserted" tabindex="0">
                     <span class="p-menuitem-icon mse-menu-icon ng-star-inserted">${SVG_USER_GROUP}</span>
@@ -1618,20 +1601,17 @@
             </div>
             <div class="p-toggleable-content" style="display: none; overflow: hidden;">
                 <div class="p-panelmenu-content">
-                    <ul class="p-submenu-list p-panelmenu-root-submenu">${addFriendBtnHTML}${friendListHTML}</ul>
+                    <ul class="p-submenu-list p-panelmenu-root-submenu">${addFriendBtnHtml}${friendListHtml}</ul>
                 </div>
             </div>`;
-        mainMenuContainer.appendChild(friendsMenuPanel);
+    };
 
-        // 2. Отдельная панель «Вернуться к себе» — отображается только при просмотре чужого расписания
-        updateReturnToMeButton();
-
-        // Открытие / закрытие списка друзей
+    const bindFriendsMenuEvents = (friendsMenuPanel) => {
         const header = qs('.p-panelmenu-header a', friendsMenuPanel);
         const content = qs('.p-toggleable-content', friendsMenuPanel);
         if (header && content) {
-            header.addEventListener('click', (e) => {
-                e.preventDefault();
+            header.addEventListener('click', (event) => {
+                event.preventDefault();
                 const isOpened = content.style.display !== 'none';
                 content.style.display = isOpened ? 'none' : 'block';
                 header.parentElement.classList.toggle('p-highlight', !isOpened);
@@ -1640,20 +1620,35 @@
             });
         }
 
-        // Крестики удаления
         qsa('.mse-remove-friend-btn', friendsMenuPanel).forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
+            btn.addEventListener('click', (event) => {
+                event.stopPropagation();
                 removeFriend(btn.dataset.id);
             });
         });
 
-        // Кнопка «Добавить друга»
-        qs(`#${ID_OPEN_ADD_FRIEND_BTN}`, friendsMenuPanel)?.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+        qs(`#${ID_OPEN_ADD_FRIEND_BTN}`, friendsMenuPanel)?.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
             startAddFriendGuide();
         });
+    };
+
+    const renderFriendsMenu = () => {
+        const mainMenuContainer = qs('modeus-main-menu p-panelmenu > .p-panelmenu.p-component');
+        if (!mainMenuContainer) return;
+
+        qs(`#${ID_FRIENDS_MENU}`)?.remove();
+        qs(`#${ID_RETURN_TO_ME_MENU}`)?.remove();
+
+        const friendsMenuPanel = document.createElement('div');
+        friendsMenuPanel.id = ID_FRIENDS_MENU;
+        friendsMenuPanel.className = 'p-panelmenu-panel ng-star-inserted';
+        friendsMenuPanel.innerHTML = buildFriendsMenuHtml(getFriends());
+        mainMenuContainer.appendChild(friendsMenuPanel);
+
+        updateReturnToMeButton();
+        bindFriendsMenuEvents(friendsMenuPanel);
     };
 
     const renderFooterFeedback = () => {
@@ -2695,6 +2690,115 @@
         return null;
     };
 
+    const fetchOrGetCachedWeekEvents = async ({ token, activePersonId, weekRange, statusEl }) => {
+        const { timeMin, timeMax, mondayYmd } = weekRange;
+        const weekCacheKey = `${activePersonId}_${mondayYmd}`;
+        const cachedData = getWeekEventsFromCache(weekCacheKey);
+        if (cachedData) {
+            return { eventsData: cachedData, fromWeekCache: true };
+        }
+
+        if (statusEl) statusEl.textContent = '1/2: Загрузка событий...';
+        const eventsResponse = await fetch(API_CALENDAR_SEARCH, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ size: 500, timeMin, timeMax, attendeePersonId: [activePersonId] })
+        });
+        if (!eventsResponse.ok) {
+            throw new Error(`Ошибка API (события): ${eventsResponse.status}`);
+        }
+        const eventsData = await eventsResponse.json();
+        saveWeekEventsToCache(weekCacheKey, eventsData);
+        return { eventsData, fromWeekCache: false };
+    };
+
+    const recordStudentProfileFromAttendee = (attendee, myJwtPersonId) => {
+        const normalized = normalizeName(attendee.fullName);
+
+        if (attendee.personId === myJwtPersonId) {
+            if (attendee.specialtyName) {
+                mySpecialty = attendee.specialtyName.trim();
+                localStorage.setItem(STORAGE_KEY_MY_SPECIALTY, mySpecialty);
+            }
+            if (attendee.specialtyProfile) {
+                myProfile = attendee.specialtyProfile.trim();
+                localStorage.setItem(STORAGE_KEY_MY_PROFILE, myProfile);
+            }
+        }
+
+        if (!uniqueStudents.has(normalized)) {
+            let details = attendee.specialtyName || 'Специальность не указана';
+            if (attendee.specialtyProfile && attendee.specialtyProfile !== attendee.specialtyName) {
+                details += ` : ${attendee.specialtyProfile}`;
+            }
+
+            uniqueStudents.set(normalized, {
+                id: attendee.personId,
+                fullName: attendee.fullName,
+                details,
+                specialtyName: attendee.specialtyName ? attendee.specialtyName.trim() : null,
+                specialtyProfile: attendee.specialtyProfile ? attendee.specialtyProfile.trim() : null
+            });
+        }
+        return normalized;
+    };
+
+    const collectWeekEventAttendees = async ({ events, token, myJwtPersonId, courseUnitMap, statusEl, fromWeekCache }) => {
+        if (statusEl && !fromWeekCache) statusEl.textContent = `2/2: Загрузка студентов (0/${events.length})`;
+
+        eventCache.clear();
+        uniqueStudents.clear();
+
+        const cachedResults = [];
+        const fetchTasks = [];
+        let loadedCount = 0;
+
+        events.forEach(calendarEvent => {
+            if (attendeesMemoryCache.has(calendarEvent.id)) {
+                cachedResults.push({ calendarEvent, attendees: attendeesMemoryCache.get(calendarEvent.id) });
+                loadedCount++;
+                return;
+            }
+            fetchTasks.push(async () => {
+                const attendees = await fetchEventAttendees(calendarEvent.id, token);
+                if (attendees !== null) {
+                    attendeesMemoryCache.set(calendarEvent.id, attendees);
+                }
+                loadedCount++;
+                if (statusEl) statusEl.textContent = `2/2: Загрузка студентов (${loadedCount}/${events.length})`;
+                return { calendarEvent, attendees: attendees || [] };
+            });
+        });
+
+        if (statusEl && loadedCount > 0 && !fromWeekCache) {
+            statusEl.textContent = `2/2: Загрузка студентов (${loadedCount}/${events.length})`;
+        }
+
+        const fetchedResults = await runWithConcurrency(fetchTasks, CALENDAR_ATTENDEES_CONCURRENCY);
+        const allResults = [...cachedResults, ...fetchedResults];
+
+        allResults.forEach(({ calendarEvent, attendees }) => {
+            const studentList = new Set();
+            attendees.forEach(attendee => {
+                if (attendee.roleId === 'STUDENT') {
+                    studentList.add(recordStudentProfileFromAttendee(attendee, myJwtPersonId));
+                }
+            });
+            const courseUnitId = calendarEvent._links['course-unit-realization'].href.split('/').pop();
+            const moduleShortName = courseUnitMap.get(courseUnitId) || '';
+            eventCache.set(calendarEvent.id, {
+                name: calendarEvent.name,
+                fullDisplayName: `${moduleShortName} / ${calendarEvent.name}`,
+                startsAtLocal: calendarEvent.startsAtLocal,
+                attendees: studentList
+            });
+        });
+
+        logger.calendar(
+            `Этап 2: участники загружены (из памяти: ${cachedResults.length}, по сети: ${fetchedResults.length}, уникальных студентов: ${uniqueStudents.size})`
+        );
+    };
+
     const loadAllData = async () => {
         const statusEl = qs('#search-status');
         const controlsEl = qs('#search-controls');
@@ -2706,11 +2810,9 @@
             if (controlsEl && controlsEl.style.display === 'none') controlsEl.style.display = 'flex';
 
             const token = sessionStorage.getItem('id_token');
-            if (!token) throw new Error("Токен не найден.");
+            if (!token) throw new Error('Токен не найден.');
             const myJwtPersonId = parseJwt(token).person_id || parseJwt(token).sub;
-
-            myPersonId = myJwtPersonId;
-            localStorage.setItem(STORAGE_KEY_MY_PERSON_ID, myPersonId);
+            syncMyPersonIdCache(myJwtPersonId);
 
             const activePersonId = getActiveCalendarPersonId(myJwtPersonId);
             if (activePersonId !== lastActiveCalendarPersonId) {
@@ -2727,30 +2829,11 @@
                 return;
             }
 
-            const { timeMin, timeMax, mondayYmd } = weekRange;
-            const weekCacheKey = `${activePersonId}_${mondayYmd}`;
-            let eventsData = getWeekEventsFromCache(weekCacheKey);
-            let fromWeekCache = false;
-
-            if (eventsData) {
-                fromWeekCache = true;
-            } else {
-                if (statusEl) statusEl.textContent = '1/2: Загрузка событий...';
-
-                // Запрашиваем события именно того человека, чей календарь открыт на экране!
-                const eventsResponse = await fetch(API_CALENDAR_SEARCH, {
-                    method: "POST",
-                    headers: { "authorization": `Bearer ${token}`, "content-type": "application/json" },
-                    body: JSON.stringify({ size: 500, timeMin, timeMax, attendeePersonId: [activePersonId] })
-                });
-
-                if (!eventsResponse.ok) throw new Error(`Ошибка API (события): ${eventsResponse.status}`);
-                eventsData = await eventsResponse.json();
-                saveWeekEventsToCache(weekCacheKey, eventsData);
-            }
-
+            const { eventsData, fromWeekCache } = await fetchOrGetCachedWeekEvents({ token, activePersonId, weekRange, statusEl });
             const events = eventsData._embedded?.events || [];
-            logger.calendar(`Этап 1: загружено ${events.length} событий на неделю (${timeMin.slice(0, 10)} — ${timeMax.slice(0, 10)})${fromWeekCache ? ' (из памяти)' : ''}`);
+            logger.calendar(
+                `Этап 1: загружено ${events.length} событий на неделю (${weekRange.timeMin.slice(0, 10)} — ${weekRange.timeMax.slice(0, 10)})${fromWeekCache ? ' (из памяти)' : ''}`
+            );
 
             if (events.length === 0) {
                 if (statusEl) statusEl.textContent = 'Событий на неделе нет.';
@@ -2762,75 +2845,8 @@
 
             const courseUnits = eventsData._embedded?.['course-unit-realizations'] || [];
             const courseUnitMap = new Map(courseUnits.map(courseUnit => [courseUnit.id, courseUnit.nameShort]));
-            if (statusEl && !fromWeekCache) statusEl.textContent = `2/2: Загрузка студентов (0/${events.length})`;
 
-            eventCache.clear();
-            uniqueStudents.clear();
-
-            const cachedResults = [];
-            const fetchTasks = [];
-            let loadedCount = 0;
-
-            events.forEach(event => {
-                if (attendeesMemoryCache.has(event.id)) {
-                    cachedResults.push({ event, attendees: attendeesMemoryCache.get(event.id) });
-                    loadedCount++;
-                } else {
-                    fetchTasks.push(async () => {
-                        const attendees = await fetchEventAttendees(event.id, token);
-                        if (attendees !== null) {
-                            attendeesMemoryCache.set(event.id, attendees);
-                        }
-                        loadedCount++;
-                        if (statusEl) statusEl.textContent = `2/2: Загрузка студентов (${loadedCount}/${events.length})`;
-                        return { event, attendees: attendees || [] };
-                    });
-                }
-            });
-
-            if (statusEl && loadedCount > 0 && !fromWeekCache) statusEl.textContent = `2/2: Загрузка студентов (${loadedCount}/${events.length})`;
-
-            const fetchedResults = await runWithConcurrency(fetchTasks, CALENDAR_ATTENDEES_CONCURRENCY);
-            const allResults = [...cachedResults, ...fetchedResults];
-
-            allResults.forEach(({ event, attendees }) => {
-                const studentList = new Set();
-                attendees.forEach(attendee => {
-                    if (attendee.roleId === 'STUDENT') {
-                        const normalized = normalizeName(attendee.fullName);
-
-                        if (attendee.personId === myJwtPersonId) {
-                            if (attendee.specialtyName) {
-                                mySpecialty = attendee.specialtyName.trim();
-                                localStorage.setItem(STORAGE_KEY_MY_SPECIALTY, mySpecialty);
-                            }
-                            if (attendee.specialtyProfile) {
-                                myProfile = attendee.specialtyProfile.trim();
-                                localStorage.setItem(STORAGE_KEY_MY_PROFILE, myProfile);
-                            }
-                        }
-
-                        if (!uniqueStudents.has(normalized)) {
-                            let details = attendee.specialtyName || 'Специальность не указана';
-                            if (attendee.specialtyProfile && attendee.specialtyProfile !== attendee.specialtyName) details += ` : ${attendee.specialtyProfile}`;
-
-                            uniqueStudents.set(normalized, {
-                                id: attendee.personId,
-                                fullName: attendee.fullName,
-                                details,
-                                specialtyName: attendee.specialtyName ? attendee.specialtyName.trim() : null,
-                                specialtyProfile: attendee.specialtyProfile ? attendee.specialtyProfile.trim() : null
-                            });
-                        }
-                        studentList.add(normalized);
-                    }
-                });
-                const courseUnitId = event._links['course-unit-realization'].href.split('/').pop();
-                const moduleShortName = courseUnitMap.get(courseUnitId) || '';
-                eventCache.set(event.id, { name: event.name, fullDisplayName: `${moduleShortName} / ${event.name}`, startsAtLocal: event.startsAtLocal, attendees: studentList });
-            });
-
-            logger.calendar(`Этап 2: участники загружены (из памяти: ${cachedResults.length}, по сети: ${fetchedResults.length}, уникальных студентов: ${uniqueStudents.size})`);
+            await collectWeekEventAttendees({ events, token, myJwtPersonId, courseUnitMap, statusEl, fromWeekCache });
 
             const linkedCount = linkDomEventsToCache();
             logger.calendar(`Этап 3: завершена привязка к DOM (привязано ${linkedCount} карточек событий)`);
@@ -2846,7 +2862,7 @@
             } else {
                 updateSearchCompactState();
             }
-            checkSurvey();
+            showSurveyIfEligible();
         } catch (err) {
             if (statusEl) {
                 statusEl.textContent = `Ошибка: ${err.message}`;
@@ -3697,10 +3713,16 @@
         </div>
     `;
 
+    const SURVEY_AUTOCLOSE_DELAY_MS = 3000;
+    const URL_LIST_ENHANCE_DELAY_MS = 250;
+    const URL_CALENDAR_RELOAD_DELAY_MS = 300;
+    const GRADES_INITIAL_ENHANCE_DELAY_MS = 300;
+    const GRADES_SETTLE_ENHANCE_DELAY_MS = 800;
+
     /**
      * Экран 1: Приглашение к опросу.
      */
-    const renderSurveyInviteScreen = (container, config, state, onTransition, onClose) => {
+    const renderSurveyInviteScreen = ({ container, config, state, onTransition, onClose }) => {
         const titleText = config.title || 'Помогите улучшить Modeus Enhancer';
         const descText = escapeHtml(config.description || 'Ответьте на пару коротких вопросов, чтобы следующие обновления были полезны именно вам.');
 
@@ -3739,7 +3761,7 @@
     /**
      * Экран 1.1: Подменю отказа.
      */
-    const renderSurveyDeclineScreen = (container, config, state, onTransition, onClose) => {
+    const renderSurveyDeclineScreen = ({ container, config, state, onTransition, onClose }) => {
         const titleText = config.title || 'Помогите улучшить Modeus Enhancer';
 
         container.innerHTML = `
@@ -3912,8 +3934,16 @@
     /**
      * Обрабатывает изменение выбора опции ответа.
      */
-    const handleQuestionOptionChange = (e, isMultiple, selectedOptions, container, customContainer, customInput, onValidate) => {
-        const target = e.target;
+    const handleQuestionOptionChange = ({
+        event,
+        isMultiple,
+        selectedOptions,
+        container,
+        customContainer,
+        customInput,
+        onValidate
+    }) => {
+        const target = event.target;
         if (target.name !== 'mse_survey_choice') return;
 
         const val = target.value;
@@ -3925,9 +3955,9 @@
             if (target.checked) selectedOptions.add(val);
         }
 
-        qsa('.q-opt', container).forEach(lbl => {
-            const inp = qs('input', lbl);
-            lbl.classList.toggle('selected', inp?.checked || false);
+        qsa('.q-opt', container).forEach(labelEl => {
+            const inputEl = qs('input', labelEl);
+            labelEl.classList.toggle('selected', inputEl?.checked || false);
         });
 
         if (customContainer) {
@@ -3942,7 +3972,16 @@
     /**
      * Обрабатывает переход к следующему вопросу или отправку опроса.
      */
-    const handleQuestionNextSubmit = (config, state, question, isLastQuestion, isMultiple, selectedOptions, customText, onTransition) => {
+    const handleQuestionNextSubmit = ({
+        config,
+        state,
+        question,
+        isLastQuestion,
+        isMultiple,
+        selectedOptions,
+        customText,
+        onTransition
+    }) => {
         const finalAnswer = buildFinalQuestionAnswer(isMultiple, selectedOptions, customText);
         if (!finalAnswer) return;
 
@@ -4000,31 +4039,48 @@
             }
         });
 
-        optionsContainer?.addEventListener('change', (e) => {
-            handleQuestionOptionChange(e, isMultiple, selectedOptions, container, customContainer, customInput, updateValidation);
+        optionsContainer?.addEventListener('change', (event) => {
+            handleQuestionOptionChange({
+                event,
+                isMultiple,
+                selectedOptions,
+                container,
+                customContainer,
+                customInput,
+                onValidate: updateValidation
+            });
         });
 
-        customInput?.addEventListener('input', (e) => {
-            setCustomText(e.target.value);
+        customInput?.addEventListener('input', (event) => {
+            setCustomText(event.target.value);
             updateValidation();
         });
 
-        customInput?.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && nextBtn && !nextBtn.disabled) {
-                e.preventDefault();
+        customInput?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && nextBtn && !nextBtn.disabled) {
+                event.preventDefault();
                 nextBtn.click();
             }
         });
 
         nextBtn?.addEventListener('click', () => {
-            handleQuestionNextSubmit(config, state, question, isLastQuestion, isMultiple, selectedOptions, getCustomText(), onTransition);
+            handleQuestionNextSubmit({
+                config,
+                state,
+                question,
+                isLastQuestion,
+                isMultiple,
+                selectedOptions,
+                customText: getCustomText(),
+                onTransition
+            });
         });
     };
 
     /**
      * Экран 2: Интерактивный опрос с радиокнопками, чекбоксами и кастомным ответом.
      */
-    const renderSurveyQuestionScreen = (container, config, state, onTransition, onClose) => {
+    const renderSurveyQuestionScreen = ({ container, config, state, onTransition, onClose }) => {
         const questions = config.questions || [];
         const question = questions[state.questionIndex];
         if (!question) {
@@ -4070,7 +4126,7 @@
             isMultiple,
             selectedOptions,
             getCustomText: () => customText,
-            setCustomText: (v) => { customText = v; },
+            setCustomText: (value) => { customText = value; },
             onClose,
             onTransition
         });
@@ -4079,7 +4135,7 @@
     /**
      * Экран 3: Финал и благодарность с автозакрытием.
      */
-    const renderSurveyCompletedScreen = (container, state, onClose) => {
+    const renderSurveyCompletedScreen = ({ container, state, onClose }) => {
         container.innerHTML = `
             ${buildSurveyHeaderHtml('Спасибо за участие!', { closeTitle: 'Закрыть' })}
             <div class="sc-desc">
@@ -4093,7 +4149,14 @@
 
         state.autoCloseTimer = setTimeout(() => {
             onClose();
-        }, 3000);
+        }, SURVEY_AUTOCLOSE_DELAY_MS);
+    };
+
+    const SURVEY_SCREEN_RENDERERS = {
+        invite: renderSurveyInviteScreen,
+        decline: renderSurveyDeclineScreen,
+        question: renderSurveyQuestionScreen,
+        completed: renderSurveyCompletedScreen
     };
 
     /**
@@ -4127,19 +4190,9 @@
 
         const onTransition = () => {
             if (state.autoCloseTimer) clearTimeout(state.autoCloseTimer);
-            switch (state.screen) {
-                case 'invite':
-                    renderSurveyInviteScreen(container, config, state, onTransition, onClose);
-                    break;
-                case 'decline':
-                    renderSurveyDeclineScreen(container, config, state, onTransition, onClose);
-                    break;
-                case 'question':
-                    renderSurveyQuestionScreen(container, config, state, onTransition, onClose);
-                    break;
-                case 'completed':
-                    renderSurveyCompletedScreen(container, state, onClose);
-                    break;
+            const renderScreen = SURVEY_SCREEN_RENDERERS[state.screen];
+            if (renderScreen) {
+                renderScreen({ container, config, state, onTransition, onClose });
             }
         };
 
@@ -4172,10 +4225,10 @@
     };
 
     /**
-     * Проверяет доступность опроса и инициирует его отображение.
+     * Проверяет доступность опроса и при выполнении условий отображает попап.
      * @returns {boolean}
      */
-    const checkSurvey = () => {
+    const showSurveyIfEligible = () => {
         if (!shouldShowSurvey(surveyConfig)) {
             logger.survey('Опрос не будет показан (условия guard не удовлетворены).');
             return false;
@@ -4197,12 +4250,12 @@
         const param = urlObj.searchParams.get('selectedEvent');
         try {
             if (param && param !== '""') newEventId = JSON.parse(param).eventId;
-        } catch (e) {
-            logger.warn('Не удалось распарсить selectedEvent из URL:', e);
+        } catch (err) {
+            logger.warn('Не удалось распарсить selectedEvent из URL:', err);
         }
         if (newEventId !== currentEventId) {
             currentEventId = newEventId;
-            setTimeout(() => { enhanceLists(); }, 250);
+            setTimeout(() => { enhanceLists(); }, URL_LIST_ENHANCE_DELAY_MS);
         } else if (!newEventId) {
             currentEventId = null;
         }
@@ -4212,14 +4265,12 @@
             const calendarParam = urlObj.searchParams.get('calendar');
             const activePersonId = getActiveCalendarPersonId(getMyPersonId());
 
-            // Очищаем поиск и перезагружаем данные только если реально сменился владелец календаря (перешли к другу или к себе)
             if (lastActiveCalendarPersonId !== null && activePersonId && lastActiveCalendarPersonId !== activePersonId) {
                 lastActiveCalendarPersonId = activePersonId;
                 clearSearch();
                 updateReturnToMeButton();
-                setTimeout(() => { loadAllData(); }, 300);
+                setTimeout(() => { loadAllData(); }, URL_CALENDAR_RELOAD_DELAY_MS);
             } else if (lastCalendarParam && lastCalendarParam !== calendarParam) {
-                // Если переключили неделю расписания
                 lastCalendarParam = calendarParam;
                 loadAllData();
             } else {
@@ -4238,15 +4289,118 @@
                 restorePrimaryGradesFromCache();
             }
             enhanceGradesTable();
-            setTimeout(enhanceGradesTable, 300);
-            setTimeout(enhanceGradesTable, 800);
+            setTimeout(enhanceGradesTable, GRADES_INITIAL_ENHANCE_DELAY_MS);
+            setTimeout(enhanceGradesTable, GRADES_SETTLE_ENHANCE_DELAY_MS);
         }
+    };
+
+    const buildSearchToolbarHtml = () => `
+        <span id="search-status" style="display: none;"></span>
+        <div id="search-controls" class="toolbar">
+            <button id="add-friends-to-search-btn" class="icon-btn" title="Добавить друзей в поиск общих пар" type="button">
+                ${getSvgIcon('users', { size: 16, strokeWidth: 2 })}
+            </button>
+            <button id="refresh-data-btn" class="icon-btn" title="Обновить данные для поиска общих пар" type="button">
+                ${getSvgIcon('refresh-ccw', { size: 16, strokeWidth: 2 })}
+            </button>
+            <div id="selected-students-dropdown-wrapper" style="display: none; position: relative;">
+                <div id="selected-students-pill" class="split-btn">
+                    <button id="selected-students-toggle" class="split-main" title="Показать список выбранных" type="button">
+                        <span class="selected-students-label">Выбрано:&nbsp;</span><span id="selected-count">0</span>
+                        ${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'selected-dropdown-arrow' })}
+                    </button>
+                    <button id="selected-students-reset-btn" class="split-clear" title="Сбросить всех выбранных студентов" type="button">
+                        ${getSvgIcon('x', { size: 14, strokeWidth: 2.2 })}
+                    </button>
+                </div>
+                <div id="selected-students-container" class="selected-dropdown"></div>
+            </div>
+            <div id="search-popover-wrapper">
+                <button id="${ID_SEARCH_TOGGLE_BTN}" class="icon-btn" title="Найти общие пары" type="button">
+                    ${getSvgIcon('search', { size: 16, strokeWidth: 2 })}
+                </button>
+                <div id="${ID_SEARCH_POPOVER}">
+                    <input type="text" id="${ID_SEARCH_INPUT}" placeholder="Найти общие пары...">
+                    <div id="search-suggestions"></div>
+                </div>
+            </div>
+        </div>`;
+
+    const bindSearchToolbarEvents = () => {
+        qs('#add-friends-to-search-btn').addEventListener('click', () => {
+            getFriends().forEach(friend => selectedStudents.add(friend.fullName));
+            const searchInput = qs(`#${ID_SEARCH_INPUT}`);
+            if (searchInput) searchInput.value = '';
+            const suggestions = qs('#search-suggestions');
+            if (suggestions) suggestions.style.display = 'none';
+            toggleSearchPopover(false);
+            updateSelectedStudentsDisplay();
+            highlightEventsForStudents();
+        });
+
+        qs('#selected-students-toggle').addEventListener('click', () => {
+            toggleSearchPopover(false);
+            const dropdownContainer = qs('#selected-students-container');
+            const toggleButton = qs('#selected-students-toggle');
+            const pill = qs('#selected-students-pill');
+            const isOpening = dropdownContainer.style.display !== 'flex';
+            dropdownContainer.style.display = isOpening ? 'flex' : 'none';
+            if (toggleButton) toggleButton.classList.toggle('is-open', isOpening);
+            if (pill) pill.classList.toggle('is-open', isOpening);
+        });
+
+        qs('#selected-students-container').addEventListener('click', (event) => {
+            const removeBtn = event.target.closest('.remove-student-btn, .selected-item-remove');
+            if (!removeBtn) return;
+            event.stopPropagation();
+            const name = removeBtn.getAttribute('data-name');
+            if (name) {
+                selectedStudents.delete(name);
+                updateSelectedStudentsDisplay();
+                highlightEventsForStudents();
+            }
+        });
+
+        qs('#refresh-data-btn').addEventListener('click', () => {
+            attendeesMemoryCache.clear();
+            weekEventsCache.clear();
+            loadAllData();
+        });
+
+        qs(`#${ID_SEARCH_TOGGLE_BTN}`)?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleSearchPopover();
+        });
+
+        qs(`#${ID_SEARCH_INPUT}`).addEventListener('input', updateSuggestions);
+        qs(`#${ID_SEARCH_INPUT}`).addEventListener('keydown', handleSearchKeydown);
+        qs('#selected-students-reset-btn').addEventListener('click', clearSearch);
+
+        const suggestionsContainer = qs('#search-suggestions');
+        suggestionsContainer.addEventListener('click', (event) => {
+            const item = event.target.closest('.suggestion-item');
+            if (item) {
+                selectStudentSuggestion(item.getAttribute('data-name'));
+            }
+        });
+        suggestionsContainer.addEventListener('mousemove', (event) => {
+            const item = event.target.closest('.suggestion-item');
+            if (!item) return;
+            const items = qsa('.suggestion-item', suggestionsContainer);
+            const idx = items.indexOf(item);
+            if (idx !== -1 && idx !== activeSuggestionIndex) {
+                activeSuggestionIndex = idx;
+                updateActiveSuggestion(items, activeSuggestionIndex);
+            }
+        });
+
+        document.removeEventListener('click', handleOutsideSearchClick);
+        document.addEventListener('click', handleOutsideSearchClick);
     };
 
     const setupUI = () => {
         const fcToolbar = qs('.fc-toolbar') || qs('.fc-header-toolbar');
-        const form = qs('.main-calendar-form');
-        const targetToolbar = fcToolbar || form;
+        const targetToolbar = fcToolbar || qs('.main-calendar-form');
         if (!targetToolbar) return;
 
         if (cachedSearchContainer) {
@@ -4263,113 +4417,14 @@
         const container = document.createElement('div');
         container.id = ID_SEARCH_CONTAINER;
         container.className = CLASS_IN_CALENDAR_TOOLBAR;
-        container.innerHTML = `
-            <span id="search-status" style="display: none;"></span>
-            <div id="search-controls" class="toolbar">
-                <button id="add-friends-to-search-btn" class="icon-btn" title="Добавить друзей в поиск общих пар" type="button">
-                    ${getSvgIcon('users', { size: 16, strokeWidth: 2 })}
-                </button>
-                <button id="refresh-data-btn" class="icon-btn" title="Обновить данные для поиска общих пар" type="button">
-                    ${getSvgIcon('refresh-ccw', { size: 16, strokeWidth: 2 })}
-                </button>
-                <div id="selected-students-dropdown-wrapper" style="display: none; position: relative;">
-                    <div id="selected-students-pill" class="split-btn">
-                        <button id="selected-students-toggle" class="split-main" title="Показать список выбранных" type="button">
-                            <span class="selected-students-label">Выбрано:&nbsp;</span><span id="selected-count">0</span>
-                            ${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'selected-dropdown-arrow' })}
-                        </button>
-                        <button id="selected-students-reset-btn" class="split-clear" title="Сбросить всех выбранных студентов" type="button">
-                            ${getSvgIcon('x', { size: 14, strokeWidth: 2.2 })}
-                        </button>
-                    </div>
-                    <div id="selected-students-container" class="selected-dropdown"></div>
-                </div>
-                <div id="search-popover-wrapper">
-                    <button id="${ID_SEARCH_TOGGLE_BTN}" class="icon-btn" title="Найти общие пары" type="button">
-                        ${getSvgIcon('search', { size: 16, strokeWidth: 2 })}
-                    </button>
-                    <div id="${ID_SEARCH_POPOVER}">
-                        <input type="text" id="${ID_SEARCH_INPUT}" placeholder="Найти общие пары...">
-                        <div id="search-suggestions"></div>
-                    </div>
-                </div>
-            </div>`;
+        container.innerHTML = buildSearchToolbarHtml();
         if (fcToolbar && window.getComputedStyle && window.getComputedStyle(fcToolbar).position === 'static') {
             fcToolbar.style.position = 'relative';
         }
         cachedSearchContainer = container;
         targetToolbar.appendChild(container);
 
-        qs('#add-friends-to-search-btn').addEventListener('click', () => {
-            const friends = getFriends();
-            friends.forEach(f => selectedStudents.add(f.fullName));
-            const searchInput = qs(`#${ID_SEARCH_INPUT}`);
-            if (searchInput) searchInput.value = '';
-            const suggestions = qs('#search-suggestions');
-            if (suggestions) suggestions.style.display = 'none';
-            toggleSearchPopover(false);
-            updateSelectedStudentsDisplay();
-            highlightEventsForStudents();
-        });
-
-        qs('#selected-students-toggle').addEventListener('click', () => {
-            toggleSearchPopover(false);
-            const cont = qs('#selected-students-container');
-            const toggle = qs('#selected-students-toggle');
-            const pill = qs('#selected-students-pill');
-            const isOpening = cont.style.display !== 'flex';
-            cont.style.display = isOpening ? 'flex' : 'none';
-            if (toggle) toggle.classList.toggle('is-open', isOpening);
-            if (pill) pill.classList.toggle('is-open', isOpening);
-        });
-
-        qs('#selected-students-container').addEventListener('click', (e) => {
-            const removeBtn = e.target.closest('.remove-student-btn, .selected-item-remove');
-            if (removeBtn) {
-                e.stopPropagation();
-                const name = removeBtn.getAttribute('data-name');
-                if (name) {
-                    selectedStudents.delete(name);
-                    updateSelectedStudentsDisplay();
-                    highlightEventsForStudents();
-                }
-            }
-        });
-
-        qs('#refresh-data-btn').addEventListener('click', () => {
-            attendeesMemoryCache.clear();
-            weekEventsCache.clear();
-            loadAllData();
-        });
-
-        qs(`#${ID_SEARCH_TOGGLE_BTN}`)?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            toggleSearchPopover();
-        });
-
-        qs(`#${ID_SEARCH_INPUT}`).addEventListener('input', updateSuggestions);
-        qs(`#${ID_SEARCH_INPUT}`).addEventListener('keydown', handleSearchKeydown);
-        qs('#selected-students-reset-btn').addEventListener('click', clearSearch);
-        qs('#search-suggestions').addEventListener('click', (e) => {
-            const item = e.target.closest('.suggestion-item');
-            if (item) {
-                selectStudentSuggestion(item.getAttribute('data-name'));
-            }
-        });
-        qs('#search-suggestions').addEventListener('mousemove', (e) => {
-            const item = e.target.closest('.suggestion-item');
-            if (item) {
-                const items = qsa('.suggestion-item', qs('#search-suggestions'));
-                const idx = items.indexOf(item);
-                if (idx !== -1 && idx !== activeSuggestionIndex) {
-                    activeSuggestionIndex = idx;
-                    updateActiveSuggestion(items, activeSuggestionIndex);
-                }
-            }
-        });
-
-        document.removeEventListener('click', handleOutsideSearchClick);
-        document.addEventListener('click', handleOutsideSearchClick);
+        bindSearchToolbarEvents();
         setupNativePopoverObserver();
         setupCalendarResizeObserver();
         updateSelectedStudentsDisplay();
@@ -5306,44 +5361,17 @@
         }
     };
 
-    const hasUnenhancedBuildingEvents = (mutations) => {
+    const hasAddedEventMatching = (mutations, eventElementPredicate, nestedSelector) => {
         if (!mutations) return false;
-        for (let i = 0; i < mutations.length; i++) {
-            const added = mutations[i].addedNodes;
-            if (!added || added.length === 0) continue;
-            for (let j = 0; j < added.length; j++) {
-                const node = added[j];
+        for (const mutation of mutations) {
+            const addedNodes = mutation.addedNodes;
+            if (!addedNodes || addedNodes.length === 0) continue;
+            for (const node of addedNodes) {
                 if (!node || node.nodeType !== Node.ELEMENT_NODE) continue;
                 if (node.classList?.contains('fc-time-grid-event')) {
-                    if (node.getAttribute('data-mse-buildings-enhanced') !== '1') {
-                        return true;
-                    }
-                } else if (typeof node.querySelector === 'function') {
-                    if (node.querySelector('.fc-time-grid-event:not([data-mse-buildings-enhanced="1"])')) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    };
-
-    const hasUnmarkedCalendarEvents = (mutations) => {
-        if (!mutations) return false;
-        for (let i = 0; i < mutations.length; i++) {
-            const added = mutations[i].addedNodes;
-            if (!added || added.length === 0) continue;
-            for (let j = 0; j < added.length; j++) {
-                const node = added[j];
-                if (!node || node.nodeType !== Node.ELEMENT_NODE) continue;
-                if (node.classList?.contains('fc-time-grid-event')) {
-                    if (!node.classList.contains('search-highlight') && !node.classList.contains('search-fade')) {
-                        return true;
-                    }
-                } else if (typeof node.querySelector === 'function') {
-                    if (node.querySelector('.fc-time-grid-event:not(.search-highlight):not(.search-fade)')) {
-                        return true;
-                    }
+                    if (eventElementPredicate(node)) return true;
+                } else if (typeof node.querySelector === 'function' && node.querySelector(nestedSelector)) {
+                    return true;
                 }
             }
         }
@@ -5362,8 +5390,16 @@
 
         // Синхронная подмена названий корпусов и восстановление подсветки пар строго до Paint-фазы браузера
         if (!isRestoringHighlights) {
-            const hasNewBuildings = hasUnenhancedBuildingEvents(mutations);
-            const hasNewSearch = selectedStudents.size > 0 && eventCache.size > 0 && hasUnmarkedCalendarEvents(mutations);
+            const hasNewBuildings = hasAddedEventMatching(
+                mutations,
+                node => node.getAttribute('data-mse-buildings-enhanced') !== '1',
+                '.fc-time-grid-event:not([data-mse-buildings-enhanced="1"])'
+            );
+            const hasNewSearch = selectedStudents.size > 0 && eventCache.size > 0 && hasAddedEventMatching(
+                mutations,
+                node => !node.classList.contains('search-highlight') && !node.classList.contains('search-fade'),
+                '.fc-time-grid-event:not(.search-highlight):not(.search-fade)'
+            );
 
             if (hasNewBuildings || hasNewSearch) {
                 try {
