@@ -11,28 +11,21 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-
-const ROOT_DIR = path.resolve(__dirname, '..');
+const {
+    ROOT_DIR,
+    readProjectFile,
+    parseJsonFile: rawParseJsonFile,
+    stripComments
+} = require('./test-helpers.js');
 
 // --- Вспомогательные функции (Clean Code) ---
 
-function readProjectFile(relPath) {
-    return fs.readFileSync(path.join(ROOT_DIR, relPath), 'utf8');
-}
-
 function parseJsonFile(relPath) {
-    const raw = readProjectFile(relPath);
     try {
-        return JSON.parse(raw);
+        return rawParseJsonFile(relPath);
     } catch (err) {
-        assert.fail(`Невалидный JSON в файле ${relPath}: ${err.message}`);
+        assert.fail(err.message);
     }
-}
-
-function stripComments(code) {
-    return code
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '');
 }
 
 function getJsFilesFromDir(dirRelPath) {
@@ -47,6 +40,19 @@ function extractCssClasses(cssContent) {
     const cleanCss = stripComments(cssContent);
     const matches = cleanCss.match(/(?<![\w\d])\.([a-zA-Z_-][a-zA-Z0-9_-]*)/g) || [];
     return Array.from(new Set(matches.map(m => m.slice(1))));
+}
+
+function extractCssIds(cssContent) {
+    const cleanCss = stripComments(cssContent)
+        // Срезаем значения CSS-деклараций (включая hex-цвета), сохраняя вложенные селекторы
+        .replace(/[a-z-]+\s*:\s*[^;{}]+;/gi, '');
+    const hexColorRegex = /^[0-9a-f]{3}([0-9a-f]{3}([0-9a-f]{2})?)?$/i;
+    const matches = cleanCss.match(/#([a-zA-Z_-][a-zA-Z0-9_-]*)/g) || [];
+    return Array.from(new Set(
+        matches
+            .map(m => m.slice(1))
+            .filter(id => !hexColorRegex.test(id))
+    ));
 }
 
 // --- Наборы тестов ---
@@ -247,6 +253,8 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
 
         const peClasses = extractCssClasses(peCss);
         const mainClasses = extractCssClasses(mainCss);
+        const peIds = extractCssIds(peCss);
+        const mainIds = extractCssIds(mainCss);
 
         const runtimeSources = [
             'src/injected.js',
@@ -311,6 +319,8 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
 
         const deadInPe = peClasses.filter(cls => !isNativeOrDynamic(cls) && !runtimeSources.includes(cls));
         const deadInMain = mainClasses.filter(cls => !isNativeOrDynamic(cls) && !runtimeSources.includes(cls));
+        const deadIdsInPe = peIds.filter(id => !runtimeSources.includes(id));
+        const deadIdsInMain = mainIds.filter(id => !runtimeSources.includes(id));
 
         assert.deepStrictEqual(
             deadInPe,
@@ -321,6 +331,16 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
             deadInMain,
             [],
             `Обнаружены мёртвые CSS-классы в styles/styles.css: ${deadInMain.join(', ')}`
+        );
+        assert.deepStrictEqual(
+            deadIdsInPe,
+            [],
+            `Обнаружены неиспользуемые #id-селекторы в styles/pe-styles.css: ${deadIdsInPe.join(', ')}`
+        );
+        assert.deepStrictEqual(
+            deadIdsInMain,
+            [],
+            `Обнаружены неиспользуемые #id-селекторы в styles/styles.css: ${deadIdsInMain.join(', ')}`
         );
     });
 

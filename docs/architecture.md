@@ -70,13 +70,15 @@ modeus-beta/
 │   ├── content.js        # Content script (run_at: document_end): фоновый предзагрузчик баз и инжектор скриптов
 │   ├── sso-autologin.js  # Content script (all_frames, run_at: document_end на fs.utmn.ru и auth.modeus.org): опциональный автовход 24ч+ и автовозврат (ADR-005)
 │   ├── icons.js          # Централизованный словарь SVG-иконок и фабрика рендеринга (Single Source of Truth)
+│   ├── shared-utils.js   # Общие чистые утилиты Main World (escapeHtml, JWT, друзья, расписание, notifyUser)
 │   ├── injected.js       # Main world script: ядро календаря, поиск пар, успеваемость, Session Keeper
 │   └── pe-module.js      # Main world script: модуль умного подбора физкультуры и бронирования секций
 ├── tools-src/            # Инструменты разработки, CI-валидаторы и система автотестов (исключаются из релизного бандла)
 │   ├── verify-icons.js   # Валидатор синхронизации icons/svg/ и соблюдения правила Zero-Raw-SVG
-│   ├── 1-static-contracts.test.js # Автотесты: архитектурные контракты, безопасность MV3, детектор мёртвого кода и CSS
+│   ├── test-helpers.js   # Общие файловые, AST/hook и storage-хелперы для всех 3 шагов тестирования
+│   ├── 1-static-contracts.test.js # Автотесты: архитектурные контракты, безопасность MV3, детектор мёртвого кода/CSS (классы и #id)
 │   ├── 2-unit-and-dom.test.js     # Автотесты: юнит- и DOM-тесты логики расширения (токены, криптография, баллы, расписание, физкультура, опросы)
-│   └── 3-live-chrome-layout.test.js # Автотесты: живые геометрические и визуальные тесты в Chrome (CDP, высоты, поповеры, скроллбары, модалки)
+│   └── 3-live-chrome-layout.test.js # Автотесты: изолированные живые геометрические и визуальные тесты в Chrome (CDP)
 ├── styles/
 │   ├── styles.css        # Основные стили расширения (поиск, друзья, тултипы, оценки, toast-уведомления; область body.mse-active)
 │   └── pe-styles.css     # Стили интерфейса физкультуры и плавных GPU-скроллбаров (единый источник без дублирования в styles.css)
@@ -111,7 +113,7 @@ modeus-beta/
    * Имеет доступ к `chrome.storage.local` (зашифрованный сейф `mse_sso_vault`), `chrome.storage.sync`, `chrome.runtime.getURL` и декларативным сетевым правилам.
    * Изолирован от контекста `window` страницы и не может напрямую перехватывать вызовы `fetch` Angular-приложения, однако разделяет общее дисковое и сессионное хранилище источника (`localStorage` и `sessionStorage`).
 2. **Main World (Главный мир страницы):**
-   * Выполняет `src/injected.js` и `src/pe-module.js`, внедряемые в DOM через теги `<script>`.
+   * Выполняет `src/icons.js`, `src/shared-utils.js`, `src/pe-module.js` и `src/injected.js`, последовательно внедряемые в DOM через `<script>` из `src/content.js` (без дублирования в Isolated World `content_scripts`).
    * Имеет прямой доступ к глобальному объекту `window`, прототипам `fetch` и `XMLHttpRequest`, а также к контексту рендеринга Angular.
    * Патчит `window.fetch` и `XMLHttpRequest.prototype.send` через функцию `interceptNetworkRequests()`:
      * **`window.fetch`** перехватывает нативные запросы поиска персон (`/api/people/persons/search` для сбора людей и автодополнения), модулей физкультуры (`/module-elements/` в Booking API) и таблицу успеваемости (`/academic-period-results-table/primary`).
@@ -138,7 +140,7 @@ modeus-beta/
              ├── Вставить флаг состояния автовхода в <meta>
              ├── Синхронно прочитать справочники из кэша (<5 мс), сериализовать в <meta>-теги Base64
              │   └── корпуса · отзывы · конфигурация опросов
-             ├── Внедрить <script src="src/icons.js">, <script src="src/pe-module.js"> и <script src="src/injected.js">
+             ├── Внедрить <script src="src/icons.js">, <script src="src/shared-utils.js">, <script src="src/pe-module.js"> и <script src="src/injected.js">
              └── Запустить фоновую ревалидацию справочников с GitHub Raw (SWR)
                            │
                            ▼
@@ -325,18 +327,18 @@ modeus-beta/
   * Кнопка закрытия `#mse-pe-close` встроена непосредственно внутрь `.header-panel`. На широких экранах (`> 1640px`) шапка выстраивается в одну строку; на `<= 1640px` переходит в двухстрочную компоновку (заголовок `h2` и панель фильтров `.filters-group` по центру, кнопка закрытия зафиксирована в правом верхнем углу).
   * При ширине `<= 1240px` инпут поиска друга (`#pe-friendWrapper`) автоматически сворачивается в компактную кнопку-лупу `#pe-friendToggleBtn` (34×34px), открывающую плавающий поповер `#pe-friendPopover` со списком сохранённых друзей `#pe-friendDropdown` (закрытие по клику вне поповера и `Escape`).
 * **Сетка занятости и карточки секций:**
-  * Загружается дерево кампании бронирования и расписание студента на 21 день вперед (`POST /calendar/events/search`). Расписание раскладывается по матрице из 7 стандартных пар для рабочих дней недели, блокируя занятые слоты.
-  * **Двухстрочные карточки (`.sport-card`) и занятость (`.busy-card`):** Первая строка карточки (`.sc-top`) отображает название вида спорта (`.sc-title-text` с `text-overflow: ellipsis`) и прижатый счётчик групп (`.sc-count`), вторая строка (`.sc-bottom`) — корпус (`.sc-loc`) и индикатор свободных мест (`.sc-slots`) справа. Заголовок `.busy-card` защищён от вытеснения шеврона за счёт `overflow: hidden` и обрезки длинного названия.
+  * Загружается дерево кампании бронирования и расписание студента на 21 день вперед (`fetchBlockedScheduleSlots` в `src/shared-utils.js`). Расписание раскладывается по единой конфигурации `PE_TIME_SLOTS` (7 стандартных пар для рабочих дней недели), храня конфликты как массивы названий дисциплин (без HTML-разметки в данных).
+  * **Двухстрочные карточки (`.sport-card`) и занятость (`.busy-card`):** Первая строка карточки (`.sc-top`) отображает название вида спорта (`.sc-title-text` с `text-overflow: ellipsis`) и прижатый счётчик групп (`.sc-count`), вторая строка (`.sc-bottom`) — корпус (`.sc-loc`) и индикатор свободных мест (`.sc-slots` с отступом `.sc-slots-total`, формат `13 /20`) справа. Заголовок `.busy-card` защищён от вытеснения шеврона за счёт `overflow: hidden` и обрезки длинного названия, а раскрытие `.busy-card.is-expandable` делегировано непосредственно на `#mse-pe-overlay`.
 * **Плавный GPU-скроллбар (`attachSmoothScrollbar`):**
   * Нативные полосы прокрутки скрываются классом `.mse-has-smooth-scroll` (при сохранении чистого `6px` CSS-фолбэка для неинициализированных контейнеров).
-  * Хелпер `attachSmoothScrollbar(scrollEl)` монтирует трек `.mse-scroll-track` с ползунком `.mse-scroll-thumb`, расширяющимся по ширине от `~2.1px` до `6px` через GPU `transform: scaleX(...)` при наведении/перетаскивании.
+  * Хелпер `attachSmoothScrollbar(scrollEl)` монтирует трек `.mse-scroll-track` с ползунком `.mse-scroll-thumb`, расширяющимся по ширине от `~2.1px` до `6px` через GPU `transform: scaleX(...)` при наведении/перетаскивании; метод `destroy()` очищает отложенный таймер инициализации, слушатели перетаскивания на `window` и `ResizeObserver`.
   * Для изоляции дорожек от скроллящегося контента и ячеек `<table>` применяются нескроллящиеся обёртки (`.day-cell-wrap`, `.ms-list-wrap`, `.pe-friend-list-wrap`), а фиксированный трек оверлея (`.mse-scroll-track-fixed`) позиционируется строго под `.header-panel`.
 * **Фильтрация и режим «Пойти с другом»:**
   * Доступна фильтрация по видам спорта, корпусам и наличию мест.
-  * Поиск студента сначала проверяет локальный список друзей (`mse_friends_list`), а при отсутствии — отправляет запрос `POST /people/persons/search`.
-  * Модуль загружает календарь друга на 3 недели вперед и выполняет попарное сравнение слотов: названия дисциплин сортируются по алфавиту для устранения влияния порядка ответов API, после чего маркируются пересекающиеся пары.
-* **Запись и отмена секций:**
-  * Бронирование и отписка производятся прямыми запросами `POST` и `DELETE` к Booking API (`/selected-teams`) с мгновенным локальным обновлением счетчиков мест в модальном окне без перезагрузки страницы.
+  * Поиск студента сначала проверяет локальный список друзей (`readFriendsList`), а при отсутствии — отправляет запрос `POST /people/persons/search`.
+  * Модуль загружает календарь друга на 3 недели вперед через `fetchBlockedScheduleSlots` и выполняет попарное сравнение слотов: названия дисциплин нормализуются и сортируются по алфавиту, после чего маркируются пересекающиеся пары.
+* **Запись, перезапись и отмена секций:**
+  * Бронирование (`POST`), отписка (`DELETE`) и перезапись (`apiSwapAction`) используют общий хелпер `sendBookingTeamRequest()` для единой валидации и обработки ошибок Booking API (`/selected-teams`), с мгновенным локальным обновлением счётчиков мест и неблокирующими уведомлениями `notifyUser` (без `alert()`).
   * **Подбор модуля для секции (`teamToModulesMap`):** При записи проверяется привязка выбранной команды (`teamId`) к модулям кампании (`module-elements`). Запрос направляется строго в тот модуль, которому принадлежит команда и в котором еще не занят слот, исключая ошибку 400 («Выбранные команды не соответствуют модулю»).
   * **Логирование `[MSE PE]`:** Все сетевые операции модуля логируются с деталями запроса (URL, `moduleId`, `teamId`, тело) и выводом ответа бэкенда в `console.error` при возникновении не-2xx статусов.
 
@@ -657,25 +659,27 @@ modeus-beta/
      node --test tools-src/2-unit-and-dom.test.js
      node --test tools-src/3-live-chrome-layout.test.js
      ```
-   * **Состав проверок Шага 1 (`1-static-contracts.test.js`):**
-     * Валидность `manifest.json`, локальных баз данных (`buildings.json`, `teacher_reviews.json`, `data/rules.json`, `data/survey.json`) и синтаксиса JS-файлов через `new vm.Script()`.
+   * **Общие хелперы (`tools-src/test-helpers.js`):** Общие файловые утилиты (`readProjectFile`, `parseJsonFile`, `getManifestVersion`), инструментирование модулей (`instrumentScriptWithHook`) и моки `localStorage`/`sessionStorage` вынесены в единый модуль без дублирования между Шагами 1–3.
+   * **Состав проверок Шага 1 (`1-static-contracts.test.js`, 6 тестов):**
+     * Валидность `manifest.json`, локальных баз данных (`buildings.json`, `teacher_reviews.json`, `data/rules.json`, `data/survey.json`) и синтаксиса всех JS-файлов (включая `tools-src/test-helpers.js` и `src/shared-utils.js`) через `new vm.Script()`.
      * Физическое существование всех файлов, зарегистрированных в манифесте.
-     * Строгая изоляция миров Chromium: скрипты Main World (`src/injected.js`, `src/pe-module.js`, `src/icons.js`) не содержат обращений к привилегированным `chrome.*` API, а ключ сейфа `mse_sso_vault` изолирован в `sso-autologin.js` / `content.js`.
+     * Строгая изоляция миров Chromium: скрипты Main World (`src/injected.js`, `src/pe-module.js`, `src/icons.js`, `src/shared-utils.js`) не дублируются в `content_scripts` и не содержат обращений к привилегированным `chrome.*` API, а ключ сейфа `mse_sso_vault` изолирован в `sso-autologin.js` / `content.js`.
      * Инвариант безопасности Declarative Net Request: все правила в `data/rules.json` ограничены строго `["sub_frame"]` (запрет `main_frame`) и целевыми доменами `fs.utmn.ru` / `auth.modeus.org`.
      * Контракт синхронного DOM-моста `<meta>` (5 метатегов) и экспорт полного публичного Console API из раздела 4.2 в `window`.
-     * Детектор мёртвого CSS: выявление забытых классов в `styles/styles.css` и `styles/pe-styles.css` с фильтрацией нативных классов Modeus/FullCalendar/Bootstrap.
+     * Детектор мёртвого CSS: выявление забытых `.class` и неиспользуемых `#id`-селекторов в `styles/styles.css` и `styles/pe-styles.css` с фильтрацией нативных классов Modeus/FullCalendar/Bootstrap.
      * Детектор мёртвых функций в `src/*.js`, верификация Zero-Raw-SVG (23/23 иконок) и проверка на 0 системных эмодзи.
-   * **Состав проверок Шага 2 (`2-unit-and-dom.test.js`):**
+   * **Состав проверок Шага 2 (`2-unit-and-dom.test.js`, 38 тестов):**
+     * Версия манифеста считывается динамически из `manifest.json` (`getManifestVersion()`).
      * Сессия, токены и холодный старт (`keeper-early.js`): парсинг JWT payload с base64url символами и отсутствующим паддингом, расчёт истечения токенов, валидация сессии, обработка хэша `#mse_logout=1` и сохранение сессионных токенов при авторизации `#access_token=...`.
      * Криптография и автовход ADFS (`sso-autologin.js`): шифрование и дешифрование учётных данных AES-GCM (256 бит, Web Crypto API), уникальность векторов инициализации (IV) и устойчивость к битому шифротексту/ключам.
      * Успеваемость и расчёт баллов (`injected.js`): парсинг баллов `parseNumericGrade` (включая граничные случаи `"0"`, десятичные разделители точка/запятая), агрегация многобалльной шкалы `calculateMultiPointScore`, рендеринг DOM-бейджей `.mse-max-grade` и `.mse-max-unknown`, инвариант изоляции неоцениваемых занятий `resolveLessonMaxGrades` (null по ID не переопределяется fallback по имени).
      * Расписание, друзья и подсказки (`injected.js`): предикат направления обучения `isSameStudyDirection`, геометрия и динамическое позиционирование карточки подсказки `calculateSpotlightCardPosition` у границ вьюпорта, управление списком друзей (добавление, предотвращение дубликатов, удаление), адаптивность тулбара календаря (динамическое переключение компактного режима, кнопка-лупа `#search-toggle-btn`, поповер `#mse-search-popover`, взаимное закрытие выпадающих списков).
-     * Умный подбор физкультуры (`pe-module.js`): градация доступности слотов `getSlotsStatusClass` (`slots-ok`, `slots-low`, `slots-zero`), геокодирование корпусов ТюмГУ `resolveCampus`, расчёт временных слотов `getSlotIndex` (0..6), детектор конфликтов в расписании `getConflict`, формирование бейджей отзывов преподавателей `getTeacherRatingBadgeHtml`, двухстрочная разметка `createSportCardElement` / `createBusyCardHtml`, а также полноэкранная разметка DOM и поповер друга в `openModal`.
+     * Умный подбор физкультуры (`pe-module.js`): градация доступности слотов `getSlotsStatusClass` (`slots-ok`, `slots-low`, `slots-zero`), геокодирование корпусов ТюмГУ `resolveCampus`, расчёт временных слотов `getSlotIndex` (0..6), детектор конфликтов в расписании `getConflict`, формирование бейджей отзывов преподавателей `getTeacherRatingBadgeHtml`, двухстрочная разметка `createSportCardElement` / `createBusyCardHtml`, полноэкранная разметка DOM и поповер друга в `openModal`, а также fallback API при повреждённом `mse_friends_list`.
      * Парсер обновлений GitHub и таргетинг опросов (`injected.js`): семантическое сравнение версий `compareSemVer` / `isVersionGreater`, парсинг скрытых блоков release highlights (`<!-- highlights ... -->`), очистка Markdown-разметки от ссылок и заголовков `cleanMarkdownText` / `extractReleaseHighlights`, машина состояний анти-спама обновлений (пауза 12ч при клике мимо, 72ч при скрытии, второй автопоказ после истечения интервала, отключение автопоказа при >=2), соблюдение критериев таргетинга опросов (`minDaysSinceInstall`, `minQualifiedDays`, `minTotalActiveSeconds`) и валидация ответов `isQuestionAnswerValid`.
      * Детерминированная очистка ресурсов `stopAndCleanUp` (`injected.js`): отмена таймеров `clearInterval`/`clearTimeout`, снятие слушателей событий, удаление добавленных элементов интерфейса (`#mse-search-wrapper`, `#mse-friends-menu`, `mse-update-popover`, `.mse-toast-container`).
-   * **Состав проверок Шага 3 (`3-live-chrome-layout.test.js`, 10 тестов):**
+   * **Состав проверок Шага 3 (`3-live-chrome-layout.test.js`, 10 полностью изолированных тестов):**
      * Подключение через нативный CDP без внешних зависимостей (`globalThis.fetch` и `globalThis.WebSocket` в Node.js 24+) к Debug Chrome на порту `9222` с graceful `t.skip` при офлайн прогоне.
-     * Рендеринг компонентов реальным кодом расширения на изолированной песочнице `about:blank` с боевыми стилями `styles.css` + `pe-styles.css` и принудительным снятием анимаций (`transition: none !important; animation: none !important;`) для детерминированных замеров за 0 мс.
+     * Полная изоляция каждого тест-кейса (`resetSandboxDom` в `beforeEach` и модульные билдеры `mountCalendarToolbarStage` / `mountPeModalStage`): любой из 10 тестов запускается автономно в произвольном порядке с боевыми стилями `styles.css` + `pe-styles.css` и отключением анимаций.
      * Верхний тулбар календаря: проверка строгой высоты ровно `34px` (`Math.round(height) === 34`, `getComputedStyle === '34px'`) для всех элементов (`.ver-pill-btn`, `.icon-btn`, `.split-btn`, `.pill-check`) и их оптическое выравнивание в одну горизонтальную линию (`|top_A - top_B| <= 1px`).
      * Поповер обновления `.ver-popover`: позиционирование строго под кнопкой `.ver-pill-btn` с нормативным зазором 8..14px, выравнивание по правому краю (`|right_popover - right_btn| <= 2px`), ширина 320px и отсутствие выхода за правый край окна браузера.
      * Карточка занятости `.busy-card`: физический прирост высоты при клике (`heightExpanded >= heightCollapsed + 20px`) за счёт снятия `-webkit-line-clamp: 2` и поворот векторного шеврона на 180° (`matrix(-1, 0, 0, -1, 0, 0)`).
@@ -683,8 +687,8 @@ modeus-beta/
      * Кнопка закрытия модалки `#mse-pe-modal-close-btn`: строгая локализация внутри шапки `#mse-pe-modal-header` (`top`, `bottom`, `right`), прижатие к правому краю шапки (`distToHeaderRight <= 25px`), защита от телепортации крестика в угол экрана (`distToWindowRight > 100px`) и `position: static`.
      * Плавный GPU-скроллбар (`scaleX`) в `#mse-pe-modal`, чистый `6px` CSS-фолбэк (`offsetWidth - clientWidth === 6px`), монтирование тостов и опросников, а также строгий инвариант чистоты консоли (0 runtime-ошибок и 0 unhandled rejections).
      * Карточки расписания `.fc-time-grid-event`: динамическая детекция вертикальной коллизии между заголовком `.fc-title` и компактной капсулой `.mse-compact-capsule` с проверкой однострочного обрезания `.mse-title-clipped` (`padding-right: 38px`, `white-space: nowrap`) и отсутствия наложения текста на капсулу в реальном движке Blink.
-     * Адаптивность шапки календаря (матрица 1600px–850px) и оверлея карточки пары (до `<= 1380px`, сворачивание меню на `1155px`, 0px горизонтального скролла).
-     * Полноэкранная адаптивность физкультуры (`1750px–1000px`): 0px горизонтального скролла, 1-строчная/2-строчная шапка (порог `1640px`), кнопка-лупа и поповер друга (`<= 1240px`), двухстрочные карточки секций и изоляция треков GPU-скроллбара.
+     * Адаптивность шапки календаря (матрица 1600px–850px, реальный порог сворачивания меню `1155px`) и оверлея карточки пары (до `<= 1380px`, 0px горизонтального скролла).
+     * Полноэкранная адаптивность физкультуры (`1750px–1000px`): 0px горизонтального скролла, 1-строчная/2-строчная шапка (порог `1640px`), кнопка-лупа и поповер друга (`<= 1240px`), двухстрочные карточки секций (с проверкой отступа `.sc-slots-total >= 2px`) и изоляция треков GPU-скроллбара.
 
 6. **Непрерывная интеграция (GitHub Actions CI — `.github/workflows/ci.yml`):**
    * Все 3 шага тестовой системы выполняются автоматически в облачном окружении `ubuntu-latest` (Node.js 24) при каждом `push` в ветку `main` и при создании `pull_request`.

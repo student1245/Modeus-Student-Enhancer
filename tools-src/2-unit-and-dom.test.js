@@ -8,12 +8,16 @@
 
 const { describe, test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
 const vm = require('vm');
 const crypto = require('node:crypto');
+const {
+    readProjectFile,
+    getManifestVersion,
+    instrumentScriptWithHook,
+    MockStorage
+} = require('./test-helpers.js');
 
-const ROOT_DIR = path.resolve(__dirname, '..');
+const MANIFEST_VERSION = getManifestVersion();
 
 // Сравнение объектов между разными Realm VM без ошибки ERR_ASSERTION из-за прототипов
 function assertDeepEqual(actual, expected, message) {
@@ -397,30 +401,6 @@ class MockElement {
     }
 }
 
-class MockStorage {
-    constructor() {
-        this._map = new Map();
-    }
-    getItem(key) {
-        return this._map.has(key) ? this._map.get(key) : null;
-    }
-    setItem(key, value) {
-        this._map.set(String(key), String(value));
-    }
-    removeItem(key) {
-        this._map.delete(String(key));
-    }
-    clear() {
-        this._map.clear();
-    }
-    get length() {
-        return this._map.size;
-    }
-    key(index) {
-        return Array.from(this._map.keys())[index] || null;
-    }
-}
-
 class MockDocument {
     constructor() {
         this._elementsById = new Map();
@@ -551,7 +531,7 @@ function createMockEnvironment(initialUrl = 'https://utmn.modeus.org/') {
             },
             runtime: {
                 getURL: (p) => `chrome-extension://mse/${p}`,
-                getManifest: () => ({ version: '2.2.5' })
+                getManifest: () => ({ version: MANIFEST_VERSION })
             }
         },
         console: {
@@ -576,32 +556,11 @@ function createMockEnvironment(initialUrl = 'https://utmn.modeus.org/') {
 function executeScriptWithHook(relPath, hookAssignment, env) {
     const context = vm.createContext(env);
     if ((relPath.includes('pe-module.js') || relPath.includes('injected.js')) && !env.MSE_SHARED) {
-        const sharedCode = fs.readFileSync(path.join(ROOT_DIR, 'src/shared-utils.js'), 'utf8');
+        const sharedCode = readProjectFile('src/shared-utils.js');
         new vm.Script(sharedCode, { filename: 'src/shared-utils.js' }).runInContext(context);
     }
 
-    const absPath = path.join(ROOT_DIR, relPath);
-    const code = fs.readFileSync(absPath, 'utf8');
-
-    let instrumentedCode;
-    if (relPath.includes('sso-autologin.js')) {
-        // Для async IIFE sso-autologin инжектируем хук в начало тела IIFE (где функции хостятся)
-        instrumentedCode = code.replace(
-            /\(async\s*\(\)\s*=>\s*\{/,
-            `$& \n${hookAssignment}\n`
-        );
-    } else if (relPath.includes('pe-module.js')) {
-        // Для pe-module инжектируем хук перед последним 'return {'
-        const lastReturn = code.lastIndexOf('return {');
-        instrumentedCode = code.slice(0, lastReturn) + `\n${hookAssignment}\n` + code.slice(lastReturn);
-    } else {
-        // Для injected.js и keeper-early.js инжектируем перед закрывающей скобкой IIFE
-        instrumentedCode = code.replace(
-            /\}\)\(\);\s*$/,
-            `\n${hookAssignment}\n})();`
-        );
-    }
-
+    const instrumentedCode = instrumentScriptWithHook(relPath, hookAssignment);
     new vm.Script(instrumentedCode, { filename: relPath }).runInContext(context);
     return env;
 }

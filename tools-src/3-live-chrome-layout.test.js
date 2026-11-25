@@ -9,12 +9,14 @@
  * 4. Мгновенные детерминированные замеры: анимации и переходы принудительно отключены (transition: none).
  */
 
-const { describe, test, before, after } = require('node:test');
+const { describe, test, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+const {
+    readProjectFile,
+    instrumentScriptWithHook,
+    getBrowserStoragePolyfillScript
+} = require('./test-helpers.js');
 
-const ROOT_DIR = path.resolve(__dirname, '..');
 const CDP_HTTP_BASE = 'http://127.0.0.1:9222';
 
 // --- Минималистичный клиент Chrome DevTools Protocol (CDP) ---
@@ -114,24 +116,17 @@ async function closeIsolatedTab(tabId) {
     }
 }
 
-// --- Подготовка модулей расширения для песочницы ---
-
-function readProjectFile(relPath) {
-    return fs.readFileSync(path.join(ROOT_DIR, relPath), 'utf8');
-}
+// --- Подготовка модулей расширения и изолированных фикстур для песочницы ---
 
 function preparePeModuleWithHooks() {
-    const raw = readProjectFile('src/pe-module.js');
     const hook = `
     if (typeof window !== 'undefined') {
         window.__MSE_PE_DEV__ = { createBusyCardHtml };
     }`;
-    const lastReturn = raw.lastIndexOf('return {');
-    return raw.slice(0, lastReturn) + `\n${hook}\n` + raw.slice(lastReturn);
+    return instrumentScriptWithHook('src/pe-module.js', hook);
 }
 
 function prepareInjectedWithHooks() {
-    const raw = readProjectFile('src/injected.js');
     const hook = `
     if (typeof window !== 'undefined') {
         window.__MSE_INJECTED_DEV__ = {
@@ -146,7 +141,76 @@ function prepareInjectedWithHooks() {
             clearSearch
         };
     }`;
-    return raw.replace(/\}\)\(\);\s*$/, `\n${hook}\n})();`);
+    return instrumentScriptWithHook('src/injected.js', hook);
+}
+
+async function resetSandboxDom(cdp, { width = 1280, height = 800, bodyClass = 'mse-active', padding = '24px' } = {}) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    await cdp.evaluateScript(`
+        localStorage.clear();
+        sessionStorage.clear();
+        window.__mse_page_errors = [];
+
+        ['mse-pe-overlay', 'mse-survey-popup', 'mse-toast-container'].forEach(id => {
+            document.getElementById(id)?.remove();
+        });
+        document.body.innerHTML = '';
+        document.body.className = ${JSON.stringify(bodyClass)};
+        document.body.style.cssText = 'margin: 0; padding: ' + ${JSON.stringify(padding)} + '; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
+
+        const dev = window.__MSE_INJECTED_DEV__;
+        if (dev) {
+            dev.selectedStudents.clear();
+            dev.eventCache.clear();
+            dev.uniqueStudents.clear();
+        }
+    `);
+}
+
+async function mountCalendarToolbarStage(cdp) {
+    await cdp.evaluateScript(`
+        document.body.innerHTML = \`
+            <div class="main-calendar-form" style="display: flex; align-items: center; position: relative;">
+                <div class="pl-0 title">Мое расписание</div>
+            </div>
+            <div class="fc-toolbar fc-header-toolbar" style="background: rgb(227, 242, 253); height: 48px; position: relative; box-sizing: border-box; padding: 5px 10px 4px; margin-top: 10px;">
+                <div class="fc-left" style="float: left; height: 34px;"><h2>9 – 15 нояб. 2026 г.</h2></div>
+                <button type="button" class="btn-filter screen-only" style="position: absolute; right: 115px; top: 12px; width: 95px; height: 34px;"><span>Фильтры (1)</span></button>
+                <div class="fc-right" style="position: absolute; right: 10px; top: 12px; width: 106px; height: 34px;"></div>
+            </div>
+        \`;
+        window.__MSE_INJECTED_DEV__.setupUI();
+        const splitWrap = document.querySelector('#selected-students-dropdown-wrapper');
+        if (splitWrap) splitWrap.style.display = 'inline-flex';
+        window.MSE_testUpdate('2.5.0');
+    `);
+}
+
+async function mountPeModalStage(cdp, { openSectionModal = false, withBusyCard = false, modules = [], friends = null } = {}) {
+    await cdp.evaluateScript(`
+        if (${Boolean(friends)}) {
+            localStorage.setItem('mse_friends_list', ${JSON.stringify(JSON.stringify(friends || []))});
+        }
+        window.MSE_PE.openModal(${JSON.stringify(modules)}, {}, 'camp-1', 'stud-1', new Map());
+
+        if (${Boolean(openSectionModal)}) {
+            const modalOverlay = document.getElementById('mse-pe-modal-overlay');
+            if (modalOverlay) modalOverlay.style.display = 'flex';
+        }
+
+        if (${Boolean(withBusyCard)}) {
+            const busyWrap = document.createElement('div');
+            busyWrap.id = 'mse-busy-test-wrap';
+            busyWrap.style.width = '240px';
+            busyWrap.innerHTML = window.__MSE_PE_DEV__.createBusyCardHtml('У вас пара', [
+                'Математический анализ в многомерных пространствах (проф. Иванов И. И.)',
+                'Линейная алгебра и аналитическая геометрия (доц. Петров П. П.)',
+                'Теория вероятностей и математическая статистика (доц. Сидоров С. С.)'
+            ]);
+            const peOverlayForBusy = document.getElementById('mse-pe-overlay');
+            (peOverlayForBusy || document.body).appendChild(busyWrap);
+        }
+    `);
 }
 
 // --- Сьют живых геометрических тестов ---
@@ -163,25 +227,10 @@ describe('Шаг 3: Живые геометрические и визуальн�
         tabTarget = await createIsolatedTab();
         cdp = new NativeCdpSession(tabTarget.webSocketDebuggerUrl);
         await cdp.connect();
-        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
 
-        // 1. Установка полифиллов хранилища для контекста about:blank
+        // 1. Установка полифиллов хранилища и перехвата runtime-ошибок для about:blank
         await cdp.evaluateScript(`
-            const createStorage = () => {
-                const map = new Map();
-                return {
-                    getItem: k => map.has(k) ? map.get(k) : null,
-                    setItem: (k, v) => map.set(String(k), String(v)),
-                    removeItem: k => map.delete(String(k)),
-                    clear: () => map.clear(),
-                    key: i => Array.from(map.keys())[i] || null,
-                    get length() { return map.size; }
-                };
-            };
-            Object.defineProperty(window, 'localStorage', { value: createStorage(), configurable: true });
-            Object.defineProperty(window, 'sessionStorage', { value: createStorage(), configurable: true });
-
-            // Перехват runtime-ошибок страницы
+            ${getBrowserStoragePolyfillScript()}
             window.__mse_page_errors = [];
             window.addEventListener('error', e => window.__mse_page_errors.push(e.message));
             window.addEventListener('unhandledrejection', e => window.__mse_page_errors.push(String(e.reason)));
@@ -197,67 +246,23 @@ describe('Шаг 3: Живые геометрические и визуальн�
                 transition: none !important;
                 animation: none !important;
             }
-            body {
-                margin: 0;
-                padding: 24px;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            }
         `;
         await cdp.evaluateScript(`
             const style = document.createElement('style');
             style.textContent = ${JSON.stringify(combinedCss)};
             document.head.appendChild(style);
-
-            // Каркас хост-страницы расписания Modeus
-            document.body.innerHTML = \`
-                <div class="main-calendar-form" style="display: flex; align-items: center; position: relative;">
-                    <div class="pl-0 title">Мое расписание</div>
-                </div>
-                <div class="fc-toolbar fc-header-toolbar" style="background: rgb(227, 242, 253); height: 48px; position: relative; box-sizing: border-box; padding: 5px 10px 4px; margin-top: 10px;">
-                    <div class="fc-left" style="float: left; height: 34px;"><h2>9 – 15 нояб. 2026 г.</h2></div>
-                    <button type="button" class="btn-filter screen-only" style="position: absolute; right: 115px; top: 12px; width: 95px; height: 34px;"><span>Фильтры (1)</span></button>
-                    <div class="fc-right" style="position: absolute; right: 10px; top: 12px; width: 106px; height: 34px;"></div>
-                </div>
-            \`;
         `);
 
-        // 3. Загрузка реальных модулей расширения
+        // 3. Загрузка реальных модулей расширения (единожды в изолированную вкладку)
         await cdp.evaluateScript(readProjectFile('src/icons.js'));
         await cdp.evaluateScript(readProjectFile('src/shared-utils.js'));
         await cdp.evaluateScript(preparePeModuleWithHooks());
         await cdp.evaluateScript(prepareInjectedWithHooks());
+    });
 
-        // 4. Генерация реального интерфейса через функции расширения
-        await cdp.evaluateScript(`
-            // Монтируем тулбар календаря
-            window.__MSE_INJECTED_DEV__.setupUI();
-            
-            // Отображаем блок выбранных студентов для замера сплит-кнопки
-            const splitWrap = document.querySelector('#selected-students-dropdown-wrapper');
-            if (splitWrap) splitWrap.style.display = 'inline-flex';
-
-            // Симулируем обновление для рендера .ver-pill-btn и .ver-popover
-            window.MSE_testUpdate('2.5.0');
-
-            // Монтируем интерфейс физкультуры
-            window.MSE_PE.openModal([], {}, '', '', new Map());
-
-            // Открываем модальное окно секции физкультуры
-            const modalOverlay = document.getElementById('mse-pe-modal-overlay');
-            if (modalOverlay) modalOverlay.style.display = 'flex';
-
-            // Монтируем карточку занятости .busy-card реальной функцией расширения внутри #mse-pe-overlay
-            const busyWrap = document.createElement('div');
-            busyWrap.id = 'mse-busy-test-wrap';
-            busyWrap.style.width = '240px';
-            busyWrap.innerHTML = window.__MSE_PE_DEV__.createBusyCardHtml('У вас пара', [
-                'Математический анализ в многомерных пространствах (проф. Иванов И. И.)',
-                'Линейная алгебра и аналитическая геометрия (доц. Петров П. П.)',
-                'Теория вероятностей и математическая статистика (доц. Сидоров С. С.)'
-            ]);
-            const peOverlayForBusy = document.getElementById('mse-pe-overlay');
-            (peOverlayForBusy || document.body).appendChild(busyWrap);
-        `);
+    beforeEach(async () => {
+        if (!chromeOnline) return;
+        await resetSandboxDom(cdp);
     });
 
     after(async () => {
@@ -270,6 +275,9 @@ describe('Шаг 3: Живые геометрические и визуальн�
             t.skip('Debug Chrome недоступен на порту 9222 (--remote-debugging-port=9222). Тест пропущен.');
             return;
         }
+
+        await mountCalendarToolbarStage(cdp);
+        await mountPeModalStage(cdp);
 
         const metrics = await cdp.evaluateExpression(`
             const pillBtn = document.querySelector('.ver-pill-btn');
@@ -310,6 +318,8 @@ describe('Шаг 3: Живые геометрические и визуальн�
             return;
         }
 
+        await mountCalendarToolbarStage(cdp);
+
         const metrics = await cdp.evaluateExpression(`
             const pillBtn = document.querySelector('.ver-pill-btn');
             const popover = document.querySelector('.ver-popover');
@@ -340,6 +350,8 @@ describe('Шаг 3: Живые геометрические и визуальн�
             t.skip('Debug Chrome недоступен на порту 9222. Тест пропущен.');
             return;
         }
+
+        await mountPeModalStage(cdp, { withBusyCard: true });
 
         const metrics = await cdp.evaluateExpression(`
             const card = document.querySelector('.busy-card');
@@ -380,6 +392,8 @@ describe('Шаг 3: Живые геометрические и визуальн�
             return;
         }
 
+        await mountPeModalStage(cdp, { openSectionModal: true });
+
         const metrics = await cdp.evaluateExpression(`
             const modal = document.querySelector('#mse-pe-modal');
             const rModal = modal.getBoundingClientRect();
@@ -406,6 +420,8 @@ describe('Шаг 3: Живые геометрические и визуальн�
             t.skip('Debug Chrome недоступен на порту 9222. Тест пропущен.');
             return;
         }
+
+        await mountPeModalStage(cdp, { openSectionModal: true });
 
         const metrics = await cdp.evaluateExpression(`
             const btn = document.querySelector('#mse-pe-modal-close-btn');
@@ -442,6 +458,8 @@ describe('Шаг 3: Живые геометрические и визуальн�
             t.skip('Debug Chrome недоступен на порту 9222. Тест пропущен.');
             return;
         }
+
+        await mountPeModalStage(cdp, { openSectionModal: true });
 
         const metrics = await cdp.evaluateExpression(`
             // 1. Проверка чистого CSS-фолбэка 6px на элементе без .mse-has-smooth-scroll
@@ -718,7 +736,7 @@ describe('Шаг 3: Живые геометрические и визуальн�
                     if (wrapper) wrapper.style.display = ${hasFriends} ? 'block' : 'none';
                     if (countSpan) countSpan.textContent = '${hasFriends ? 10 : 0}';
 
-                    const isMenuExpanded = ${w} > 1100;
+                    const isMenuExpanded = ${w} > 1155;
                     const sidebarWidth = isMenuExpanded ? 312 : 56;
                     const menu = document.querySelector('div.menu');
                     if (menu) {
@@ -906,6 +924,8 @@ describe('Шаг 3: Живые геометрические и визуальн�
         // 1. Проверка сворачивания бокового меню на 1150px
         await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1150, height: 800, deviceScaleFactor: 1, mobile: false });
         await cdp.evaluateScript(`
+            document.body.className = 'mse-active';
+            document.body.style.padding = '0';
             document.body.innerHTML = \`
                 <div class="menu">
                     <div class="user-info">
@@ -1045,81 +1065,80 @@ describe('Шаг 3: Живые геометрические и визуальн�
         }
 
         // 1. Монтируем реалистичные данные в окно физкультуры
-        await cdp.evaluateScript(`
-            const mockModules = [
-                {
-                    moduleElementId: 'mod-1',
-                    name: 'Элективные дисциплины по физической культуре и спорту',
-                    selectedTeamIds: ['team-volleyball-enrolled'],
-                    cycles: [
-                        {
-                            teams: [
-                                {
-                                    id: 'team-ofp-1',
-                                    name: 'ФК: Общая физическая подготовка (4) ПН 08:30 СК Колокол (ул. Ленина, 16)',
-                                    teachers: ['Иванов И. И.'],
-                                    available: 15,
-                                    limit: 20
-                                },
-                                {
-                                    id: 'team-basketball-1',
-                                    name: 'ФК: Баскетбол (2) ПН 08:30 СК Колокол (ул. Ленина, 16)',
-                                    teachers: ['Смирнов С. С.'],
-                                    available: 5,
-                                    limit: 20
-                                },
-                                {
-                                    id: 'team-football-1',
-                                    name: 'ФК: Мини-футбол (2) ПН 08:30 СК Колокол (ул. Ленина, 16)',
-                                    teachers: ['Кузнецов К. К.'],
-                                    available: 8,
-                                    limit: 20
-                                },
-                                {
-                                    id: 'team-swimming-1',
-                                    name: 'ФК: Плавание (1) ПН 08:30 СК Колокол (ул. Ленина, 16)',
-                                    teachers: ['Попов П. П.'],
-                                    available: 4,
-                                    limit: 15
-                                },
-                                {
-                                    id: 'team-badminton-1',
-                                    name: 'ФК: Бадминтон (1) ПН 08:30 СК Колокол (ул. Ленина, 16)',
-                                    teachers: ['Соколов С. С.'],
-                                    available: 3,
-                                    limit: 12
-                                },
-                                {
-                                    id: 'team-tennis-1',
-                                    name: 'ФК: Настольный теннис (2) ПН 10:15 СК Олимпия (ул. Пржевальского, 37)',
-                                    teachers: ['Петров П. П.'],
-                                    available: 1,
-                                    limit: 10
-                                },
-                                {
-                                    id: 'team-volleyball-enrolled',
-                                    name: 'ФК: Волейбол (2) ВТ 12:00 СОК Зодчий (ул. Луначарского, 2, корп. 5)',
-                                    teachers: ['Сидорова А. С.'],
-                                    available: 0,
-                                    limit: 25
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ];
+        const mockModules = [
+            {
+                moduleElementId: 'mod-1',
+                name: 'Элективные дисциплины по физической культуре и спорту',
+                selectedTeamIds: ['team-volleyball-enrolled'],
+                cycles: [
+                    {
+                        teams: [
+                            {
+                                id: 'team-ofp-1',
+                                name: 'ФК: Общая физическая подготовка (4) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                teachers: ['Иванов И. И.'],
+                                available: 15,
+                                limit: 20
+                            },
+                            {
+                                id: 'team-basketball-1',
+                                name: 'ФК: Баскетбол (2) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                teachers: ['Смирнов С. С.'],
+                                available: 5,
+                                limit: 20
+                            },
+                            {
+                                id: 'team-football-1',
+                                name: 'ФК: Мини-футбол (2) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                teachers: ['Кузнецов К. К.'],
+                                available: 8,
+                                limit: 20
+                            },
+                            {
+                                id: 'team-swimming-1',
+                                name: 'ФК: Плавание (1) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                teachers: ['Попов П. П.'],
+                                available: 4,
+                                limit: 15
+                            },
+                            {
+                                id: 'team-badminton-1',
+                                name: 'ФК: Бадминтон (1) ПН 08:30 СК Колокол (ул. Ленина, 16)',
+                                teachers: ['Соколов С. С.'],
+                                available: 3,
+                                limit: 12
+                            },
+                            {
+                                id: 'team-tennis-1',
+                                name: 'ФК: Настольный теннис (2) ПН 10:15 СК Олимпия (ул. Пржевальского, 37)',
+                                teachers: ['Петров П. П.'],
+                                available: 1,
+                                limit: 10
+                            },
+                            {
+                                id: 'team-volleyball-enrolled',
+                                name: 'ФК: Волейбол (2) ВТ 12:00 СОК Зодчий (ул. Луначарского, 2, корп. 5)',
+                                teachers: ['Сидорова А. С.'],
+                                available: 0,
+                                limit: 25
+                            }
+                        ]
+                    }
+                ]
+            }
+        ];
 
-            localStorage.setItem('mse_friends_list', JSON.stringify([
+        await mountPeModalStage(cdp, {
+            modules: mockModules,
+            friends: [
                 { personId: 'p-1', fullName: 'Иванов Иван' },
                 { personId: 'p-2', fullName: 'Константинопольский Константин' },
                 { personId: 'p-3', fullName: 'Петров Петр' },
                 { personId: 'p-4', fullName: 'Сидоров Сидор' },
                 { personId: 'p-5', fullName: 'Кузнецов Алексей' },
                 { personId: 'p-6', fullName: 'Смирнов Дмитрий' }
-            ]));
-
-            window.MSE_PE.openModal(mockModules, {}, 'camp-1', 'stud-1', new Map());
-        `);
+            ]
+        });
 
         // 2. Проверка размещения кнопки закрытия внутри header-panel и крупного заголовка H2
         const headerMetrics = await cdp.evaluateExpression(`
