@@ -3,17 +3,8 @@
     const { enabled = true } = await chrome.storage.sync.get({ enabled: true });
     if (!enabled) return;
 
-    // --- Обработка ошибок auth.modeus.org (retry.do / oauth2_error.do) ---
-    if (window.location.hostname === 'auth.modeus.org') {
-        if (window.self !== window.top) return;
-
-        const href = window.location.href;
-        const lowerHref = href.toLowerCase();
-        const pageText = (document.body?.textContent || '').toLowerCase();
-
-        // 1. Ошибка при выходе: auth.modeus.org/oidc/logout -> oauth2_error.do
-        // Распознается независимо от языка (ru/en): access_denied, opbs, Missing, «состояния сессии», «доступ запрещен»
-        const isLogoutError = href.includes('/oauth2_error.do') && (
+    function isAuthLogoutError(href, lowerHref, pageText) {
+        return href.includes('/oauth2_error.do') && (
             lowerHref.includes('oautherrorcode=access_denied') ||
             lowerHref.includes('opbs') ||
             lowerHref.includes('missing') ||
@@ -22,8 +13,17 @@
             pageText.includes('доступ запрещен') ||
             pageText.includes('access_denied')
         );
+    }
 
-        if (isLogoutError) {
+    async function handleAuthModeusErrorPage() {
+        if (window.self !== window.top) return;
+
+        const href = window.location.href;
+        const lowerHref = href.toLowerCase();
+        const pageText = (document.body?.textContent || '').toLowerCase();
+
+        // 1. Ошибка при выходе: auth.modeus.org/oidc/logout -> oauth2_error.do
+        if (isAuthLogoutError(href, lowerHref, pageText)) {
             await chrome.storage.local.set({ mse_manual_logout_once: true });
             window.location.replace('https://fs.utmn.ru/adfs/ls/?wa=wsignout1.0');
             return;
@@ -32,31 +32,28 @@
         // 2. Обычные ошибки входа (/retry.do и прочие /oauth2_error.do): мгновенный возврат в Modeus
         const isRetryUrl = href.includes('/retry.do') || href.includes('/oauth2_error.do');
         const hasAuthErrorText = document.body?.textContent?.includes('AUTHENTICATION ERROR');
+        if (!isRetryUrl && !hasAuthErrorText) return;
 
-        if (isRetryUrl || hasAuthErrorText) {
-            const RETRY_WINDOW_MS = 10000;
-            const now = Date.now();
-            const lastRetryTime = Number(sessionStorage.getItem('mse_retry_timestamp') || 0);
-            let retryCount = Number(sessionStorage.getItem('mse_retry_count') || 0);
+        const RETRY_WINDOW_MS = 10000;
+        const now = Date.now();
+        const lastRetryTime = Number(sessionStorage.getItem('mse_retry_timestamp') || 0);
+        const prevCount = Number(sessionStorage.getItem('mse_retry_count') || 0);
+        const retryCount = (now - lastRetryTime < RETRY_WINDOW_MS) ? prevCount + 1 : 1;
 
-            if (now - lastRetryTime < RETRY_WINDOW_MS) {
-                retryCount++;
-            } else {
-                retryCount = 1;
-            }
+        sessionStorage.setItem('mse_retry_timestamp', String(now));
+        sessionStorage.setItem('mse_retry_count', String(retryCount));
 
-            sessionStorage.setItem('mse_retry_timestamp', String(now));
-            sessionStorage.setItem('mse_retry_count', String(retryCount));
-
-            if (retryCount === 1) {
-                // Первая ошибка за последние 10 секунд: мгновенный (0 мс) возврат
-                window.location.replace('https://utmn.modeus.org/');
-                return;
-            }
-
-            // Повторная ошибка подряд (сервер Modeus лежит): останавливаем редирект и отрисовываем кнопку
-            renderRetryRecoveryButton();
+        if (retryCount === 1) {
+            window.location.replace('https://utmn.modeus.org/');
+            return;
         }
+
+        renderRetryRecoveryButton();
+    }
+
+    // --- Обработка ошибок auth.modeus.org (retry.do / oauth2_error.do) ---
+    if (window.location.hostname === 'auth.modeus.org') {
+        await handleAuthModeusErrorPage();
         return;
     }
 
@@ -376,11 +373,10 @@
         return;
     }
 
-    // Шаг 2: Автоматический вход при наличии сохраненного сейфа
-    if (mse_sso_vault) {
+    async function tryAutoLoginFromVault(vault) {
         sessionStorage.setItem('mse_sso_tried', '1');
         try {
-            const credentials = await decryptCredentials(mse_sso_vault);
+            const credentials = await decryptCredentials(vault);
             if (!credentials?.username || !credentials?.password) {
                 throw new Error('Поврежденные или неполные учетные данные в хранилище');
             }
@@ -391,12 +387,136 @@
             } else {
                 HTMLFormElement.prototype.submit.call(loginForm);
             }
-            return;
+            return true;
         } catch (err) {
             console.warn('[MSE SSO Autologin] Ошибка расшифровки хранилища:', err);
             await chrome.storage.local.remove('mse_sso_vault');
             sessionStorage.removeItem('mse_sso_tried');
+            return false;
         }
+    }
+
+    // Шаг 2: Автоматический вход при наличии сохраненного сейфа
+    if (mse_sso_vault && await tryAutoLoginFromVault(mse_sso_vault)) {
+        return;
+    }
+
+    function insertRememberMeContainer(container) {
+        const passwordContainer = passwordInput.closest('.fieldMargin') || passwordInput.parentNode;
+        if (submitButton?.parentNode) {
+            submitButton.parentNode.insertBefore(container, submitButton);
+        } else if (passwordContainer?.parentNode) {
+            passwordContainer.parentNode.insertBefore(container, passwordContainer.nextSibling);
+        } else {
+            loginForm.appendChild(container);
+        }
+    }
+
+    function createVaultSaver(checkbox) {
+        let pendingSavePromise = null;
+        let saveDebounceTimer = null;
+
+        async function doSaveVault() {
+            if (!checkbox.checked) {
+                await chrome.storage.local.remove('mse_sso_vault');
+                return null;
+            }
+            const username = usernameInput.value?.trim();
+            const password = passwordInput.value;
+            if (!username || !password) return null;
+
+            try {
+                const vault = await encryptCredentials(username, password);
+                await chrome.storage.local.set({ mse_sso_vault: vault });
+                await chrome.storage.local.remove('mse_manual_logout_once');
+                return vault;
+            } catch (err) {
+                console.error('[MSE SSO Autologin] Ошибка сохранения сейфа:', err);
+                return null;
+            }
+        }
+
+        function triggerSave(delay = 50) {
+            clearTimeout(saveDebounceTimer);
+            if (!checkbox.checked) {
+                pendingSavePromise = chrome.storage.local.remove('mse_sso_vault');
+                return pendingSavePromise;
+            }
+            if (delay === 0) {
+                pendingSavePromise = doSaveVault();
+                return pendingSavePromise;
+            }
+            saveDebounceTimer = setTimeout(() => {
+                pendingSavePromise = doSaveVault();
+            }, delay);
+        }
+
+        async function flushBeforeSubmit() {
+            clearTimeout(saveDebounceTimer);
+            if (!checkbox.checked) {
+                await chrome.storage.local.remove('mse_sso_vault');
+                return;
+            }
+            if (pendingSavePromise) await pendingSavePromise;
+            await doSaveVault();
+        }
+
+        return {
+            triggerSave,
+            cancelAndClear: () => {
+                clearTimeout(saveDebounceTimer);
+                pendingSavePromise = chrome.storage.local.remove('mse_sso_vault');
+            },
+            flushBeforeSubmit
+        };
+    }
+
+    function bindRememberFormSubmit(vaultSaver) {
+        let isSubmitting = false;
+
+        const handleSubmitIntercept = async (event) => {
+            if (isSubmitting) return;
+            if ((event.type === 'keydown' || event.type === 'keypress') && event.key !== 'Enter' && event.keyCode !== 13) {
+                return;
+            }
+
+            const username = usernameInput.value?.trim();
+            const password = passwordInput.value;
+            if (!username || !password) return;
+
+            event.preventDefault();
+            event.stopImmediatePropagation();
+
+            await vaultSaver.flushBeforeSubmit();
+            isSubmitting = true;
+
+            if (submitButton) {
+                submitButton.click();
+            } else {
+                HTMLFormElement.prototype.submit.call(loginForm);
+            }
+
+            // Fallback через 200 мс на случай, если click на span не инициировал submit формы
+            setTimeout(() => {
+                try {
+                    HTMLFormElement.prototype.submit.call(loginForm);
+                } catch { }
+            }, 200);
+
+            setTimeout(() => {
+                isSubmitting = false;
+            }, 3000);
+        };
+
+        submitButton?.addEventListener('click', handleSubmitIntercept, true);
+        passwordInput.addEventListener('keydown', handleSubmitIntercept, true);
+        passwordInput.addEventListener('keypress', handleSubmitIntercept, true);
+        usernameInput.addEventListener('keydown', (event) => {
+            if ((event.key === 'Enter' || event.keyCode === 13) && passwordInput.value) {
+                handleSubmitIntercept(event);
+            }
+        }, true);
+        loginForm.addEventListener('submit', handleSubmitIntercept, true);
     }
 
     // Шаг 3: Монтирование UI чекбокса «Запомнить меня» в основном окне
@@ -406,7 +526,6 @@
 
         const container = document.createElement('div');
         container.id = 'mse-remember-container';
-
         container.innerHTML = `
             <label class="mse-remember-label">
                 <input type="checkbox" id="mse-remember-checkbox" class="mse-remember-checkbox" ${isVaultSaved ? 'checked' : ''}>
@@ -430,151 +549,35 @@
             </div>
         `;
 
-        const passwordContainer = passwordInput.closest('.fieldMargin') || passwordInput.parentNode;
-        if (submitButton && submitButton.parentNode) {
-            submitButton.parentNode.insertBefore(container, submitButton);
-        } else if (passwordContainer && passwordContainer.parentNode) {
-            passwordContainer.parentNode.insertBefore(container, passwordContainer.nextSibling);
-        } else {
-            loginForm.appendChild(container);
-        }
+        insertRememberMeContainer(container);
 
         const checkbox = container.querySelector('#mse-remember-checkbox');
         const warning = container.querySelector('#mse-remember-warning');
-
-        // Реактивное сохранение сейфа в chrome.storage.local
-        let pendingSavePromise = null;
-        let saveDebounceTimer = null;
-
-        async function doSaveVault() {
-            if (!checkbox.checked) {
-                await chrome.storage.local.remove('mse_sso_vault');
-                return null;
-            }
-
-            const username = usernameInput.value?.trim();
-            const password = passwordInput.value;
-            if (!username || !password) return null;
-
-            try {
-                const vault = await encryptCredentials(username, password);
-                await chrome.storage.local.set({
-                    mse_sso_vault: vault
-                });
-                await chrome.storage.local.remove('mse_manual_logout_once');
-                return vault;
-            } catch (err) {
-                console.error('[MSE SSO Autologin] Ошибка сохранения сейфа:', err);
-                return null;
-            }
-        }
-
-        function triggerReactiveSave(delay = 50) {
-            clearTimeout(saveDebounceTimer);
-            if (!checkbox.checked) {
-                pendingSavePromise = chrome.storage.local.remove('mse_sso_vault');
-                return pendingSavePromise;
-            }
-            if (delay === 0) {
-                pendingSavePromise = doSaveVault();
-                return pendingSavePromise;
-            }
-            saveDebounceTimer = setTimeout(() => {
-                pendingSavePromise = doSaveVault();
-            }, delay);
-        }
+        const vaultSaver = createVaultSaver(checkbox);
 
         checkbox.addEventListener('change', () => {
             warning.classList.toggle('is-visible', checkbox.checked);
             if (checkbox.checked) {
-                triggerReactiveSave(0);
+                vaultSaver.triggerSave(0);
             } else {
-                clearTimeout(saveDebounceTimer);
-                pendingSavePromise = chrome.storage.local.remove('mse_sso_vault');
+                vaultSaver.cancelAndClear();
             }
         });
 
         const handleInput = () => {
-            if (checkbox.checked) {
-                triggerReactiveSave(50);
-            }
+            if (checkbox.checked) vaultSaver.triggerSave(50);
         };
-
         const handleChangeOrBlur = () => {
-            if (checkbox.checked) {
-                triggerReactiveSave(0);
-            }
+            if (checkbox.checked) vaultSaver.triggerSave(0);
         };
 
-        usernameInput.addEventListener('input', handleInput);
-        usernameInput.addEventListener('change', handleChangeOrBlur);
-        usernameInput.addEventListener('blur', handleChangeOrBlur);
+        [usernameInput, passwordInput].forEach(field => {
+            field.addEventListener('input', handleInput);
+            field.addEventListener('change', handleChangeOrBlur);
+            field.addEventListener('blur', handleChangeOrBlur);
+        });
 
-        passwordInput.addEventListener('input', handleInput);
-        passwordInput.addEventListener('change', handleChangeOrBlur);
-        passwordInput.addEventListener('blur', handleChangeOrBlur);
-
-        // Перехват отправки формы (клик на span #submitButton, Enter в input, submit формы)
-        let isSubmitting = false;
-
-        const handleSubmitIntercept = async (e) => {
-            if (isSubmitting) return;
-
-            if (e.type === 'keydown' || e.type === 'keypress') {
-                if (e.key !== 'Enter' && e.keyCode !== 13) return;
-            }
-
-            const username = usernameInput.value?.trim();
-            const password = passwordInput.value;
-            // Если поля не заполнены, позволяем нативному ADFS показать ошибку
-            if (!username || !password) return;
-
-            e.preventDefault();
-            e.stopImmediatePropagation();
-
-            clearTimeout(saveDebounceTimer);
-
-            if (checkbox.checked) {
-                if (pendingSavePromise) {
-                    await pendingSavePromise;
-                }
-                await doSaveVault();
-            } else {
-                await chrome.storage.local.remove('mse_sso_vault');
-            }
-
-            isSubmitting = true;
-
-            if (submitButton) {
-                submitButton.click();
-            } else {
-                HTMLFormElement.prototype.submit.call(loginForm);
-            }
-
-            // Fallback через 200 мс на случай, если click на span не инициировал submit формы
-            setTimeout(() => {
-                try {
-                    HTMLFormElement.prototype.submit.call(loginForm);
-                } catch { }
-            }, 200);
-
-            // Сброс флага через 3 секунды, если отправка была отменена браузером
-            setTimeout(() => {
-                isSubmitting = false;
-            }, 3000);
-        };
-
-        if (submitButton) {
-            submitButton.addEventListener('click', handleSubmitIntercept, true);
-        }
-        passwordInput.addEventListener('keydown', handleSubmitIntercept, true);
-        passwordInput.addEventListener('keypress', handleSubmitIntercept, true);
-        usernameInput.addEventListener('keydown', (e) => {
-            if ((e.key === 'Enter' || e.keyCode === 13) && passwordInput.value) {
-                handleSubmitIntercept(e);
-            }
-        }, true);
-        loginForm.addEventListener('submit', handleSubmitIntercept, true);
+        bindRememberFormSubmit(vaultSaver);
     }
 
     if (window.self === window.top) {
