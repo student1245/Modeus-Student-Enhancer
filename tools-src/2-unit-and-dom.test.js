@@ -1437,6 +1437,26 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.ok(html.includes('busy-title'));
             assert.ok(html.includes('Философия (лекция)'));
         });
+    
+
+        
+
+        test('openModal / DOM: разметка полноэкранного окна и закрытие в header-panel', () => {
+            env.window.MSE_PE.openModal([], {}, 'camp-1', 'stud-1', new Map());
+
+            const overlay = env.document.getElementById('mse-pe-overlay');
+            assert.ok(overlay, '#mse-pe-overlay должен быть смонтирован в DOM');
+
+            const container = overlay.querySelector('.container');
+            assert.ok(container, '.container должен присутствовать');
+
+            const headerPanel = overlay.querySelector('.header-panel');
+            assert.ok(headerPanel, '.header-panel должен присутствовать');
+
+            const closeBtn = env.document.getElementById('mse-pe-close');
+            assert.ok(closeBtn, 'Кнопка закрытия #mse-pe-close должна быть смонтирована');
+            assert.strictEqual(closeBtn.parentElement, headerPanel, 'Кнопка закрытия обязана монтироваться внутри .header-panel');
+        });
     });
 
     describe('6. Парсер обновлений GitHub и таргетинг опросов (injected.js)', () => {

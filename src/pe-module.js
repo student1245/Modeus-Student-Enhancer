@@ -1206,11 +1206,12 @@ window.MSE_PE = (function () {
                 const overlay = document.createElement('div'); overlay.id = 'mse-pe-overlay';
 
                 overlay.innerHTML = `
-                    <button type="button" class="modal-close-btn" id="mse-pe-close" title="Закрыть страницу">
-                        ${getSvgIcon('x', { size: 16, strokeWidth: 2 })}
-                    </button>
                     <div class="container">
-                        <div class="header-panel"><h2>Умный подбор физкультуры</h2>
+                        <div class="header-panel">
+                            <h2>Умный подбор физкультуры</h2>
+                            <button type="button" class="modal-close-btn" id="mse-pe-close" title="Закрыть страницу">
+                                ${getSvgIcon('x', { size: 16, strokeWidth: 2 })}
+                            </button>
                             <div class="filters-group">
                                 <div class="select-wrap custom-multiselect" id="pe-sportMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-sportMultiSelect"><span class="ms-label" id="pe-sportLabel">Все виды спорта</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="sport" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="sport" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-sportOptionsList"></div></div></div>
                                 <div class="select-wrap custom-multiselect" id="pe-campusMultiSelect"><button type="button" class="clean-select ms-btn" data-action="toggle-multiselect" data-target="pe-campusMultiSelect"><span class="ms-label" id="pe-campusLabel">Все корпуса</span></button>${getSvgIcon('chevron-down', { size: 14, strokeWidth: 2.2, className: 'select-chevron' })}<div class="ms-dropdown"><div class="ms-actions"><span data-action="select-all" data-type="campus" data-val="true">Выбрать все</span> <span data-action="select-all" data-type="campus" data-val="false">Сбросить</span></div><div class="ms-list" id="pe-campusOptionsList"></div></div></div>

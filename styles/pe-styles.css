@@ -4,7 +4,7 @@
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: #f8fafc;
+    background: #ffffff;
     z-index: 10000;
     overflow-y: auto;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -43,40 +43,39 @@
 }
 
 .modal-close-btn {
-    position: fixed;
-    top: 16px;
-    right: 20px;
-    z-index: 10001;
+    position: static;
     width: 34px;
     height: 34px;
     border-radius: 7px;
     border: 1px solid #cbd5e1;
     background: #ffffff;
-    color: #64748b;
-    display: inline-flex;
+    color: #475569;
+    display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     transition: all 0.15s ease;
     outline: none;
+    flex-shrink: 0;
 }
 
 .modal-close-btn:hover {
     background: #f1f5f9;
     color: #0f172a;
     border-color: #94a3b8;
-    transform: scale(1.05);
 }
 
 #mse-pe-overlay .container {
-    width: calc(100% - 130px);
-    max-width: 1750px;
-    margin: 40px auto;
-    background: white;
-    padding: 16px;
-    border-radius: 12px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+    width: 100%;
+    max-width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    background: #ffffff;
+    padding: 0 16px 24px 16px;
+    border-radius: 0;
+    box-shadow: none;
+    box-sizing: border-box;
 }
 
 #mse-pe-overlay .header-panel {
@@ -84,23 +83,95 @@
     top: 0;
     z-index: 30;
     background: #ffffff;
-    margin: -16px -16px 15px -16px;
-    padding: 16px 16px 12px 16px;
+    margin: 0 -16px 14px -16px;
+    padding: 22px 20px 16px 20px;
     border-bottom: 1px solid #e2e8f0;
-    border-radius: 12px 12px 0 0;
+    border-radius: 0;
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
     flex-wrap: wrap;
-    gap: 15px;
+    gap: 10px;
+    box-sizing: border-box;
+}
+
+#mse-pe-overlay .header-panel h2 {
+    margin: 0;
+    font-size: 23px;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
 }
 
 #mse-pe-overlay .filters-group {
     display: flex;
     align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
+    gap: 6px;
+    flex-wrap: nowrap;
     font-size: 13px;
+    box-sizing: border-box;
+}
+
+@media (min-width: 1641px) {
+    #mse-pe-overlay .header-panel {
+        padding-top: 22px;
+        padding-bottom: 16px;
+        align-items: center;
+    }
+    #mse-pe-overlay .header-panel h2 {
+        order: 1;
+        width: auto;
+        text-align: left;
+        justify-content: flex-start;
+    }
+    #mse-pe-overlay .filters-group {
+        order: 2;
+        margin-left: auto;
+        width: auto;
+        justify-content: flex-start;
+    }
+    #mse-pe-overlay .modal-close-btn {
+        order: 3;
+        margin-left: 10px;
+        position: static !important;
+        top: auto !important;
+        right: auto !important;
+    }
+}
+
+@media (max-width: 1640px) {
+    #mse-pe-overlay .header-panel {
+        padding-top: 20px;
+        padding-bottom: 16px;
+        justify-content: center;
+        gap: 14px;
+    }
+    #mse-pe-overlay .header-panel h2 {
+        order: 1;
+        width: 100%;
+        text-align: center;
+        justify-content: center;
+    }
+    #mse-pe-overlay .modal-close-btn {
+        position: absolute !important;
+        top: 18px !important;
+        right: 20px !important;
+        margin: 0 !important;
+        z-index: 10;
+    }
+    #mse-pe-overlay .filters-group {
+        order: 2;
+        width: 100%;
+        justify-content: center;
+        margin-left: 0 !important;
+        margin-top: 0;
+    }
+    #pe-friendWrapper {
+        margin-left: 0 !important;
+    }
 }
 
 /* Разделитель панели инструментов */
@@ -137,7 +208,7 @@
 
 .clean-select:hover {
     border-color: #94a3b8;
-    background: #f8fafc;
+    background: #ffffff;
 }
 
 .select-chevron {
@@ -1145,4 +1216,11 @@
 .replace-hint strong {
     color: #b45309;
     font-weight: 600;
+}
+
+
+@media (max-width: 1000px) {
+    #mse-pe-overlay table {
+        min-width: 0;
+    }
 }
