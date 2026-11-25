@@ -540,9 +540,9 @@ window.MSE_PE = (function () {
         return `
             <div class="${cardClass}"${onclickAttr}>
                 <div class="busy-header">
-                    <span class="busy-header-left">
+                    <span class="busy-header-left" title="${escapeHtml(labelText)}">
                         ${BUSY_CALENDAR_SVG}
-                        <span>${labelText}</span>
+                        <span>${escapeHtml(labelText)}</span>
                     </span>
                     ${chevronHtml}
                 </div>
@@ -596,10 +596,14 @@ window.MSE_PE = (function () {
 
         card.innerHTML = `
             <div class="sc-top">
-                <span class="sc-name">${enrolledBadge}${safeSportName} <span class="sc-count">· ${group.length}</span></span>
+                <div class="sc-name" title="${safeSportName}">
+                    ${enrolledBadge}<span class="sc-title-text" title="${safeSportName}">${safeSportName}</span><span class="sc-count">· ${group.length}</span>
+                </div>
+            </div>
+            <div class="sc-bottom">
+                <div class="sc-loc" title="${locs}">${locs}</div>
                 <span class="sc-slots ${slotsClass}">${totalAvail}<span class="sc-slots-total">/${totalSeats}</span></span>
             </div>
-            <div class="sc-loc" title="${locs}">${locs}</div>
         `;
         card.addEventListener('click', () => openPeModal(sportName, day, time, group, tIdx));
         return card;

@@ -51,6 +51,19 @@ class MockClassList {
     }
 }
 
+class MockStyle {
+    setProperty(prop, val) {
+        const camel = prop.replace(/-([a-z])/g, (_, l) => l.toUpperCase());
+        this[camel] = String(val);
+        this[prop] = String(val);
+    }
+    removeProperty(prop) {
+        const camel = prop.replace(/-([a-z])/g, (_, l) => l.toUpperCase());
+        delete this[camel];
+        delete this[prop];
+    }
+}
+
 class MockElement {
     constructor(tagName, documentRef = null) {
         this.tagName = String(tagName).toUpperCase();
@@ -61,7 +74,7 @@ class MockElement {
         this.classList = new MockClassList(this);
         this.attributes = new Map();
         this.dataset = {};
-        this.style = {};
+        this.style = new MockStyle();
         this.children = [];
         this.childNodes = [];
         this.parentElement = null;
@@ -80,8 +93,10 @@ class MockElement {
 
     get textContent() {
         if (this.nodeType === 3) return this._textContent;
-        if (this.children.length === 0) return this._textContent;
-        return this.children.map(c => c.textContent).join('');
+        const childText = this.children.map(c => c.textContent).join('');
+        if (!this._textContent) return childText;
+        if (!childText) return this._textContent;
+        return (this._textContent + ' ' + childText).trim();
     }
     set textContent(val) {
         this._textContent = String(val ?? '');
@@ -134,6 +149,9 @@ class MockElement {
                 }
                 const classMatch = rawAttrs.match(/\bclass=["']([^"']+)["']/i);
                 if (classMatch) childEl.className = classMatch[1];
+
+                const titleMatch = rawAttrs.match(/\btitle=["']([^"']+)["']/i);
+                if (titleMatch) childEl.setAttribute('title', titleMatch[1]);
 
                 const actionMatch = rawAttrs.match(/\bdata-action=["']([^"']+)["']/i);
                 if (actionMatch) childEl.dataset.action = actionMatch[1];
@@ -267,6 +285,9 @@ class MockElement {
     }
     blur() {
         this.dispatchEvent({ type: 'blur', target: this, cancelBubble: false, stopPropagation: () => {} });
+    }
+    select() {
+        this.dispatchEvent({ type: 'select', target: this, cancelBubble: false, stopPropagation: () => {} });
     }
 
     querySelector(selector) {
@@ -1296,6 +1317,8 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     getSlotIndex,
                     getConflict,
                     getTeacherRatingBadgeHtml,
+                    createSportCardElement,
+                    createBusyCardHtml,
                     setLocalReviews: (map) => { localTeacherReviews = map; },
                     setCurrentSchedule: (sch) => { currentSchedule = sch; }
                 };
@@ -1370,6 +1393,49 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             const noneHtml = hooks.getTeacherRatingBadgeHtml('Неизвестный Преподаватель');
             assert.ok(noneHtml.includes('rating-none'));
             assert.ok(noneHtml.includes('Нет отзывов'));
+        });
+
+        test('createSportCardElement: двухстрочная структура карточки, slots на 2-й строке, независимый счетчик sc-count', () => {
+            const group = [
+                { avail: 10, total: 15, campus: 'Олимпия', enrolled: false },
+                { avail: 5, total: 5, campus: 'Олимпия', enrolled: false }
+            ];
+            const card = hooks.createSportCardElement('Общая физическая подготовка', group, 'ПН', '08:30', 0);
+
+            assert.ok(card, 'Карточка должна быть создана');
+            assert.strictEqual(card.classList.contains('sport-card'), true);
+
+            // 1-я строка (.sc-top): название и счетчик групп
+            const topRow = card.querySelector('.sc-top');
+            assert.ok(topRow, '1-я строка .sc-top должна присутствовать');
+            const nameEl = topRow.querySelector('.sc-name');
+            const titleText = nameEl.querySelector('.sc-title-text');
+            const countEl = nameEl.querySelector('.sc-count');
+
+            assert.strictEqual(titleText.textContent, 'Общая физическая подготовка');
+            assert.strictEqual(titleText.getAttribute('title'), 'Общая физическая подготовка');
+            assert.strictEqual(countEl.textContent, '· 2');
+
+            // 2-я строка (.sc-bottom): корпус и свободные места
+            const bottomRow = card.querySelector('.sc-bottom');
+            assert.ok(bottomRow, '2-я строка .sc-bottom должна присутствовать');
+            const locEl = bottomRow.querySelector('.sc-loc');
+            const slotsEl = bottomRow.querySelector('.sc-slots');
+
+            assert.strictEqual(locEl.textContent, 'Олимпия');
+            assert.ok(slotsEl.classList.contains('slots-ok'));
+            assert.ok(slotsEl.textContent.includes('15'));
+            assert.ok(slotsEl.textContent.includes('/20'));
+        });
+
+        test('createBusyCardHtml: верстка заголовка с защитой от вытеснения шеврона', () => {
+            const html = hooks.createBusyCardHtml('У вас пара', ['Философия (лекция)']);
+            assert.ok(html.includes('busy-card'));
+            assert.ok(html.includes('busy-header-left'));
+            assert.ok(html.includes('title="У вас пара"'));
+            assert.ok(html.includes('<span>У вас пара</span>'));
+            assert.ok(html.includes('busy-title'));
+            assert.ok(html.includes('Философия (лекция)'));
         });
     });
 

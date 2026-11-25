@@ -505,25 +505,46 @@
 .sc-top {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 6px;
+    width: 100%;
     margin-bottom: 2px;
+    min-width: 0;
 }
 
 .sc-name {
-    font-size: 12.5px;
+    display: inline-flex;
+    align-items: baseline;
+    max-width: 100%;
+    min-width: 0;
+    font-size: 12px;
     font-weight: 600;
     color: #0f172a;
-    white-space: nowrap;
+    line-height: 1.25;
+}
+
+.sc-title-text {
+    flex: 0 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
 .sc-count {
+    flex: 0 0 auto;
     font-weight: 400;
     color: #94a3b8;
-    font-size: 11.5px;
-    margin-left: 2px;
+    font-size: 11px;
+    margin-left: 3px;
+    white-space: nowrap;
+}
+
+.sc-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
 }
 
 .sc-slots {
@@ -599,6 +620,8 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1 1 auto;
 }
 
 .sport-card.is-full {
@@ -662,6 +685,13 @@
     background: rgba(226, 232, 240, 0.85);
     padding: 1px 6px;
     border-radius: 4px;
+}
+
+.busy-header-left span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
 .busy-chevron {
