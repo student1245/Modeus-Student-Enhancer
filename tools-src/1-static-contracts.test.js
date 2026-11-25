@@ -117,8 +117,15 @@ describe('Шаг 1: Архитектурные контракты, Manifest V3 �
 
     test('Тест 2: Изоляция миров Chromium (Isolated World vs Main World, Раздел 1.2)', () => {
         const mainWorldScripts = ['src/injected.js', 'src/pe-module.js', 'src/icons.js'];
+        const manifest = parseJsonFile('manifest.json');
+        const modeusIsolatedScripts = manifest.content_scripts?.find(cs => cs.js?.includes('src/content.js'))?.js || [];
 
         mainWorldScripts.forEach(scriptPath => {
+            assert.strictEqual(
+                modeusIsolatedScripts.includes(scriptPath),
+                false,
+                `Скрипт Main World ${scriptPath} не должен дублироваться в content_scripts с src/content.js`
+            );
             const cleanCode = stripComments(readProjectFile(scriptPath));
 
             assert.strictEqual(

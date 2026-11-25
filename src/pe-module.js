@@ -514,10 +514,6 @@ window.MSE_PE = (function () {
         if (!e.target.closest('.custom-multiselect')) {
             document.querySelectorAll('.custom-multiselect').forEach(m => m.classList.remove('open'));
         }
-        const busyCard = e.target.closest('.busy-card.is-expandable');
-        if (busyCard) {
-            busyCard.classList.toggle('expanded');
-        }
     });
 
     async function getPersonIdByName(name) {
@@ -776,7 +772,7 @@ window.MSE_PE = (function () {
             </div>
             <div class="sc-bottom">
                 <div class="sc-loc" title="${locs}">${locs}</div>
-                <span class="sc-slots ${slotsClass}">${totalAvail}<span class="sc-slots-total">/${totalSeats}</span></span>
+                <span class="sc-slots ${slotsClass}">${totalAvail} <span class="sc-slots-total">/${totalSeats}</span></span>
             </div>
         `;
         card.addEventListener('click', () => openPeModal(sportName, day, time, group, tIdx));
@@ -1565,6 +1561,11 @@ window.MSE_PE = (function () {
                         if (!friendContainer.contains(e.target)) {
                             toggleFriendPopover(false);
                         }
+                    }
+                    const busyCard = e.target.closest('.busy-card.is-expandable');
+                    if (busyCard) {
+                        busyCard.classList.toggle('expanded');
+                        return;
                     }
                     const toggleBtn = e.target.closest('[data-action="toggle-multiselect"]');
                     if (toggleBtn) {

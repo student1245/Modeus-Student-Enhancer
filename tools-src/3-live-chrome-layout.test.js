@@ -1206,11 +1206,15 @@ describe('Шаг 3: Живые геометрические и визуальн�
                     const rCount = countEl ? countEl.getBoundingClientRect() : null;
                     const distance = (rTitle && rCount) ? (rCount.left - rTitle.right) : 999;
 
+                    const slotsTotal = slotsEl ? slotsEl.querySelector('.sc-slots-total') : null;
+                    const slotsTotalMarginLeft = slotsTotal ? parseFloat(getComputedStyle(slotsTotal).marginLeft) : 0;
+
                     cardCheck = {
                         hasTwoRows: !!(topRow && bottomRow && rTop && rBottom && rTop.bottom <= rBottom.top + 1),
                         slotsInBottomRow: !!(bottomRow && bottomRow.contains(slotsEl)),
                         countVisible: !!(countEl && rCount && rCount.width > 0),
-                        countDistance: Math.round(distance * 10) / 10
+                        countDistance: Math.round(distance * 10) / 10,
+                        slotsTotalMarginLeft
                     };
                 }
 
@@ -1287,6 +1291,7 @@ describe('Шаг 3: Живые геометрические и визуальн�
             assert.strictEqual(data.cardCheck.slotsInBottomRow, true, `На ширине ${w}px свободные места должны быть на второй строке`);
             assert.strictEqual(data.cardCheck.countVisible, true, `На ширине ${w}px счетчик групп .sc-count должен быть виден`);
             assert.ok(data.cardCheck.countDistance <= 6, `На ширине ${w}px счетчик групп .sc-count должен стоять вплотную к названию спорта (зазор ${data.cardCheck.countDistance}px <= 6px)`);
+            assert.ok(data.cardCheck.slotsTotalMarginLeft >= 2, `На ширине ${w}px между доступными и общими местами должен быть отступ (margin-left: ${data.cardCheck.slotsTotalMarginLeft}px >= 2px)`);
         }
 
         // 4. Проверка открытия и закрытия поповера друга на 1000px и скроллбара списка друзей

@@ -740,6 +740,7 @@ body.mse-scrollbar-dragging {
 #mse-pe-overlay .sc-slots-total {
     color: #94a3b8;
     font-weight: 400;
+    margin-left: 3px;
 }
 
 #mse-pe-overlay .sc-slots.slots-low {

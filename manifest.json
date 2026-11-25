@@ -48,8 +48,6 @@
         "styles/pe-styles.css"
       ],
       "js": [
-        "src/icons.js",
-        "src/pe-module.js",
         "src/content.js"
       ],
       "run_at": "document_end"
