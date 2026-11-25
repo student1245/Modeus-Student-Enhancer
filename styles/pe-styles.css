@@ -1270,6 +1270,12 @@ body.mse-scrollbar-dragging {
     font-weight: 600;
 }
 
+#mse-pe-overlay .replace-hint-warn {
+    margin-top: 4px;
+    color: #b45309;
+    font-weight: 500;
+}
+
 /* --- Панель поиска друга и адаптивная кнопка-лупа с поповером --- */
 #mse-pe-overlay .pe-friend-container {
     position: relative;

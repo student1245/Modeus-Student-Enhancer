@@ -1062,9 +1062,13 @@ window.MSE_PE = (function () {
 
         if (occupiedModule && oldTeamId && targetModuleId) {
             const oldTeamName = getOldTeamDisplayName(oldTeamId, occupiedModule);
+            const lowAvailHint = item.avail <= 2
+                ? `<div class="replace-hint replace-hint-warn">Осталось мало мест (${item.avail}): при ошибке новой записи система попытается вернуть старую секцию.</div>`
+                : '';
             return `
                 <button id="btn-team-${item.id}" class="btn-reenroll" data-action="swap" data-team-id="${item.id}" data-old-team-id="${oldTeamId}" data-target-module-id="${targetModuleId}">${getSvgIcon('refresh-ccw', { size: 14, strokeWidth: 2 })} Перезаписаться в секцию</button>
                 <div class="replace-hint">Заменит: <b>${escapeHtml(oldTeamName)}</b></div>
+                ${lowAvailHint}
             `;
         }
 
@@ -1262,14 +1266,43 @@ window.MSE_PE = (function () {
         }
     }
 
+    async function attemptSwapRollback(oldModuleId, oldTeamId, newTeamId, stepTwoErr) {
+        setTeamActionButtonPending(newTeamId, 'Откат старой записи...');
+        try {
+            await sendBookingTeamRequest({
+                method: 'POST',
+                targetModuleId: oldModuleId,
+                teamId: oldTeamId,
+                startLogLabel: 'Компенсирующий откат перезаписи (POST старой секции):',
+                errorLogLabel: '[MSE PE] Ошибка компенсирующего отката старой секции:',
+                successLogLabel: 'Компенсирующий откат старой секции успешно выполнен'
+            });
+            updateModuleSelectionState(oldModuleId, oldTeamId, true);
+            syncAndRenderActiveViews();
+            showToast(
+                `Не удалось записаться в новую секцию (${stepTwoErr.message}). Старая запись успешно восстановлена.`,
+                'warning'
+            );
+            return true;
+        } catch (rollbackErr) {
+            syncAndRenderActiveViews();
+            showToast(
+                `Старая запись отменена, записаться в новую не удалось (${stepTwoErr.message}), и откат старой не удался (${rollbackErr.message}).`,
+                'error'
+            );
+            return false;
+        }
+    }
+
     async function apiSwapAction(newTeamId, oldTeamId, targetModuleId) {
+        const oldModuleId = enrolledTeamsMap.get(oldTeamId) || targetModuleId;
         setTeamActionButtonPending(newTeamId, 'Перезапись (1/2: отписка)...');
 
         try {
             try {
                 await sendBookingTeamRequest({
                     method: 'DELETE',
-                    targetModuleId,
+                    targetModuleId: oldModuleId,
                     teamId: oldTeamId,
                     startLogLabel: 'Запрос на перезапись [1/2] - Отмена старой секции (DELETE):',
                     errorLogLabel: '[MSE PE] Ошибка ответа сервера при отмене старой секции (шаг 1 перезаписи):',
@@ -1279,7 +1312,7 @@ window.MSE_PE = (function () {
                 throw new Error(`Не удалось отписаться от старой секции: ${stepOneErr.message}`);
             }
 
-            updateModuleSelectionState(targetModuleId, oldTeamId, false);
+            updateModuleSelectionState(oldModuleId, oldTeamId, false);
             setTeamActionButtonPending(newTeamId, 'Перезапись (2/2: запись)...');
 
             try {
@@ -1292,8 +1325,8 @@ window.MSE_PE = (function () {
                     successLogLabel: 'Успешный ответ для записи в новую секцию [2/2]'
                 });
             } catch (stepTwoErr) {
-                syncAndRenderActiveViews();
-                throw new Error(`Старая запись отменена, но записаться в новую секцию не удалось: ${stepTwoErr.message}`);
+                await attemptSwapRollback(oldModuleId, oldTeamId, newTeamId, stepTwoErr);
+                return;
             }
 
             updateModuleSelectionState(targetModuleId, newTeamId, true);

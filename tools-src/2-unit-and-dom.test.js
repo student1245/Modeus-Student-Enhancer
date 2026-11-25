@@ -1328,9 +1328,15 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     getTeacherRatingBadgeHtml,
                     createSportCardElement,
                     createBusyCardHtml,
+                    createSectionCardElement,
                     getPersonIdByName,
+                    apiSwapAction,
                     setLocalReviews: (map) => { localTeacherReviews = map; },
-                    setCurrentSchedule: (sch) => { currentSchedule = sch; }
+                    setCurrentSchedule: (sch) => { currentSchedule = sch; },
+                    setModules: (mods) => { allModules = mods; parseData(); },
+                    setApiContext: (campId, studId) => { apiCampaignId = campId; apiStudentId = studId; },
+                    getModules: () => allModules,
+                    getEnrolledTeamsMap: () => enrolledTeamsMap
                 };
             }`;
             executeScriptWithHook('src/pe-module.js', hook, env);
@@ -1503,6 +1509,115 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             const person = await hooks.getPersonIdByName('Иванов');
             assert.strictEqual(apiCalled, true, 'При битом кэше друзей должен выполняться fallback-запрос к API');
             assertDeepEqual(person, { id: 'p-api-1', name: 'Иванов Иван' });
+        });
+
+        test('apiSwapAction: успешный компенсирующий откат POST oldTeamId при ошибке записи в новую секцию', async () => {
+            const modules = [{
+                moduleElementId: 'mod-1',
+                name: 'Спорт',
+                selectedTeamIds: ['team-old'],
+                cycles: [{
+                    teams: [
+                        { id: 'team-old', name: 'ФК: Волейбол ПН 08:30 Олимпия', available: 5, limit: 20, teachers: ['Иванов И.И.'] },
+                        { id: 'team-new', name: 'ФК: Баскетбол ВТ 10:15 Матфак', available: 2, limit: 20, teachers: ['Петров П.П.'] }
+                    ]
+                }]
+            }];
+            hooks.setApiContext('camp-1', 'stud-1');
+            hooks.setModules(modules);
+
+            const requests = [];
+            env.window.fetch = async (url, options) => {
+                const body = JSON.parse(options.body);
+                requests.push({ method: options.method, url, body });
+                if (options.method === 'POST' && body[0] === 'team-new') {
+                    return { ok: false, status: 409, statusText: 'Conflict', text: async () => JSON.stringify({ message: 'Мест больше нет' }) };
+                }
+                return { ok: true, status: 200, text: async () => '{}' };
+            };
+
+            const toasts = [];
+            env.window.MSE_showToast = (message, type) => { toasts.push({ message, type }); };
+
+            await hooks.apiSwapAction('team-new', 'team-old', 'mod-1');
+
+            assertDeepEqual(
+                requests.map(r => [r.method, r.body[0]]),
+                [['DELETE', 'team-old'], ['POST', 'team-new'], ['POST', 'team-old']]
+            );
+            assertDeepEqual(hooks.getModules()[0].selectedTeamIds, ['team-old']);
+            assert.strictEqual(hooks.getEnrolledTeamsMap().has('team-old'), true);
+            assert.strictEqual(hooks.getModules()[0].cycles[0].teams[0].available, 5, 'Счётчик свободных мест старой секции должен восстановиться');
+            assert.strictEqual(toasts.length, 1);
+            assert.strictEqual(toasts[0].type, 'warning');
+            assert.ok(toasts[0].message.includes('Старая запись успешно восстановлена'));
+        });
+
+        test('apiSwapAction: честное сообщение об ошибке при провале и записи, и компенсирующего отката', async () => {
+            const modules = [{
+                moduleElementId: 'mod-1',
+                name: 'Спорт',
+                selectedTeamIds: ['team-old'],
+                cycles: [{
+                    teams: [
+                        { id: 'team-old', name: 'ФК: Волейбол ПН 08:30 Олимпия', available: 1, limit: 20, teachers: ['Иванов И.И.'] },
+                        { id: 'team-new', name: 'ФК: Баскетбол ВТ 10:15 Матфак', available: 1, limit: 20, teachers: ['Петров П.П.'] }
+                    ]
+                }]
+            }];
+            hooks.setApiContext('camp-1', 'stud-1');
+            hooks.setModules(modules);
+
+            const requests = [];
+            env.window.fetch = async (url, options) => {
+                const body = JSON.parse(options.body);
+                requests.push({ method: options.method, body });
+                if (options.method === 'DELETE') {
+                    return { ok: true, status: 200, text: async () => '{}' };
+                }
+                return { ok: false, status: 409, statusText: 'Conflict', text: async () => JSON.stringify({ message: 'Секция занята' }) };
+            };
+
+            const toasts = [];
+            env.window.MSE_showToast = (message, type) => { toasts.push({ message, type }); };
+
+            await hooks.apiSwapAction('team-new', 'team-old', 'mod-1');
+
+            assertDeepEqual(
+                requests.map(r => [r.method, r.body[0]]),
+                [['DELETE', 'team-old'], ['POST', 'team-new'], ['POST', 'team-old']]
+            );
+            assertDeepEqual(hooks.getModules()[0].selectedTeamIds, []);
+            assert.strictEqual(hooks.getEnrolledTeamsMap().has('team-old'), false);
+            assert.strictEqual(toasts.length, 1);
+            assert.strictEqual(toasts[0].type, 'error');
+            assert.ok(toasts[0].message.includes('откат старой не удался'));
+        });
+
+        test('createSectionCardElement: показывает предупреждение смены группы при малом остатке мест (avail <= 2)', () => {
+            hooks.setModules([{
+                moduleElementId: 'mod-1',
+                selectedTeamIds: ['team-old'],
+                cycles: [{
+                    teams: [
+                        { id: 'team-old', name: 'ФК: Волейбол ПН 08:30 Олимпия', available: 5, limit: 20, teachers: ['Иванов'] },
+                        { id: 'team-low', name: 'ФК: Баскетбол ВТ 10:15 Матфак', available: 2, limit: 20, teachers: ['Петров'] },
+                        { id: 'team-ok', name: 'ФК: Плавание СР 12:00 Олимпия', available: 3, limit: 20, teachers: ['Сидоров'] }
+                    ]
+                }]
+            }]);
+
+            const cardLow = hooks.createSectionCardElement({
+                id: 'team-low', secNum: 2, sport: 'Баскетбол', day: 'ВТ', time: '10:15',
+                campus: 'Матфак', address: 'ул. Перекопская, 15а', mapLink: '', prof: 'Петров', avail: 2, total: 20, enrolled: false
+            });
+            assert.ok(cardLow.querySelector('.replace-hint-warn'), 'При avail <= 2 должно выводиться предупреждение смены группы');
+
+            const cardOk = hooks.createSectionCardElement({
+                id: 'team-ok', secNum: 3, sport: 'Плавание', day: 'СР', time: '12:00',
+                campus: 'Олимпия', address: 'ул. Пржевальского, 37', mapLink: '', prof: 'Сидоров', avail: 3, total: 20, enrolled: false
+            });
+            assert.strictEqual(cardOk.querySelector('.replace-hint-warn'), null, 'При avail > 2 предупреждение о малом остатке мест не выводится');
         });
     });
 
