@@ -762,6 +762,29 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                 assert.strictEqual(badExpEnv.localStorage.getItem('mse_auth_backup'), null);
             });
         });
+
+        test('восстановление mse_auth_backup: копирует в sessionStorage только ключи из allowlist AUTH_STORAGE_KEYS', () => {
+            const expSec = Math.floor(Date.now() / 1000) + 3600;
+            const idB64 = Buffer.from(JSON.stringify({ sub: 'stud-1', exp: expSec })).toString('base64url');
+            const idToken = `header.${idB64}.sig`;
+
+            const restoreEnv = createMockEnvironment('https://utmn.modeus.org/');
+            restoreEnv.localStorage.setItem('mse_auth_backup', JSON.stringify({
+                access_token: 'restored_access',
+                id_token: idToken,
+                session_state: 'sess_1',
+                evil_injected_key: 'pwned',
+                mse_debug: '1'
+            }));
+
+            executeScriptWithHook('src/keeper-early.js', '', restoreEnv);
+
+            assert.strictEqual(restoreEnv.sessionStorage.getItem('access_token'), 'restored_access');
+            assert.strictEqual(restoreEnv.sessionStorage.getItem('id_token'), idToken);
+            assert.strictEqual(restoreEnv.sessionStorage.getItem('session_state'), 'sess_1');
+            assert.strictEqual(restoreEnv.sessionStorage.getItem('evil_injected_key'), null);
+            assert.strictEqual(restoreEnv.sessionStorage.getItem('mse_debug'), null);
+        });
     });
 
     describe('2. Криптография и автовход ADFS (sso-autologin.js)', () => {
@@ -1817,6 +1840,11 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     recordUpdateOutsideClick,
                     shouldShowSurvey,
                     isQuestionAnswerValid,
+                    buildFinalQuestionAnswer,
+                    buildQuestionCustomOptionHtml,
+                    handleAuthStorageSync,
+                    fetchEventAttendees,
+                    findTriggeringCard,
                     createSilentOAuthRequest,
                     applyRefreshedTokens,
                     resolveSafeSurveyWebhookUrl,
@@ -2072,6 +2100,53 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(env.localStorage.getItem('mse_my_profile'), null);
             assert.ok(env.localStorage.getItem('mse_friends_list') !== null);
         });
+
+        test('опросы: отсутствие двойного экранирования, ограничение 500 символов и maxlength в DOM', () => {
+            const rawAnswer = '  A & "B" <C>  ';
+            const built = hooks.buildFinalQuestionAnswer(false, new Set(['__custom__']), rawAnswer);
+            assert.strictEqual(built, 'Свой вариант: A & "B" <C>', 'В JSON должен сохраняться сырой обрезанный текст без HTML-сущностей');
+
+            const longInput = 'x'.repeat(650);
+            const builtLong = hooks.buildFinalQuestionAnswer(false, new Set(['__custom__']), longInput);
+            assert.strictEqual(builtLong, `Свой вариант: ${'x'.repeat(500)}`);
+
+            const html = hooks.buildQuestionCustomOptionHtml('checkbox', true, 'A & "B"');
+            assert.ok(html.includes('maxlength="500"'), 'Поле ввода должно иметь атрибут maxlength="500"');
+            assert.ok(html.includes('value="A &amp; &quot;B&quot;"'), 'Экранирование должно выполняться однократно при рендере DOM');
+            assert.strictEqual(html.includes('&amp;amp;'), false, 'Двойного экранирования быть не должно');
+        });
+
+        test('handleAuthStorageSync: отклоняет просроченный id_token и принимает валидный при межвкладочной синхронизации', () => {
+            const nowSec = Math.floor(Date.now() / 1000);
+            const expiredToken = `h.${Buffer.from(JSON.stringify({ sub: 's1', exp: nowSec - 60 })).toString('base64url')}.s`;
+            const validToken = `h.${Buffer.from(JSON.stringify({ sub: 's1', exp: nowSec + 3600 })).toString('base64url')}.s`;
+
+            hooks.handleAuthStorageSync({
+                key: 'mse_auth_backup',
+                newValue: JSON.stringify({ access_token: 'stale_acc', id_token: expiredToken })
+            });
+            assert.strictEqual(env.sessionStorage.getItem('access_token'), null, 'Просроченный токен из storage event должен отклоняться');
+
+            hooks.handleAuthStorageSync({
+                key: 'mse_auth_backup',
+                newValue: JSON.stringify({ access_token: 'fresh_acc', id_token: validToken })
+            });
+            assert.strictEqual(env.sessionStorage.getItem('access_token'), 'fresh_acc');
+            assert.strictEqual(env.sessionStorage.getItem('id_token'), validToken);
+        });
+
+        test('API и селекторы: блокировка CSPT в fetchEventAttendees и безопасное экранирование в findTriggeringCard', async () => {
+            let fetchCalled = false;
+            env.window.fetch = async () => {
+                fetchCalled = true;
+                return { ok: true, json: async () => [] };
+            };
+            const badRes = await hooks.fetchEventAttendees('../admin', 'tok');
+            assert.strictEqual(badRes, null);
+            assert.strictEqual(fetchCalled, false, 'При невалидном eventId запрос к API не должен отправляться');
+
+            assert.doesNotThrow(() => hooks.findTriggeringCard({ id: 'popover-"bad"\\id' }));
+        });
     });
 
     describe('7. Детерминированная очистка ресурсов stopAndCleanUp (injected.js)', () => {
@@ -2102,6 +2177,33 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(env.document.getElementById('mse-toast-container'), null);
             assert.strictEqual(env.document.getElementById('mse-friends-menu'), null);
             assert.strictEqual(env.localStorage.getItem('mse_auth_backup'), null, 'stopAndCleanUp обязан удалять mse_auth_backup');
+        });
+
+        test('остановка по событию mse:stop: content.js при enabled=false останавливает работающий injected.js и сбрасывает mse_auth_backup', async () => {
+            const env = createMockEnvironment('https://utmn.modeus.org/');
+            env.CustomEvent = CustomEvent;
+            let onMessageHandler = null;
+            env.chrome.runtime.onMessage = {
+                addListener: (cb) => { onMessageHandler = cb; }
+            };
+            env.chrome.storage.onChanged = { addListener: () => {} };
+            env.chrome.storage.sync.get = async () => ({ enabled: true });
+            env.chrome.storage.local.get = async () => ({});
+            env.fetch = async () => ({ ok: false, status: 404, text: async () => '' });
+
+            executeScriptWithHook('src/injected.js', '', env);
+            assert.ok(env.window.studentEnhancer, 'injected.js должен инициализировать window.studentEnhancer');
+            env.localStorage.setItem('mse_auth_backup', JSON.stringify({ access_token: 'secret' }));
+
+            executeScriptWithHook('src/content.js', '', env);
+            await new Promise(r => setImmediate(r));
+            assert.strictEqual(typeof onMessageHandler, 'function', 'content.js должен регистрировать обработчик runtime.onMessage');
+
+            onMessageHandler({ type: 'mse:sync-enabled', enabled: false }, {}, () => {});
+
+            assert.strictEqual(env.localStorage.getItem('mse_disabled'), '1');
+            assert.strictEqual(env.localStorage.getItem('mse_auth_backup'), null, 'mse_auth_backup должен удаляться при отключении');
+            assert.strictEqual(env.window.studentEnhancer, undefined, 'Событие mse:stop должно останавливать injected.js и удалять window.studentEnhancer');
         });
     });
 

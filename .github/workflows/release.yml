@@ -15,13 +15,16 @@ jobs:
 
       - name: Create Clean Zip
         run: |
-          zip -r Modeus-Student-Enhancer-${{ github.ref_name }}.zip . \
-            -x "*.git*" \
-            -x "*.github*" \
-            -x "tools-src/*" \
-            -x "data/survey.json" \
-            -x "*.md" \
-            -x ".gitignore"
+          zip -r Modeus-Student-Enhancer-${{ github.ref_name }}.zip \
+            manifest.json \
+            src \
+            styles \
+            popup \
+            icons \
+            data/rules.json \
+            buildings.json \
+            teacher_reviews.json \
+            LICENSE
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2

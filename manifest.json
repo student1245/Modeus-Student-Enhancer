@@ -16,7 +16,7 @@
   ],
   "host_permissions": [
     "https://utmn.modeus.org/*",
-    "https://fs.utmn.ru/*",
+    "https://fs.utmn.ru/adfs/*",
     "https://auth.modeus.org/*"
   ],
   "declarative_net_request": {
@@ -53,7 +53,7 @@
     },
     {
       "matches": [
-        "https://fs.utmn.ru/*",
+        "https://fs.utmn.ru/adfs/*",
         "https://auth.modeus.org/*"
       ],
       "js": [

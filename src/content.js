@@ -10,6 +10,13 @@
     } catch {
       // Игнорируем ошибки доступа к localStorage
     }
+    if (!isEnabled) {
+      try {
+        document.dispatchEvent(new CustomEvent('mse:stop'));
+      } catch {
+        // Игнорируем ошибки диспетчеризации события остановки
+      }
+    }
   }
 
   chrome.storage?.onChanged?.addListener((changes, areaName) => {

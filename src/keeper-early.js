@@ -200,9 +200,11 @@
                 if (idExpiresAt <= now) {
                     localStorage.removeItem('mse_auth_backup');
                 } else {
-                    for (const [key, value] of Object.entries(backup)) {
-                        sessionStorage.setItem(key, value);
-                    }
+                    AUTH_STORAGE_KEYS.forEach(key => {
+                        if (backup[key] !== undefined && backup[key] !== null) {
+                            sessionStorage.setItem(key, String(backup[key]));
+                        }
+                    });
                     console.log('[MSE Keeper] Сессия успешно реанимирована из бэкапа до старта приложения');
                 }
             }

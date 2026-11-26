@@ -663,8 +663,12 @@
             const response = await nativeFetch(...args);
 
             if (urlStr.includes('/api/people/persons/search')) {
-                const responseText = await response.clone().text();
-                processPersonSearchResponse(responseText);
+                try {
+                    const responseText = await response.clone().text();
+                    processPersonSearchResponse(responseText);
+                } catch (e) {
+                    logger.warn('Ошибка чтения ответа /persons/search из fetch:', e);
+                }
             }
 
             if (urlStr.includes('/academic-period-results-table/primary')) {
@@ -1217,6 +1221,19 @@
         try {
             const backupData = JSON.parse(e.newValue);
             if (!backupData || typeof backupData !== 'object') return;
+
+            const now = Date.now();
+            if (backupData.id_token) {
+                const claims = parseJwt(backupData.id_token);
+                if (typeof claims?.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp * 1000 <= now) {
+                    return;
+                }
+            } else {
+                const fallbackExp = Number(backupData.id_token_expires_at || 0);
+                if (!Number.isFinite(fallbackExp) || fallbackExp <= now) {
+                    return;
+                }
+            }
 
             AUTH_STORAGE_KEYS.forEach(key => {
                 if (backupData[key] !== undefined && backupData[key] !== null) {
@@ -1953,6 +1970,7 @@
         document.removeEventListener('click', handleOutsideUpdateClick);
         document.removeEventListener('mse:databases-updated', handleDatabasesUpdated);
         document.removeEventListener('mse:autologin-updated', handleAutologinUpdated);
+        document.removeEventListener('mse:stop', stopAndCleanUp);
 
         // 4. Очистка внедрённых DOM-элементов и деактивация стилей
         dismissAddFriendGuide();
@@ -1986,6 +2004,7 @@
         delete window.studentEnhancer;
         logger.debug('Скрипт полностью остановлен, нативные прототипы и таймеры очищены.');
     };
+    document.addEventListener('mse:stop', stopAndCleanUp);
 
     const isSameStudyDirection = (studentInfo) => {
         if (!mySpecialty || !studentInfo?.specialtyName) return false;
@@ -2205,13 +2224,21 @@
         return section;
     };
 
+    const escapeCssSelectorValue = (value) => (
+        (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+            ? CSS.escape(String(value))
+            : String(value).replace(/["\\]/g, '\\$&')
+    );
+
     const findTriggeringCard = (popoverWindow) => {
         if (popoverWindow.id) {
-            const cardByAria = document.querySelector(`[aria-describedby="${popoverWindow.id}"]`);
+            const safeId = escapeCssSelectorValue(popoverWindow.id);
+            const cardByAria = document.querySelector(`[aria-describedby="${safeId}"]`);
             if (cardByAria) return cardByAria.closest('.fc-time-grid-event') || cardByAria;
         }
         if (hoveredHighlightedEventId) {
-            return document.querySelector(`.fc-time-grid-event.search-highlight[data-event-id="${hoveredHighlightedEventId}"]`);
+            const safeEventId = escapeCssSelectorValue(hoveredHighlightedEventId);
+            return document.querySelector(`.fc-time-grid-event.search-highlight[data-event-id="${safeEventId}"]`);
         }
         return null;
     };
@@ -2673,8 +2700,9 @@
     }
 
     async function fetchEventAttendees(eventId, token) {
+        if (!isValidModeusPathId(eventId)) return null;
         try {
-            const res = await fetch(`${API_CALENDAR_EVENTS}/${eventId}/attendees`, {
+            const res = await fetch(`${API_CALENDAR_EVENTS}/${encodeURIComponent(eventId)}/attendees`, {
                 headers: { authorization: `Bearer ${token}` }
             });
             if (res.ok) {
@@ -3741,9 +3769,6 @@
             action,
             answers: safeAnswers
         };
-        if (surveyConfig?.secret) {
-            payload.secret = surveyConfig.secret;
-        }
 
         try {
             await fetch(webhookUrl, {
@@ -3988,7 +4013,7 @@
                 <span>Свой вариант</span>
             </label>
             <div class="mse-survey-custom-wrap" id="mse-survey-custom-container" style="display: ${customDisplay};">
-                <input type="text" class="mse-survey-custom-input" id="mse-survey-custom-input" placeholder="Напишите свой вариант..." value="${safeCustomText}" />
+                <input type="text" class="mse-survey-custom-input" id="mse-survey-custom-input" maxlength="500" placeholder="Напишите свой вариант..." value="${safeCustomText}" />
             </div>
         `;
     };
@@ -4013,17 +4038,18 @@
         return optionsHtml + buildQuestionCustomOptionHtml(inputType, isCustomChecked, customText);
     };
 
+    const SURVEY_CUSTOM_ANSWER_MAX_LENGTH = 500;
+
     /**
-     * Формирует итоговый санитизированный ответ для сохранения и отправки.
+     * Формирует итоговый ответ для сохранения и отправки (без HTML-экранирования в JSON).
      * @param {boolean} isMultiple
      * @param {Set<string>} selectedOptions
      * @param {string} customText
      * @returns {string|string[]|null}
      */
     const buildFinalQuestionAnswer = (isMultiple, selectedOptions, customText) => {
-        const trimmedCustom = customText.trim();
-        const safeCustomText = escapeHtml(trimmedCustom);
-        const customAnswerString = safeCustomText ? `Свой вариант: ${safeCustomText}` : null;
+        const trimmedCustom = String(customText || '').trim().slice(0, SURVEY_CUSTOM_ANSWER_MAX_LENGTH);
+        const customAnswerString = trimmedCustom ? `Свой вариант: ${trimmedCustom}` : null;
 
         if (isMultiple) {
             const result = [];
@@ -4179,7 +4205,7 @@
         });
 
         customInput?.addEventListener('input', (event) => {
-            setCustomText(event.target.value);
+            setCustomText(String(event.target.value || '').slice(0, SURVEY_CUSTOM_ANSWER_MAX_LENGTH));
             updateValidation();
         });
 
@@ -4609,10 +4635,11 @@
     }
 
     function fetchCourseLessonTechnology(courseUnitId, token) {
+        if (!isValidModeusPathId(courseUnitId)) return;
         if (mseLoadedCourseUnits.has(courseUnitId)) return;
         mseLoadedCourseUnits.add(courseUnitId);
 
-        fetch(`${API_COURSES}/${courseUnitId}/lessons-technology`, {
+        fetch(`${API_COURSES}/${encodeURIComponent(courseUnitId)}/lessons-technology`, {
             headers: { authorization: `Bearer ${token}` }
         })
             .then(response => {
