@@ -912,7 +912,12 @@
         }
 
         const { accessToken, idToken, idClaims } = validation;
-        const expiresIn = Number(params.get('expires_in') || 3600);
+        const rawExpiresIn = params.get('expires_in');
+        const expiresIn = (rawExpiresIn === null || rawExpiresIn === '') ? 3600 : Number(rawExpiresIn);
+        if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+            logger.warn('[MSE Session] Отклонены OAuth-токены: некорректный expires_in');
+            return null;
+        }
         const sessionState = params.get('session_state');
         const oldToken = sessionStorage.getItem('access_token');
         const now = Date.now();
@@ -931,6 +936,13 @@
         if (sessionState) sessionStorage.setItem('session_state', sessionState);
 
         saveAuthTokensBackup();
+        const refreshedPersonId = idClaims?.person_id || idClaims?.sub;
+        if (refreshedPersonId) {
+            syncMyPersonIdCache(refreshedPersonId);
+        }
+        try {
+            document.dispatchEvent(new CustomEvent('mse:auth-success'));
+        } catch { }
         refreshFailureCount = 0;
         isCircuitBreakerOpen = false;
 
@@ -1361,11 +1373,34 @@
 
     const syncMyPersonIdCache = (personId) => {
         if (!personId) return;
+        let previousPersonId = myPersonId;
+        try {
+            previousPersonId = previousPersonId || localStorage.getItem(STORAGE_KEY_MY_PERSON_ID);
+        } catch { }
+        if (previousPersonId && String(previousPersonId).toLowerCase() !== String(personId).toLowerCase()) {
+            mySpecialty = null;
+            myProfile = null;
+            try {
+                localStorage.removeItem(STORAGE_KEY_MY_SPECIALTY);
+                localStorage.removeItem(STORAGE_KEY_MY_PROFILE);
+            } catch { }
+        }
         myPersonId = personId;
         try {
             localStorage.setItem(STORAGE_KEY_MY_PERSON_ID, personId);
         } catch { }
     };
+
+    try {
+        const initialIdToken = sessionStorage.getItem('id_token');
+        if (initialIdToken) {
+            const initialClaims = parseJwt(initialIdToken);
+            const initialJwtPersonId = initialClaims?.person_id || initialClaims?.sub;
+            if (initialJwtPersonId) {
+                syncMyPersonIdCache(initialJwtPersonId);
+            }
+        }
+    } catch { }
 
     const getMyPersonId = () => {
         if (myPersonId) return myPersonId;
@@ -1899,6 +1934,10 @@
         XMLHttpRequest.prototype.open = nativeXhrOpen;
         XMLHttpRequest.prototype.send = nativeXhrSend;
         history.pushState = nativePushState;
+
+        try {
+            localStorage.removeItem(STORAGE_KEY_AUTH_BACKUP);
+        } catch { }
 
         // 3. Снятие глобальных обработчиков событий
         window.removeEventListener('popstate', processUrlChange);
@@ -3181,9 +3220,34 @@
         return `<ul class="vp-list">${itemsHtml}</ul>`;
     };
 
+    const SAFE_RELEASES_PREFIX = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases`;
+    const DEFAULT_RELEASE_URL = `${SAFE_RELEASES_PREFIX}/latest`;
+
+    const resolveSafeReleaseUrl = (candidateUrl) => {
+        if (typeof candidateUrl === 'string') {
+            const trimmed = candidateUrl.trim();
+            if (trimmed.startsWith(SAFE_RELEASES_PREFIX)) {
+                try {
+                    const parsed = new URL(trimmed);
+                    if (
+                        parsed.protocol === 'https:' &&
+                        parsed.hostname === 'github.com' &&
+                        parsed.pathname.startsWith(`/${GITHUB_USER}/${GITHUB_REPO}/releases`)
+                    ) {
+                        return parsed.href;
+                    }
+                } catch {
+                    // Невалидный URL отклоняется
+                }
+            }
+        }
+        return DEFAULT_RELEASE_URL;
+    };
+
     const buildUpdateAnchorHtml = (versionTag, releaseUrl, releaseBody) => {
         const highlightsHtml = buildUpdateHighlightsHtml(releaseBody);
         const externalIcon = getSvgIcon('external-link', { size: 12, strokeWidth: 2 });
+        const safeHref = escapeHtml(resolveSafeReleaseUrl(releaseUrl));
         return `
             <button type="button" class="ver-pill-btn" title="Доступно обновление расширения">
                 <span class="amber-dot"></span>
@@ -3196,7 +3260,7 @@
                 </div>
                 ${highlightsHtml}
                 <div class="vp-actions">
-                    <a href="${escapeHtml(releaseUrl)}" target="_blank" rel="noopener noreferrer" class="vp-btn-download">
+                    <a href="${safeHref}" target="_blank" rel="noopener noreferrer" class="vp-btn-download">
                         <span>Скачать обновление</span>
                         ${externalIcon}
                     </a>
@@ -3300,9 +3364,7 @@
             return;
         }
 
-        const safeReleaseUrl = /^https?:\/\//i.test(releaseData.html_url || '')
-            ? escapeHtml(releaseData.html_url)
-            : `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases`;
+        const safeReleaseUrl = resolveSafeReleaseUrl(releaseData.html_url);
 
         if (isVersionGreater(latestVersion, CURRENT_VERSION)) {
             logger.update(`Найдено обновление: текущая v${CURRENT_VERSION} -> доступна v${latestVersion}. Отображаем баннер.`);
@@ -3643,27 +3705,15 @@
         }
     };
 
-    const ALLOWED_SURVEY_WEBHOOK_PREFIX = 'https://script.google.com/macros/s/';
-
     /**
-     * Валидирует URL вебхука опроса (допускаются только HTTPS-эндпоинты Google Apps Script).
-     * При несовпадении возвращает доверенный DEFAULT_SURVEY_WEBHOOK_URL.
+     * Всегда возвращает доверенный фиксированный URL вебхука опроса.
+     * Переопределение webhookUrl из удалённого survey.json запрещено.
      * @param {*} candidateUrl
      * @returns {string}
      */
     const resolveSafeSurveyWebhookUrl = (candidateUrl) => {
-        if (typeof candidateUrl === 'string' && candidateUrl.startsWith(ALLOWED_SURVEY_WEBHOOK_PREFIX)) {
-            try {
-                const parsed = new URL(candidateUrl);
-                if (parsed.protocol === 'https:' && parsed.hostname === 'script.google.com' && parsed.pathname.startsWith('/macros/s/')) {
-                    return candidateUrl;
-                }
-            } catch {
-                // Невалидный URL отклоняется
-            }
-        }
-        if (candidateUrl) {
-            logger.warn(`Отклонён недоверенный webhookUrl опроса, используется URL по умолчанию.`);
+        if (candidateUrl && candidateUrl !== DEFAULT_SURVEY_WEBHOOK_URL) {
+            logger.warn('Отклонён сторонний webhookUrl из конфигурации опроса, используется DEFAULT_SURVEY_WEBHOOK_URL.');
         }
         return DEFAULT_SURVEY_WEBHOOK_URL;
     };
@@ -3699,6 +3749,8 @@
             await fetch(webhookUrl, {
                 method: 'POST',
                 mode: 'no-cors',
+                credentials: 'omit',
+                referrerPolicy: 'no-referrer',
                 headers: {
                     'Content-Type': 'text/plain'
                 },
@@ -5217,13 +5269,43 @@
         return false;
     };
 
+    const isValidModeusPathId = (value) => {
+        if (typeof value !== 'string' || !value || value === '.' || value === '..') return false;
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ||
+            /^[a-zA-Z0-9_-]+$/.test(value);
+    };
+
+    const parsePeCampaignPathParams = (urlString) => {
+        try {
+            const { pathname } = new URL(urlString, window.location?.origin || 'https://utmn.modeus.org');
+            const match = pathname.match(/\/menus\/([^/]+)\/student\/([^/]+)/);
+            if (!match) return null;
+            const campaignId = match[1];
+            const bookingStudentId = match[2];
+            if (!isValidModeusPathId(campaignId) || !isValidModeusPathId(bookingStudentId)) {
+                return null;
+            }
+            return { campaignId, bookingStudentId };
+        } catch {
+            return null;
+        }
+    };
+
     const fetchPeCampaignModules = async (token, bookingStudentId, campaignId) => {
-        const menuRes = await fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu`, {
+        if (!isValidModeusPathId(bookingStudentId) || !isValidModeusPathId(campaignId)) {
+            throw new Error('Некорректный идентификатор кампании или студента.');
+        }
+        const safeStudentId = encodeURIComponent(bookingStudentId);
+        const safeCampaignId = encodeURIComponent(campaignId);
+        const menuRes = await fetch(`${API_BOOKING}/${safeStudentId}/campaigns/${safeCampaignId}/student-campaign-menu`, {
             headers: { 'authorization': `Bearer ${token}` }
         });
         if (!menuRes.ok) {
             const raw = await menuRes.text();
-            console.error('[MSE PE] Ошибка загрузки меню кампании:', { status: menuRes.status, raw });
+            logger.error(`[MSE PE] Ошибка загрузки меню кампании: HTTP ${menuRes.status}`);
+            if (isDebug()) {
+                logger.network('[MSE PE] Детали ошибки меню кампании:', { status: menuRes.status, raw });
+            }
             throw new Error(`Ошибка загрузки меню: HTTP ${menuRes.status}`);
         }
         const menuData = await menuRes.json();
@@ -5231,14 +5313,21 @@
             throw new Error('Модули для выбора не найдены.');
         }
 
-        const modulePromises = menuData.moduleElements.map(m =>
-            fetch(`${API_BOOKING}/${bookingStudentId}/campaigns/${campaignId}/student-campaign-menu/module-elements/${m.id}`, {
+        const modulePromises = menuData.moduleElements.map(m => {
+            if (!isValidModeusPathId(m.id)) {
+                return Promise.reject(new Error('Некорректный идентификатор модуля.'));
+            }
+            const safeModuleId = encodeURIComponent(m.id);
+            return fetch(`${API_BOOKING}/${safeStudentId}/campaigns/${safeCampaignId}/student-campaign-menu/module-elements/${safeModuleId}`, {
                 headers: { 'authorization': `Bearer ${token}` }
             }).then(async r => {
                 if (!r.ok) {
                     const raw = await r.text();
-                    console.error('[MSE PE] Ошибка загрузки команд модуля:', { moduleId: m.id, status: r.status, raw });
-                    throw new Error(`Ошибка модуля ${m.id}: HTTP ${r.status}`);
+                    logger.error(`[MSE PE] Ошибка загрузки команд модуля: HTTP ${r.status}`);
+                    if (isDebug()) {
+                        logger.network('[MSE PE] Детали ошибки модуля:', { moduleId: m.id, status: r.status, raw });
+                    }
+                    throw new Error(`Ошибка модуля: HTTP ${r.status}`);
                 }
                 const data = await r.json();
                 return {
@@ -5247,8 +5336,8 @@
                     moduleElementId: data.moduleElementId || data.id || m.id,
                     name: data.name || m.name
                 };
-            })
-        );
+            });
+        });
         return Promise.all(modulePromises);
     };
 
@@ -5267,13 +5356,12 @@
     const handleSmartPickerClick = async (banner) => {
         if (isSmartPickerLoading) return;
 
-        const urlMatch = window.location.href.match(/menus\/([^\/]+)\/student\/([^\/]+)/);
-        if (!urlMatch) {
+        const pathParams = parsePeCampaignPathParams(window.location.href);
+        if (!pathParams) {
             showToast('Зайдите внутрь кампании физкультуры, чтобы подбор заработал.', 'warning');
             return;
         }
-        const campaignId = urlMatch[1];
-        const bookingStudentId = urlMatch[2]; // ID для API записи
+        const { campaignId, bookingStudentId } = pathParams;
 
         isSmartPickerLoading = true;
         const btnSpan = qs('.spb-action-btn span', banner);
@@ -5291,9 +5379,8 @@
                 fetchPeBlockedScheduleSlots(token)
             ]);
 
-            console.log(
-                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
-                `Успешно загружено модулей: ${allModulesData.length}`,
+            logger.network(
+                `[MSE PE] Успешно загружено модулей: ${allModulesData.length}`,
                 allModulesData.map(mod => ({
                     moduleId: mod.moduleElementId,
                     name: mod.name,

@@ -40,6 +40,8 @@ window.MSE_PE = (function () {
     let apiCampaignId = '';
     let localTeacherReviews = new Map();
 
+    const isDebug = () => Boolean(sharedUtils?.isDebug?.());
+
     const showToast = (message, type = 'info') => {
         if (sharedUtils && typeof sharedUtils.notifyUser === 'function') {
             sharedUtils.notifyUser(message, type);
@@ -759,7 +761,7 @@ window.MSE_PE = (function () {
             cardsHtml += createBusyCardHtml('У вас пара', userList);
         }
         if (friendList.length > 0) {
-            const friendLabel = `У друга (${escapeHtml(friendName || 'друг')})`;
+            const friendLabel = `У друга (${friendName || 'друг'})`;
             cardsHtml += createBusyCardHtml(friendLabel, friendList);
         }
         return cardsHtml;
@@ -953,13 +955,15 @@ window.MSE_PE = (function () {
     }
 
     function getSlotPillHtml(avail, total) {
+        const safeAvail = escapeHtml(avail);
+        const safeTotal = escapeHtml(total);
         if (avail >= 4) {
-            return `<span class="slot-pill slot-ok">${avail} из ${total} мест</span>`;
+            return `<span class="slot-pill slot-ok">${safeAvail} из ${safeTotal} мест</span>`;
         }
         if (avail >= 1) {
-            return `<span class="slot-pill slot-low">${avail} из ${total} мест</span>`;
+            return `<span class="slot-pill slot-low">${safeAvail} из ${safeTotal} мест</span>`;
         }
-        return `<span class="slot-pill slot-zero">0 из ${total} мест</span>`;
+        return `<span class="slot-pill slot-zero">0 из ${safeTotal} мест</span>`;
     }
 
     function formatLocationRowHtml(campus, address, mapLink) {
@@ -1038,11 +1042,12 @@ window.MSE_PE = (function () {
     }
 
     function getSectionActionBtnHtml(item) {
+        const safeTeamId = escapeHtml(item.id);
         if (item.enrolled) {
-            return `<button id="btn-team-${item.id}" class="btn-unenroll" data-action="unenroll" data-team-id="${item.id}">${getSvgIcon('x', { size: 14, strokeWidth: 2 })} Отменить запись</button>`;
+            return `<button id="btn-team-${safeTeamId}" class="btn-unenroll" data-action="unenroll" data-team-id="${safeTeamId}">${getSvgIcon('x', { size: 14, strokeWidth: 2 })} Отменить запись</button>`;
         }
         if (item.avail <= 0) {
-            return `<button id="btn-team-${item.id}" class="btn-disabled" disabled title="В секции не осталось свободных мест">${getSvgIcon('lock', { size: 13, strokeWidth: 2 })} Нет свободных мест</button>`;
+            return `<button id="btn-team-${safeTeamId}" class="btn-disabled" disabled title="В секции не осталось свободных мест">${getSvgIcon('lock', { size: 13, strokeWidth: 2 })} Нет свободных мест</button>`;
         }
 
         const validModuleIds = teamToModulesMap.get(item.id);
@@ -1053,7 +1058,7 @@ window.MSE_PE = (function () {
         const emptyModule = candidateModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
 
         if (emptyModule) {
-            return `<button id="btn-team-${item.id}" class="btn-enroll" data-action="enroll" data-team-id="${item.id}">${getSvgIcon('check', { size: 14, strokeWidth: 2.2 })} Записаться в секцию</button>`;
+            return `<button id="btn-team-${safeTeamId}" class="btn-enroll" data-action="enroll" data-team-id="${safeTeamId}">${getSvgIcon('check', { size: 14, strokeWidth: 2.2 })} Записаться в секцию</button>`;
         }
 
         const occupiedModule = candidateModules.find(mod => mod.selectedTeamIds && mod.selectedTeamIds.length > 0);
@@ -1062,17 +1067,20 @@ window.MSE_PE = (function () {
 
         if (occupiedModule && oldTeamId && targetModuleId) {
             const oldTeamName = getOldTeamDisplayName(oldTeamId, occupiedModule);
+            const safeOldTeamId = escapeHtml(oldTeamId);
+            const safeTargetModuleId = escapeHtml(targetModuleId);
+            const safeAvail = escapeHtml(item.avail);
             const lowAvailHint = item.avail <= 2
-                ? `<div class="replace-hint replace-hint-warn">Осталось мало мест (${item.avail}): при ошибке новой записи система попытается вернуть старую секцию.</div>`
+                ? `<div class="replace-hint replace-hint-warn">Осталось мало мест (${safeAvail}): при ошибке новой записи система попытается вернуть старую секцию.</div>`
                 : '';
             return `
-                <button id="btn-team-${item.id}" class="btn-reenroll" data-action="swap" data-team-id="${item.id}" data-old-team-id="${oldTeamId}" data-target-module-id="${targetModuleId}">${getSvgIcon('refresh-ccw', { size: 14, strokeWidth: 2 })} Перезаписаться в секцию</button>
+                <button id="btn-team-${safeTeamId}" class="btn-reenroll" data-action="swap" data-team-id="${safeTeamId}" data-old-team-id="${safeOldTeamId}" data-target-module-id="${safeTargetModuleId}">${getSvgIcon('refresh-ccw', { size: 14, strokeWidth: 2 })} Перезаписаться в секцию</button>
                 <div class="replace-hint">Заменит: <b>${escapeHtml(oldTeamName)}</b></div>
                 ${lowAvailHint}
             `;
         }
 
-        return `<button id="btn-team-${item.id}" class="btn-enroll" data-action="enroll" data-team-id="${item.id}">${getSvgIcon('check', { size: 14, strokeWidth: 2.2 })} Записаться в секцию</button>`;
+        return `<button id="btn-team-${safeTeamId}" class="btn-enroll" data-action="enroll" data-team-id="${safeTeamId}">${getSvgIcon('check', { size: 14, strokeWidth: 2.2 })} Записаться в секцию</button>`;
     }
 
     function createSectionCardElement(item) {
@@ -1089,7 +1097,7 @@ window.MSE_PE = (function () {
         const topHtml = `
             <div class="sec-top">
                 <div class="sec-name">
-                    <span>Секция №${item.secNum}</span>
+                    <span>Секция №${escapeHtml(item.secNum)}</span>
                     ${enrolledBadge}
                 </div>
                 ${getSlotPillHtml(item.avail, item.total)}
@@ -1120,12 +1128,25 @@ window.MSE_PE = (function () {
         renderGrid();
     }
 
+    function isValidModeusPathId(value) {
+        if (typeof value !== 'string' || !value || value === '.' || value === '..') return false;
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ||
+            /^[a-zA-Z0-9_-]+$/.test(value);
+    }
+
     function buildBookingSelectedTeamsUrl(targetModuleId) {
-        return `${BOOKING_API_BASE}/${apiStudentId}/campaigns/${apiCampaignId}/student-campaign-menu/module-elements/${targetModuleId}/selected-teams`;
+        if (!isValidModeusPathId(apiStudentId) || !isValidModeusPathId(apiCampaignId) || !isValidModeusPathId(targetModuleId)) {
+            throw new Error('Некорректный идентификатор кампании, студента или модуля');
+        }
+        return `${BOOKING_API_BASE}/${encodeURIComponent(apiStudentId)}/campaigns/${encodeURIComponent(apiCampaignId)}/student-campaign-menu/module-elements/${encodeURIComponent(targetModuleId)}/selected-teams`;
     }
 
     function setTeamActionButtonPending(teamId, label) {
-        const btn = document.getElementById(`btn-team-${teamId}`);
+        const rawId = `btn-team-${teamId}`;
+        const selectorId = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+            ? `#${CSS.escape(rawId)}`
+            : null;
+        const btn = (selectorId ? document.querySelector(selectorId) : null) || document.getElementById(rawId);
         if (btn) {
             btn.disabled = true;
             btn.innerText = label;
@@ -1156,11 +1177,13 @@ window.MSE_PE = (function () {
         const url = buildBookingSelectedTeamsUrl(targetModuleId);
         const bodyData = [teamId];
 
-        console.log(
-            '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
-            startLogLabel,
-            { method, url, moduleId: targetModuleId, teamId, body: bodyData }
-        );
+        if (isDebug()) {
+            console.log(
+                '%c[MSE PE]', 'color: #0284c7; font-weight: bold;',
+                startLogLabel,
+                { method, url, moduleId: targetModuleId, teamId, body: bodyData }
+            );
+        }
 
         const res = await fetch(url, {
             method,
@@ -1184,26 +1207,32 @@ window.MSE_PE = (function () {
                 // сырой текст ответа сервера
             }
 
-            console.error(errorLogLabel, {
-                status: res.status,
-                statusText: res.statusText,
-                url,
-                method,
-                moduleId: targetModuleId,
-                teamId,
-                sentBody: bodyData,
-                rawResponse,
-                parsedError: errorJson
-            });
+            if (isDebug()) {
+                console.error(errorLogLabel, {
+                    status: res.status,
+                    statusText: res.statusText,
+                    url,
+                    method,
+                    moduleId: targetModuleId,
+                    teamId,
+                    sentBody: bodyData,
+                    rawResponse,
+                    parsedError: errorJson
+                });
+            } else {
+                console.error(errorLogLabel, errorMsg);
+            }
 
             throw new Error(errorMsg);
         }
 
-        console.log(
-            '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
-            `${successLogLabel} (HTTP ${res.status}):`,
-            { moduleId: targetModuleId, teamId }
-        );
+        if (isDebug()) {
+            console.log(
+                '%c[MSE PE]', 'color: #16a34a; font-weight: bold;',
+                `${successLogLabel} (HTTP ${res.status}):`,
+                { moduleId: targetModuleId, teamId }
+            );
+        }
     }
 
     function resolveToggleTargetModuleId(teamId, isEnroll) {
@@ -1213,10 +1242,14 @@ window.MSE_PE = (function () {
                 ? (enrolledModule.moduleElementId || enrolledModule.id)
                 : enrolledTeamsMap.get(teamId);
             if (!targetModuleId) {
-                console.error('[MSE PE] Не удалось найти модуль для отмены записи:', {
-                    teamId,
-                    enrolledTeamsMap: Array.from(enrolledTeamsMap.entries())
-                });
+                if (isDebug()) {
+                    console.error('[MSE PE] Не удалось найти модуль для отмены записи:', {
+                        teamId,
+                        enrolledTeamsMap: Array.from(enrolledTeamsMap.entries())
+                    });
+                } else {
+                    console.error('[MSE PE] Не удалось найти модуль для отмены записи.');
+                }
                 showToast('Не удалось определить модуль для отмены записи.', 'error');
                 return null;
             }
@@ -1225,7 +1258,11 @@ window.MSE_PE = (function () {
 
         const validModuleIds = teamToModulesMap.get(teamId);
         if (!validModuleIds || validModuleIds.size === 0) {
-            console.error('[MSE PE] Не удалось найти модуль для команды:', { teamId, allModules });
+            if (isDebug()) {
+                console.error('[MSE PE] Не удалось найти модуль для команды:', { teamId, allModules });
+            } else {
+                console.error('[MSE PE] Не удалось найти модуль для команды.');
+            }
             showToast('Не удалось определить модуль для выбранной секции.', 'error');
             return null;
         }
@@ -1233,7 +1270,9 @@ window.MSE_PE = (function () {
         const candidateModules = allModules.filter(mod => validModuleIds.has(mod.moduleElementId || mod.id));
         const emptyModule = candidateModules.find(mod => !mod.selectedTeamIds || mod.selectedTeamIds.length === 0);
         if (!emptyModule) {
-            console.warn('[MSE PE] Все доступные модули для этой секции уже заняты:', { teamId, candidateModules });
+            if (isDebug()) {
+                console.warn('[MSE PE] Все доступные модули для этой секции уже заняты:', { teamId, candidateModules });
+            }
             showToast('В модуле для этой секции уже выбрана другая команда. Сначала отпишитесь от неё.', 'warning');
             return null;
         }
