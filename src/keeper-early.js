@@ -2,6 +2,36 @@
     // Во фреймах ничего не делаем
     if (window.self !== window.top) return;
 
+    function syncEnabledStateFromExtension() {
+        if (typeof chrome === 'undefined' || !chrome.storage?.sync?.get) return;
+        try {
+            Promise.resolve(chrome.storage.sync.get('enabled')).then((res) => {
+                const isEnabled = res?.enabled ?? true;
+                try {
+                    if (!isEnabled) {
+                        localStorage.setItem('mse_disabled', '1');
+                        localStorage.removeItem('mse_auth_backup');
+                    } else {
+                        localStorage.removeItem('mse_disabled');
+                    }
+                } catch { }
+            }).catch(() => { });
+        } catch { }
+    }
+
+    function clearSsoTriedFlag() {
+        if (typeof chrome === 'undefined' || !chrome.storage?.local?.remove) return;
+        try {
+            Promise.resolve(chrome.storage.local.remove('mse_sso_tried')).catch(() => { });
+        } catch { }
+    }
+
+    syncEnabledStateFromExtension();
+
+    try {
+        if (localStorage.getItem('mse_disabled') === '1') return;
+    } catch { }
+
     const AUTH_STORAGE_KEYS = [
         'access_token',
         'access_token_stored_at',
@@ -113,37 +143,43 @@
                 if (!isStateValid || !isNonceValid) {
                     console.warn('[MSE Keeper] Отклонены OAuth-токены из хэша: несовпадение state или nonce');
                 } else if (accessToken) {
-                    const expiresIn = Number(params.get('expires_in') || 3600);
-                    const sessionState = params.get('session_state');
-                    const now = Date.now();
-                    const expiresAt = now + expiresIn * 1000;
+                    const rawExpiresIn = params.get('expires_in');
+                    const expiresIn = (rawExpiresIn === null || rawExpiresIn === '') ? 3600 : Number(rawExpiresIn);
+                    if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+                        console.warn('[MSE Keeper] Отклонены OAuth-токены из хэша: некорректный expires_in');
+                    } else {
+                        const sessionState = params.get('session_state');
+                        const now = Date.now();
+                        const expiresAt = now + expiresIn * 1000;
 
-                    sessionStorage.setItem('access_token', accessToken);
-                    sessionStorage.setItem('access_token_stored_at', String(now));
-                    sessionStorage.setItem('expires_at', String(expiresAt));
-                    sessionStorage.setItem('id_token', idToken);
+                        sessionStorage.setItem('access_token', accessToken);
+                        sessionStorage.setItem('access_token_stored_at', String(now));
+                        sessionStorage.setItem('expires_at', String(expiresAt));
+                        sessionStorage.setItem('id_token', idToken);
 
-                    if (claims?.exp) {
-                        sessionStorage.setItem('id_token_expires_at', String(claims.exp * 1000));
-                        sessionStorage.setItem('id_token_claims_obj', JSON.stringify(claims));
-                        sessionStorage.setItem('id_token_stored_at', String(now));
+                        if (claims?.exp) {
+                            sessionStorage.setItem('id_token_expires_at', String(claims.exp * 1000));
+                            sessionStorage.setItem('id_token_claims_obj', JSON.stringify(claims));
+                            sessionStorage.setItem('id_token_stored_at', String(now));
+                        }
+                        if (sessionState) {
+                            sessionStorage.setItem('session_state', sessionState);
+                        }
+                        sessionStorage.setItem('nonce', expectedNonce);
+
+                        const backupData = {};
+                        AUTH_STORAGE_KEYS.forEach(key => {
+                            const val = sessionStorage.getItem(key);
+                            if (val !== null) backupData[key] = val;
+                        });
+                        localStorage.setItem('mse_auth_backup', JSON.stringify(backupData));
+                        clearSsoTriedFlag();
+                        console.log('[MSE Keeper] Токены из хэша успешно сохранены в sessionStorage');
+
+                        // Немедленно очищаем URL от хэша, чтобы Angular увидел чистый '/'
+                        // и не запускал валидацию кастомного state в tryLoginImplicitFlow
+                        history.replaceState(null, '', '/');
                     }
-                    if (sessionState) {
-                        sessionStorage.setItem('session_state', sessionState);
-                    }
-                    sessionStorage.setItem('nonce', expectedNonce);
-
-                    const backupData = {};
-                    AUTH_STORAGE_KEYS.forEach(key => {
-                        const val = sessionStorage.getItem(key);
-                        if (val !== null) backupData[key] = val;
-                    });
-                    localStorage.setItem('mse_auth_backup', JSON.stringify(backupData));
-                    console.log('[MSE Keeper] Токены из хэша успешно сохранены в sessionStorage');
-
-                    // Немедленно очищаем URL от хэша, чтобы Angular увидел чистый '/'
-                    // и не запускал валидацию кастомного state в tryLoginImplicitFlow
-                    history.replaceState(null, '', '/');
                 }
             }
         } catch (e) {
@@ -176,8 +212,11 @@
     }
 
     // 4. Страховка от зависания на /not-authorized при наличии валидной сессии
-    if (window.location.pathname.includes('/not-authorized') && hasValidToken()) {
-        console.log('[MSE Keeper] Обнаружен URL not-authorized при валидной сессии — перенаправление на /');
-        window.location.replace('/');
+    if (hasValidToken()) {
+        clearSsoTriedFlag();
+        if (window.location.pathname.includes('/not-authorized')) {
+            console.log('[MSE Keeper] Обнаружен URL not-authorized при валидной сессии — перенаправление на /');
+            window.location.replace('/');
+        }
     }
 })();

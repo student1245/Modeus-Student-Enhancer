@@ -94,6 +94,17 @@
 
     if (!usernameInput || !passwordInput || !loginForm) return;
 
+    function getVaultMaxAgeMs() {
+        return 90 * 24 * 60 * 60 * 1000; // TTL автоочистки сейфа (90 дней)
+    }
+
+    function isVaultExpired(vault, now = Date.now()) {
+        if (!vault || typeof vault.updatedAt !== 'number' || !Number.isFinite(vault.updatedAt)) {
+            return true;
+        }
+        return (now - vault.updatedAt) > getVaultMaxAgeMs();
+    }
+
     // Вспомогательные криптографические функции (Web Crypto API: AES-GCM 256-bit)
     function bufferToBase64(buffer) {
         const bytes = new Uint8Array(buffer);
@@ -138,6 +149,7 @@
 
     async function decryptCredentials(vault) {
         if (!vault?.ciphertextBase64 || !vault?.ivBase64 || !vault?.keyJwk) return null;
+        if (isVaultExpired(vault)) return null;
         try {
             const key = await crypto.subtle.importKey(
                 'jwk',
@@ -341,17 +353,29 @@
         }
     }
 
-    // Шаг 1: Проверка ошибок сервера и однократный предохранитель (Single-Attempt Circuit Breaker)
+    // Шаг 1: Проверка ошибок сервера, TTL сейфа и межвкладочного предохранителя (Single-Attempt Circuit Breaker)
     const hasError = Boolean(document.querySelector('#errorText')?.textContent?.trim());
-    const wasTried = sessionStorage.getItem('mse_sso_tried') === '1';
 
-    const { mse_sso_vault, mse_manual_logout_once = false } = await chrome.storage.local.get([
+    const {
+        mse_sso_vault: rawVault,
+        mse_manual_logout_once = false,
+        mse_sso_tried = false
+    } = await chrome.storage.local.get([
         'mse_sso_vault',
-        'mse_manual_logout_once'
+        'mse_manual_logout_once',
+        'mse_sso_tried'
     ]);
 
+    let mse_sso_vault = rawVault || null;
+    if (mse_sso_vault && isVaultExpired(mse_sso_vault)) {
+        await chrome.storage.local.remove('mse_sso_vault');
+        mse_sso_vault = null;
+    }
+
+    const wasTried = Boolean(mse_sso_tried);
+
     if (hasError || wasTried) {
-        sessionStorage.removeItem('mse_sso_tried');
+        await chrome.storage.local.remove('mse_sso_tried');
         if (mse_sso_vault) {
             await chrome.storage.local.remove('mse_sso_vault');
             if (window.self === window.top) {
@@ -366,7 +390,7 @@
 
     // Если пользователь ранее сам нажал «Выйти» — один раз сбрасываем флаг и пропускаем автологин
     if (mse_manual_logout_once) {
-        await chrome.storage.local.remove('mse_manual_logout_once');
+        await chrome.storage.local.remove(['mse_manual_logout_once', 'mse_sso_tried']);
         if (window.self === window.top) {
             mountRememberMeUI(Boolean(mse_sso_vault));
         }
@@ -374,11 +398,11 @@
     }
 
     async function tryAutoLoginFromVault(vault) {
-        sessionStorage.setItem('mse_sso_tried', '1');
+        await chrome.storage.local.set({ mse_sso_tried: Date.now() });
         try {
             const credentials = await decryptCredentials(vault);
             if (!credentials?.username || !credentials?.password) {
-                throw new Error('Поврежденные или неполные учетные данные в хранилище');
+                throw new Error('Поврежденные, просроченные или неполные учетные данные в хранилище');
             }
             setInputValue(usernameInput, credentials.username);
             setInputValue(passwordInput, credentials.password);
@@ -390,8 +414,7 @@
             return true;
         } catch (err) {
             console.warn('[MSE SSO Autologin] Ошибка расшифровки хранилища:', err);
-            await chrome.storage.local.remove('mse_sso_vault');
-            sessionStorage.removeItem('mse_sso_tried');
+            await chrome.storage.local.remove(['mse_sso_vault', 'mse_sso_tried']);
             return false;
         }
     }
@@ -413,10 +436,8 @@
     }
 
     function createVaultSaver(checkbox) {
-        let pendingSavePromise = null;
-        let saveDebounceTimer = null;
-
-        async function doSaveVault() {
+        async function saveOnSubmit() {
+            await chrome.storage.local.remove('mse_sso_tried');
             if (!checkbox.checked) {
                 await chrome.storage.local.remove('mse_sso_vault');
                 return null;
@@ -436,43 +457,22 @@
             }
         }
 
-        function triggerSave(delay = 50) {
-            clearTimeout(saveDebounceTimer);
-            if (!checkbox.checked) {
-                pendingSavePromise = chrome.storage.local.remove('mse_sso_vault');
-                return pendingSavePromise;
-            }
-            if (delay === 0) {
-                pendingSavePromise = doSaveVault();
-                return pendingSavePromise;
-            }
-            saveDebounceTimer = setTimeout(() => {
-                pendingSavePromise = doSaveVault();
-            }, delay);
-        }
-
-        async function flushBeforeSubmit() {
-            clearTimeout(saveDebounceTimer);
-            if (!checkbox.checked) {
-                await chrome.storage.local.remove('mse_sso_vault');
-                return;
-            }
-            if (pendingSavePromise) await pendingSavePromise;
-            await doSaveVault();
-        }
-
         return {
-            triggerSave,
-            cancelAndClear: () => {
-                clearTimeout(saveDebounceTimer);
-                pendingSavePromise = chrome.storage.local.remove('mse_sso_vault');
-            },
-            flushBeforeSubmit
+            clearVault: () => chrome.storage.local.remove(['mse_sso_vault', 'mse_sso_tried']),
+            saveOnSubmit
         };
     }
 
     function bindRememberFormSubmit(vaultSaver) {
+        let isSaving = false;
         let isSubmitting = false;
+        let didNativeSubmit = false;
+
+        loginForm.addEventListener('submit', () => {
+            if (isSubmitting) {
+                didNativeSubmit = true;
+            }
+        });
 
         const handleSubmitIntercept = async (event) => {
             if (isSubmitting) return;
@@ -487,17 +487,28 @@
             event.preventDefault();
             event.stopImmediatePropagation();
 
-            await vaultSaver.flushBeforeSubmit();
+            if (isSaving) return;
+            isSaving = true;
+
+            try {
+                await vaultSaver.saveOnSubmit();
+            } finally {
+                isSaving = false;
+            }
+
             isSubmitting = true;
+            didNativeSubmit = false;
 
             if (submitButton) {
                 submitButton.click();
             } else {
+                didNativeSubmit = true;
                 HTMLFormElement.prototype.submit.call(loginForm);
             }
 
             // Fallback через 200 мс на случай, если click на span не инициировал submit формы
             setTimeout(() => {
+                if (didNativeSubmit) return;
                 try {
                     HTMLFormElement.prototype.submit.call(loginForm);
                 } catch { }
@@ -543,7 +554,7 @@
                         <b>Не включайте в компьютерных классах и на чужих устройствах</b> — иначе следующий человек войдёт в ваш аккаунт.
                     </div>
                     <div class="mse-sso-sub">
-                        Данные шифруются локально (AES-256), не покидают браузер и сбрасываются при ошибке входа.
+                        Данные хранятся локально в изолированном хранилище браузера (защищены от других сайтов, но НЕ защищены при доступе к ПК — используйте только на личном устройстве). Сейф сбрасывается при ошибке входа и через 90 дней.
                     </div>
                 </div>
             </div>
@@ -557,24 +568,9 @@
 
         checkbox.addEventListener('change', () => {
             warning.classList.toggle('is-visible', checkbox.checked);
-            if (checkbox.checked) {
-                vaultSaver.triggerSave(0);
-            } else {
-                vaultSaver.cancelAndClear();
+            if (!checkbox.checked) {
+                vaultSaver.clearVault();
             }
-        });
-
-        const handleInput = () => {
-            if (checkbox.checked) vaultSaver.triggerSave(50);
-        };
-        const handleChangeOrBlur = () => {
-            if (checkbox.checked) vaultSaver.triggerSave(0);
-        };
-
-        [usernameInput, passwordInput].forEach(field => {
-            field.addEventListener('input', handleInput);
-            field.addEventListener('change', handleChangeOrBlur);
-            field.addEventListener('blur', handleChangeOrBlur);
         });
 
         bindRememberFormSubmit(vaultSaver);

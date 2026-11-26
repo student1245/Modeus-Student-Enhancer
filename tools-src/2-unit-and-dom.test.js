@@ -717,6 +717,51 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(badNonceEnv.sessionStorage.getItem('access_token'), null);
             assert.strictEqual(badNonceEnv.localStorage.getItem('mse_auth_backup'), null);
         });
+
+        test('mse_disabled=1: keeper-early.js уважает глобальный выключатель (enabled: false)', () => {
+            const state = 'valid_state_token_123';
+            const nonce = 'valid_nonce_token_456';
+            const expSec = Math.floor(Date.now() / 1000) + 3600;
+            const idB64 = Buffer.from(JSON.stringify({ sub: 'stud-1', nonce, exp: expSec })).toString('base64url');
+            const idToken = `header.${idB64}.sig`;
+
+            // 1. При mse_disabled=1 не перехватывает #access_token= и не реанимирует сессию из бэкапа
+            const disabledEnv = createMockEnvironment(`https://utmn.modeus.org/#access_token=acc123&id_token=${idToken}&state=${state}&expires_in=3600`);
+            disabledEnv.localStorage.setItem('mse_disabled', '1');
+            disabledEnv.localStorage.setItem('mse_auth_backup', JSON.stringify({ access_token: 'old_acc', id_token: idToken }));
+            disabledEnv.sessionStorage.setItem('mse_oauth_expected_state', state);
+            disabledEnv.sessionStorage.setItem('mse_oauth_expected_nonce', nonce);
+
+            executeScriptWithHook('src/keeper-early.js', '', disabledEnv);
+            assert.strictEqual(disabledEnv.sessionStorage.getItem('access_token'), null);
+            assert.strictEqual(disabledEnv.location.pathname, '/');
+
+            // 2. При mse_disabled=1 не реагирует на #mse_logout=1
+            const disabledLogoutEnv = createMockEnvironment('https://utmn.modeus.org/#mse_logout=1');
+            disabledLogoutEnv.localStorage.setItem('mse_disabled', '1');
+            disabledLogoutEnv.sessionStorage.setItem('access_token', 'keep_me');
+            executeScriptWithHook('src/keeper-early.js', '', disabledLogoutEnv);
+            assert.strictEqual(disabledLogoutEnv.sessionStorage.getItem('access_token'), 'keep_me');
+            assert.strictEqual(disabledLogoutEnv.location.href, 'https://utmn.modeus.org/#mse_logout=1');
+        });
+
+        test('хэш #access_token=...: отклоняет некорректный expires_in (0, отрицательный, NaN, Infinity)', () => {
+            const state = 'valid_state_exp';
+            const nonce = 'valid_nonce_exp';
+            const expSec = Math.floor(Date.now() / 1000) + 3600;
+            const idB64 = Buffer.from(JSON.stringify({ sub: 'stud-1', nonce, exp: expSec })).toString('base64url');
+            const idToken = `header.${idB64}.sig`;
+
+            ['0', '-10', 'NaN', 'Infinity', 'abc'].forEach(badExpiresIn => {
+                const badExpEnv = createMockEnvironment(`https://utmn.modeus.org/#access_token=acc_bad&id_token=${idToken}&state=${state}&expires_in=${badExpiresIn}`);
+                badExpEnv.sessionStorage.setItem('mse_oauth_expected_state', state);
+                badExpEnv.sessionStorage.setItem('mse_oauth_expected_nonce', nonce);
+
+                executeScriptWithHook('src/keeper-early.js', '', badExpEnv);
+                assert.strictEqual(badExpEnv.sessionStorage.getItem('access_token'), null, `expires_in=${badExpiresIn} должен быть отклонён`);
+                assert.strictEqual(badExpEnv.localStorage.getItem('mse_auth_backup'), null);
+            });
+        });
     });
 
     describe('2. Криптография и автовход ADFS (sso-autologin.js)', () => {
@@ -730,7 +775,7 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
 
             const hook = `
             if (typeof window !== 'undefined') {
-                window.__MSE_SSO__ = { encryptCredentials, decryptCredentials };
+                window.__MSE_SSO__ = { encryptCredentials, decryptCredentials, isVaultExpired, getVaultMaxAgeMs };
             }`;
             executeScriptWithHook('src/sso-autologin.js', hook, env);
             hooks = env.__MSE_SSO__;
@@ -769,6 +814,115 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
 
             const res3 = await hooks.decryptCredentials(null);
             assert.strictEqual(res3, null);
+        });
+
+        test('TTL сейфа (90 дней): просроченный или невалидный updatedAt отклоняется', async () => {
+            const vault = await hooks.encryptCredentials('user', 'pass');
+            assert.strictEqual(hooks.isVaultExpired(vault), false);
+
+            const expiredVault = { ...vault, updatedAt: Date.now() - hooks.getVaultMaxAgeMs() - 1000 };
+            assert.strictEqual(hooks.isVaultExpired(expiredVault), true);
+            assert.strictEqual(await hooks.decryptCredentials(expiredVault), null);
+
+            const missingTsVault = { ...vault, updatedAt: undefined };
+            assert.strictEqual(hooks.isVaultExpired(missingTsVault), true);
+            assert.strictEqual(await hooks.decryptCredentials(missingTsVault), null);
+        });
+
+        test('saveOnSubmit + bindRememberFormSubmit: дожидается записи сейфа до отправки формы и блокирует повторный сабмит в процессе шифрования', async () => {
+            const formEnv = createMockEnvironment('https://fs.utmn.ru/adfs/ls/');
+            const eventsLog = [];
+            let resolveStorageWrite;
+            const storageWritePromise = new Promise(r => { resolveStorageWrite = r; });
+
+            const formEl = formEnv.document.createElement('form');
+            formEl.id = 'loginForm';
+            const userInput = formEnv.document.createElement('input');
+            userInput.id = 'userNameInput';
+            userInput.value = 'student@utmn.ru';
+            const passInput = formEnv.document.createElement('input');
+            passInput.id = 'passwordInput';
+            passInput.value = 'MyStrongPass123!';
+            const submitBtn = formEnv.document.createElement('span');
+            submitBtn.id = 'submitButton';
+
+            formEl.appendChild(userInput);
+            formEl.appendChild(passInput);
+            formEl.appendChild(submitBtn);
+            formEnv.document.body.appendChild(formEl);
+
+            const origSubmitClick = submitBtn.click.bind(submitBtn);
+            let submitClickCount = 0;
+            submitBtn.click = () => {
+                submitClickCount++;
+                eventsLog.push(`submitButton.click:${submitClickCount}`);
+                origSubmitClick();
+            };
+            formEnv.HTMLFormElement = {
+                prototype: {
+                    submit: function () { eventsLog.push('form.submit'); }
+                }
+            };
+
+            let savedVault = null;
+            formEnv.chrome.storage.local.get = async () => ({});
+            formEnv.chrome.storage.local.set = async (obj) => {
+                if (obj.mse_sso_vault) {
+                    await storageWritePromise;
+                    savedVault = obj.mse_sso_vault;
+                    eventsLog.push('storage.set:done');
+                }
+            };
+            formEnv.setTimeout = () => 1;
+
+            executeScriptWithHook('src/sso-autologin.js', '', formEnv);
+            // Ждём завершения инициализации async IIFE (монтирования UI)
+            await new Promise(r => setImmediate(r));
+
+            const checkbox = formEnv.document.getElementById('mse-remember-checkbox');
+            assert.ok(checkbox, 'Чекбокс «Запомнить меня» должен быть смонтирован');
+            checkbox.checked = true;
+            checkbox.dispatchEvent({ type: 'change', target: checkbox, cancelBubble: false, stopPropagation() {} });
+
+            // При простом вводе или отметке чекбокса сейф ещё НЕ должен сохраняться
+            assert.strictEqual(savedVault, null, 'Сейф не должен записываться до отправки формы');
+
+            // Имитируем нажатие Enter (keydown + немедленный keypress)
+            let preventedKeydown = false;
+            let preventedKeypress = false;
+            passInput.dispatchEvent({
+                type: 'keydown',
+                key: 'Enter',
+                keyCode: 13,
+                target: passInput,
+                cancelBubble: false,
+                preventDefault() { preventedKeydown = true; },
+                stopPropagation() {},
+                stopImmediatePropagation() {}
+            });
+            passInput.dispatchEvent({
+                type: 'keypress',
+                key: 'Enter',
+                keyCode: 13,
+                target: passInput,
+                cancelBubble: false,
+                preventDefault() { preventedKeypress = true; },
+                stopPropagation() {},
+                stopImmediatePropagation() {}
+            });
+
+            await new Promise(r => setImmediate(r));
+            assert.strictEqual(preventedKeydown, true, 'Первый Enter должен вызывать preventDefault');
+            assert.strictEqual(preventedKeypress, true, 'Повторный keypress во время шифрования тоже должен блокироваться');
+            assert.strictEqual(submitClickCount, 0, 'Отправка формы не должна происходить до завершения chrome.storage.local.set');
+
+            // Завершаем запись в storage и проверяем строгий порядок: сначала storage.set:done, затем submitButton.click
+            resolveStorageWrite();
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.ok(savedVault && savedVault.ciphertextBase64, 'Сейф должен быть сохранён перед отправкой формы');
+            assert.strictEqual(submitClickCount, 1, 'После сохранения формы должна произойти ровно одна штатная отправка');
+            assertDeepEqual(eventsLog, ['storage.set:done', 'submitButton.click:1']);
         });
     });
 
@@ -1336,7 +1490,9 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     setModules: (mods) => { allModules = mods; parseData(); },
                     setApiContext: (campId, studId) => { apiCampaignId = campId; apiStudentId = studId; },
                     getModules: () => allModules,
-                    getEnrolledTeamsMap: () => enrolledTeamsMap
+                    getEnrolledTeamsMap: () => enrolledTeamsMap,
+                    buildBookingSelectedTeamsUrl,
+                    renderBusySlotHtml
                 };
             }`;
             executeScriptWithHook('src/pe-module.js', hook, env);
@@ -1619,6 +1775,28 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             });
             assert.strictEqual(cardOk.querySelector('.replace-hint-warn'), null, 'При avail > 2 предупреждение о малом остатке мест не выводится');
         });
+
+        test('безопасность pe-module: блокировка CSPT, экранирование ID и отсутствие двойного экранирования friendName', () => {
+            hooks.setApiContext('camp-1', 'stud-1');
+            assert.ok(hooks.buildBookingSelectedTeamsUrl('mod-1').includes('/students/stud-1/campaigns/camp-1/'));
+
+            // Попытка CSPT через campaignId / studentId / moduleId
+            assert.throws(() => hooks.buildBookingSelectedTeamsUrl('../admin'), /Некорректный идентификатор/);
+            hooks.setApiContext('camp-1', '..%2Fadmin');
+            assert.throws(() => hooks.buildBookingSelectedTeamsUrl('mod-1'), /Некорректный идентификатор/);
+
+            // Экранирование ID команды в кнопке и отсутствие двойного экранирования friendName
+            const xssCard = hooks.createSectionCardElement({
+                id: 't" onclick="alert(1)', secNum: '<1>', sport: 'Фитнес', day: 'ПН', time: '10:15',
+                campus: 'Олимпия', address: 'ул. Пржевальского, 37', mapLink: '', prof: 'Петров', avail: 5, total: 10, enrolled: true
+            });
+            assert.strictEqual(xssCard.innerHTML.includes('" onclick="alert(1)'), false);
+            assert.ok(xssCard.innerHTML.includes('&quot;'));
+
+            const busyHtml = hooks.renderBusySlotHtml({ friend: ['Математика'] }, "O'Connor & Co");
+            assert.strictEqual(busyHtml.includes('&amp;#039;'), false, 'Не должно быть двойного экранирования имени друга');
+            assert.ok(busyHtml.includes('O&#039;Connor &amp; Co'));
+        });
     });
 
     describe('6. Парсер обновлений GitHub и таргетинг опросов (injected.js)', () => {
@@ -1642,7 +1820,11 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                     createSilentOAuthRequest,
                     applyRefreshedTokens,
                     resolveSafeSurveyWebhookUrl,
-                    DEFAULT_SURVEY_WEBHOOK_URL
+                    DEFAULT_SURVEY_WEBHOOK_URL,
+                    resolveSafeReleaseUrl,
+                    DEFAULT_RELEASE_URL,
+                    parsePeCampaignPathParams,
+                    syncMyPersonIdCache
                 };
             }`;
             executeScriptWithHook('src/injected.js', hook, env);
@@ -1791,11 +1973,23 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
 
             // 4. Отклонение при отсутствии ожидаемых state/nonce
             assert.strictEqual(hooks.applyRefreshedTokens(validParams, {}), null);
+
+            // 5. Отклонение при некорректном expires_in (0, отрицательный, NaN, Infinity)
+            ['0', '-50', 'NaN', 'Infinity', 'abc'].forEach(badExp => {
+                env.sessionStorage.clear();
+                const badParams = new URLSearchParams(`access_token=acc_bad&id_token=${validIdToken}&state=${req1.state}&expires_in=${badExp}`);
+                assert.strictEqual(
+                    hooks.applyRefreshedTokens(badParams, { expectedState: req1.state, expectedNonce: req1.nonce }),
+                    null,
+                    `expires_in=${badExp} обязан отклоняться`
+                );
+                assert.strictEqual(env.sessionStorage.getItem('access_token'), null);
+            });
         });
 
-        test('resolveSafeSurveyWebhookUrl: допускает только HTTPS Google Apps Script и отклоняет сторонние URL', () => {
-            const validGoogleHook = 'https://script.google.com/macros/s/AKfycb123456/exec';
-            assert.strictEqual(hooks.resolveSafeSurveyWebhookUrl(validGoogleHook), validGoogleHook);
+        test('resolveSafeSurveyWebhookUrl: всегда возвращает DEFAULT_SURVEY_WEBHOOK_URL и игнорирует сторонние значения', () => {
+            const arbitraryGoogleHook = 'https://script.google.com/macros/s/AKfycb123456/exec';
+            assert.strictEqual(hooks.resolveSafeSurveyWebhookUrl(arbitraryGoogleHook), hooks.DEFAULT_SURVEY_WEBHOOK_URL);
 
             const badUrls = [
                 'https://evil.example.com/steal',
@@ -1809,20 +2003,87 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
                 assert.strictEqual(
                     hooks.resolveSafeSurveyWebhookUrl(badUrl),
                     hooks.DEFAULT_SURVEY_WEBHOOK_URL,
-                    `Недоверенный URL "${badUrl}" обязан откатываться к DEFAULT_SURVEY_WEBHOOK_URL`
+                    `Любой сторонний URL "${badUrl}" обязан игнорироваться в пользу DEFAULT_SURVEY_WEBHOOK_URL`
                 );
             });
+        });
+
+        test('resolveSafeReleaseUrl: разрешает только официальный префикс релизов GitHub и отклоняет чужие домены / http://', () => {
+            const validReleaseUrl = 'https://github.com/student1245/Modeus-Student-Enhancer/releases/tag/v2.2.6';
+            assert.strictEqual(hooks.resolveSafeReleaseUrl(validReleaseUrl), validReleaseUrl);
+
+            const unsafeUrls = [
+                'http://github.com/student1245/Modeus-Student-Enhancer/releases/tag/v2.2.6',
+                'https://evil.example.com/malware.zip',
+                'https://github.com/attacker/Modeus-Student-Enhancer/releases/tag/v9.9.9',
+                'https://github.com/student1245/Modeus-Student-Enhancer/releases/../../attacker/evil',
+                'javascript:alert(1)',
+                '',
+                null
+            ];
+            unsafeUrls.forEach(url => {
+                assert.strictEqual(
+                    hooks.resolveSafeReleaseUrl(url),
+                    hooks.DEFAULT_RELEASE_URL,
+                    `Недоверенный URL "${url}" должен откатываться к DEFAULT_RELEASE_URL`
+                );
+            });
+        });
+
+        test('parsePeCampaignPathParams: блокирует CSPT (..%2F, ?query, #hash) при парсинге URL физкультуры', () => {
+            const validUuidUrl = 'https://utmn.modeus.org/learning-path-selection/menus/11111111-2222-3333-4444-555555555555/student/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee?tab=1#sec';
+            assertDeepEqual(hooks.parsePeCampaignPathParams(validUuidUrl), {
+                campaignId: '11111111-2222-3333-4444-555555555555',
+                bookingStudentId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            });
+
+            const validSlugUrl = 'https://utmn.modeus.org/learning-path-selection/menus/camp-1/student/stud_2?foo=bar';
+            assertDeepEqual(hooks.parsePeCampaignPathParams(validSlugUrl), {
+                campaignId: 'camp-1',
+                bookingStudentId: 'stud_2'
+            });
+
+            const csptUrls = [
+                'https://utmn.modeus.org/learning-path-selection/menus/camp-1/student/..%2F..%2Fadmin',
+                'https://utmn.modeus.org/learning-path-selection/menus/..%2Fevil/student/stud-1',
+                'https://utmn.modeus.org/learning-path-selection/menus/../student/stud-1',
+                'https://utmn.modeus.org/learning-path-selection/menus/camp-1/student/..',
+                'https://utmn.modeus.org/other-page?fake=/menus/camp-1/student/stud-1'
+            ];
+            csptUrls.forEach(url => {
+                assert.strictEqual(hooks.parsePeCampaignPathParams(url), null, `CSPT URL "${url}" должен быть отклонён`);
+            });
+        });
+
+        test('syncMyPersonIdCache: очищает профиль (mse_my_specialty/mse_my_profile) при смене person_id, сохраняя mse_friends_list', () => {
+            env.localStorage.setItem('mse_my_person_id', 'student-old');
+            env.localStorage.setItem('mse_my_specialty', 'Старая специальность');
+            env.localStorage.setItem('mse_my_profile', 'Старый профиль');
+            env.localStorage.setItem('mse_friends_list', JSON.stringify([{ id: 'f-1', fullName: 'Друг 1' }]));
+
+            // Тот же пользователь -> профиль не трогается
+            hooks.syncMyPersonIdCache('student-old');
+            assert.strictEqual(env.localStorage.getItem('mse_my_specialty'), 'Старая специальность');
+
+            // Другой пользователь -> профиль очищен, список друзей сохранён
+            hooks.syncMyPersonIdCache('student-new');
+            assert.strictEqual(env.localStorage.getItem('mse_my_person_id'), 'student-new');
+            assert.strictEqual(env.localStorage.getItem('mse_my_specialty'), null);
+            assert.strictEqual(env.localStorage.getItem('mse_my_profile'), null);
+            assert.ok(env.localStorage.getItem('mse_friends_list') !== null);
         });
     });
 
     describe('7. Детерминированная очистка ресурсов stopAndCleanUp (injected.js)', () => {
-        test('stopAndCleanUp: останавливает таймеры, восстанавливает нативные API и удаляет DOM', () => {
+        test('stopAndCleanUp: останавливает таймеры, восстанавливает нативные API, удаляет DOM и mse_auth_backup', () => {
             const env = createMockEnvironment('https://utmn.modeus.org/');
             const hook = `
             if (typeof window !== 'undefined') {
                 window.__MSE_INJECTED__ = { stopAndCleanUp };
             }`;
             executeScriptWithHook('src/injected.js', hook, env);
+
+            env.localStorage.setItem('mse_auth_backup', JSON.stringify({ access_token: 'secret', id_token: 'secret_id' }));
 
             // Создаем моковые DOM узлы, которые расширение добавляет на страницу
             const stopBtn = env.document.createElement('button'); stopBtn.id = 'enhancer-stop-button';
@@ -1840,6 +2101,7 @@ describe('Шаг 2: Модульные и DOM-тесты логики расши
             assert.strictEqual(env.document.getElementById('enhancer-stop-button'), null);
             assert.strictEqual(env.document.getElementById('mse-toast-container'), null);
             assert.strictEqual(env.document.getElementById('mse-friends-menu'), null);
+            assert.strictEqual(env.localStorage.getItem('mse_auth_backup'), null, 'stopAndCleanUp обязан удалять mse_auth_backup');
         });
     });
 

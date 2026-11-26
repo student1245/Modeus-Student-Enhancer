@@ -1,5 +1,32 @@
 (async () => {
+  function syncDisabledLocalFlag(isEnabled) {
+    try {
+      if (isEnabled) {
+        localStorage.removeItem('mse_disabled');
+      } else {
+        localStorage.setItem('mse_disabled', '1');
+        localStorage.removeItem('mse_auth_backup');
+      }
+    } catch {
+      // Игнорируем ошибки доступа к localStorage
+    }
+  }
+
+  chrome.storage?.onChanged?.addListener((changes, areaName) => {
+    if (areaName === 'sync' && changes.enabled) {
+      syncDisabledLocalFlag(changes.enabled.newValue ?? true);
+    }
+  });
+
+  chrome.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'mse:sync-enabled') {
+      syncDisabledLocalFlag(Boolean(message.enabled));
+      if (typeof sendResponse === 'function') sendResponse({ ok: true });
+    }
+  });
+
   const { enabled = true } = await chrome.storage.sync.get('enabled');
+  syncDisabledLocalFlag(enabled);
   if (!enabled) return;
 
   if (document.documentElement.hasAttribute('data-modeus-enhancer-injected')) return;
@@ -243,8 +270,20 @@
     logDb(`Монтирован опрос (${surveyData.source})`);
   }
 
-  mountOrUpdateAutologinMeta(Boolean(initialStorageState?.mse_sso_vault));
-  logDb(`Статус автовхода 24ч+: ${initialStorageState?.mse_sso_vault ? 'активен (1)' : 'не настроен (0)'}`);
+  const VAULT_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+  const activeVault = initialStorageState?.mse_sso_vault;
+  const isVaultExpired = activeVault && (
+    typeof activeVault.updatedAt !== 'number' ||
+    !Number.isFinite(activeVault.updatedAt) ||
+    (Date.now() - activeVault.updatedAt > VAULT_MAX_AGE_MS)
+  );
+  if (isVaultExpired) {
+    chrome.storage.local.remove('mse_sso_vault');
+  }
+  const hasActiveVault = Boolean(activeVault && !isVaultExpired);
+
+  mountOrUpdateAutologinMeta(hasActiveVault);
+  logDb(`Статус автовхода 24ч+: ${hasActiveVault ? 'активен (1)' : 'не настроен (0)'}`);
 
   // Синхронизация статуса автовхода при изменениях в chrome.storage.local
   chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -254,6 +293,11 @@
       document.dispatchEvent(new CustomEvent('mse:autologin-updated', { detail: { isEnabled } }));
       logDb(`Обновлен статус автовхода: ${isEnabled ? 'активен (1)' : 'отключен (0)'}`);
     }
+  });
+
+  // Сброс межвкладочного флага попытки автологина после успешного обновления токенов
+  document.addEventListener('mse:auth-success', () => {
+    chrome.storage.local.remove('mse_sso_tried');
   });
 
   // Одноразовая пауза автовхода при явном выходе пользователя («Выйти»)

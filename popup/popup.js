@@ -26,13 +26,27 @@ async function updateAutologinUI() {
   }
 }
 
+async function notifyActiveTabEnabled(enabled) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      await chrome.tabs.sendMessage(tab.id, { type: 'mse:sync-enabled', enabled }).catch(() => {});
+    }
+    return tab;
+  } catch {
+    return null;
+  }
+}
+
 toggle.addEventListener('change', async () => {
-  await chrome.storage.sync.set({ enabled: toggle.checked });
+  const enabled = toggle.checked;
+  await chrome.storage.sync.set({ enabled });
+  await notifyActiveTabEnabled(enabled);
 });
 
 reloadBtn.addEventListener('click', async () => {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await notifyActiveTabEnabled(toggle.checked);
     if (tab?.id) {
       await chrome.tabs.reload(tab.id);
     }
@@ -43,7 +57,7 @@ reloadBtn.addEventListener('click', async () => {
 
 resetVaultBtn.addEventListener('click', async () => {
   try {
-    await chrome.storage.local.remove('mse_sso_vault');
+    await chrome.storage.local.remove(['mse_sso_vault', 'mse_sso_tried']);
     await updateAutologinUI();
   } catch (e) {
     console.warn('[MSE Popup] Ошибка сброса сейфа автовхода:', e);

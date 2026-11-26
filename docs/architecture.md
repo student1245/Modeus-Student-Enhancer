@@ -213,7 +213,7 @@ modeus-beta/
 | **Спящий режим ПК / заморозка вкладки** *(Sleep Resilience)* | При пробуждении ПК или разморозке вкладки (`timeSinceLastCheck > 45` с, слушатель `visibilitychange`) выполняется принудительный сброс зависших состояний и удаление элементов `#mse-silent-refresher`. Сторожевой таймаут зависания (`SESSION_STUCK_TIMEOUT_MS = 25000` мс) гарантированно вызывает `cleanupSilentRefresh()`, предотвращая блокировку последующих проверок («iframe уже запущен»). |
 | **Отказ сервера SSO** *(Circuit Breaker)* | При 5 последовательных неудачных попытках тихого рефреша (`SESSION_MAX_REFRESH_ATTEMPTS = 5`) фоновые сетевые запросы прекращаются, исключая лавинообразный спам 302-редиректами в Network DevTools. Невалидный бэкап удаляется из `localStorage`, а пользователю выводится toast-уведомление о необходимости повторного входа. |
 | **Истечение суточного JWT / Сессия 24ч+** | Срок действия сессии определяется по клейму `claims.exp * 1000` в `getMainTokenExpiresAt()`. При отключенном автовходе по истечении 24 часов сессия завершается. При активном автовходе ([ADR-005](adr/ADR-005-opt-in-sso-autologin.md), `<meta name="modeus-sso-autologin" content="1">`) функция `monitorSessionHealth()` не останавливает работу, а запускает `triggerSilentRefresh()`: скрытый iframe переходит на `fs.utmn.ru`, где `src/sso-autologin.js` автоматически авторизуется и обновляет токены на следующие 24 часа. |
-| **Смена пароля / Ошибка входа ADFS** *(Single-Attempt Circuit Breaker)* | Контент-скрипт `src/sso-autologin.js` проверяет наличие текста в `#errorText` и сессионный флаг `sessionStorage.mse_sso_tried`. При первой же ошибке входа хранилище `mse_sso_vault` немедленно удаляется из `chrome.storage.local`, а повторные попытки прекращаются, защищая корпоративную учетную запись от блокировки в Active Directory. |
+| **Смена пароля / Ошибка входа ADFS** *(Single-Attempt Circuit Breaker)* | Контент-скрипт `src/sso-autologin.js` проверяет наличие текста в `#errorText` и межвкладочный флаг `chrome.storage.local.mse_sso_tried`. При первой же ошибке входа хранилище `mse_sso_vault` и `mse_sso_tried` немедленно удаляются из `chrome.storage.local`, а повторные попытки прекращаются, защищая корпоративную учетную запись от блокировки в Active Directory. При успешной авторизации флаг `mse_sso_tried` сбрасывается. |
 | **Зависание на тупиковых страницах и сбои логаута (`retry.do` / `wa=wsignout1.0` / `oauth2_error.do`)** | Многошаговый сброс WSO2-сессии с принудительным показом формы входа. Подробнее — в разделе ниже. |
 
 #### Ручной выход и полный сброс сессии (Logout Flow)
@@ -551,12 +551,13 @@ modeus-beta/
 | Хранилище | Ключ | Тип данных | Назначение и жизненный цикл |
 |---|---|---|---|
 | `chrome.storage.sync` | `enabled` | `boolean` | Глобальный переключатель работы расширения из popup-меню (`true`/`false`). Синхронизируется между браузерами пользователя. |
-| `chrome.storage.local` | `mse_sso_vault` | `object` (JSON) | Зашифрованные учетные данные корпоративного входа (`{ ciphertextBase64, ivBase64, keyJwk, updatedAt }`) для опционального автовхода 24ч+ ([ADR-005](adr/ADR-005-opt-in-sso-autologin.md)). Защищены от Main World. |
+| `chrome.storage.local` | `mse_sso_vault` | `object` (JSON) | Учетные данные корпоративного входа (`{ ciphertextBase64, ivBase64, keyJwk, updatedAt }`) для опционального автовхода 24ч+ ([ADR-005](adr/ADR-005-opt-in-sso-autologin.md)), TTL 90 дней. Защищены от Main World. |
 | `chrome.storage.local` | `mse_manual_logout_once` | `boolean` | Одноразовый флаг ручного выхода (`true`), пропускающий автоматический вход на `fs.utmn.ru` один раз при следующем открытии формы логина и сбрасывающийся после этого. |
-| `sessionStorage` | `mse_sso_tried` | `string` (`"1"`) | Сессионный флаг выполнения автоматической попытки входа на `fs.utmn.ru` для работы Single-Attempt Circuit Breaker. |
+| `chrome.storage.local` | `mse_sso_tried` | `number` (timestamp) | Межвкладочный флаг выполнения автоматической попытки входа на `fs.utmn.ru` для работы Single-Attempt Circuit Breaker. Сбрасывается при успешной авторизации или ручной отправке формы. |
 | `sessionStorage` | `mse_retry_count` | `string` (number) | Количество последовательных ошибок на `auth.modeus.org` (`retry.do`) за последние 10 секунд для защиты от зацикливания. |
 | `sessionStorage` | `mse_retry_timestamp` | `string` (timestamp) | Время последней ошибки на `auth.modeus.org` для вычисления 10-секундного скользящего окна. |
-| `localStorage` | `mse_auth_backup` | `string` (JSON) | Резервная копия 9 ключей авторизации для восстановления сессии скриптом `src/keeper-early.js` при холодном старте. Удаляется при логауте. |
+| `localStorage` | `mse_disabled` | `string` (`"1"`) | Синхронно читаемый флаг отключения расширения для `src/keeper-early.js` (выставляется при `enabled: false`). |
+| `localStorage` | `mse_auth_backup` | `string` (JSON) | Резервная копия 9 ключей авторизации для восстановления сессии скриптом `src/keeper-early.js` при холодном старте. Удаляется при логауте и «Стоп-скрипт». |
 | `localStorage` | `mse_debug` | `string` (`"1"`) | Флаг включения подробного режима логирования в консоль браузера (Debug Mode). |
 | `localStorage` | `mse_friends_list` | `string` (JSON) | Список сохраненных друзей `[{"id": "...", "fullName": "..."}]`. |
 | `localStorage` | `mse_my_specialty` | `string` | Кэшированное название направления подготовки пользователя. |
@@ -668,7 +669,7 @@ modeus-beta/
      * Контракт синхронного DOM-моста `<meta>` (5 метатегов) и экспорт полного публичного Console API из раздела 4.2 в `window`.
      * Детектор мёртвого CSS: выявление забытых `.class` и неиспользуемых `#id`-селекторов в `styles/styles.css` и `styles/pe-styles.css` с фильтрацией нативных классов Modeus/FullCalendar/Bootstrap.
      * Детектор мёртвых функций в `src/*.js`, верификация Zero-Raw-SVG (23/23 иконок) и проверка на 0 системных эмодзи.
-   * **Состав проверок Шага 2 (`2-unit-and-dom.test.js`, 38 тестов):**
+   * **Состав проверок Шага 2 (`2-unit-and-dom.test.js`, 52 теста):**
      * Версия манифеста считывается динамически из `manifest.json` (`getManifestVersion()`).
      * Сессия, токены и холодный старт (`keeper-early.js`): парсинг JWT payload с base64url символами и отсутствующим паддингом, расчёт истечения токенов, валидация сессии, обработка хэша `#mse_logout=1` и сохранение сессионных токенов при авторизации `#access_token=...`.
      * Криптография и автовход ADFS (`sso-autologin.js`): шифрование и дешифрование учётных данных AES-GCM (256 бит, Web Crypto API), уникальность векторов инициализации (IV) и устойчивость к битому шифротексту/ключам.
@@ -692,7 +693,7 @@ modeus-beta/
 
 6. **Непрерывная интеграция (GitHub Actions CI — `.github/workflows/ci.yml`):**
    * Все 3 шага тестовой системы выполняются автоматически в облачном окружении `ubuntu-latest` (Node.js 24) при каждом `push` в ветку `main` и при создании `pull_request`.
-   * Перед запуском тестового раннера CI-пайплайн поднимает браузер `google-chrome` в headless-режиме (`--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --window-size=1280,800 --remote-debugging-port=9222 about:blank &`) и дожидается готовности порта `9222` через `curl http://127.0.0.1:9222/json/version`. Это обеспечивает полноценное прохождение всех 54 тестов (6 статических контрактов + 38 юнит/DOM + 10 живых CDP-тестов в Blink).
+   * Перед запуском тестового раннера CI-пайплайн поднимает браузер `google-chrome` в headless-режиме (`--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --window-size=1280,800 --remote-debugging-port=9222 about:blank &`) и дожидается готовности порта `9222` через `curl http://127.0.0.1:9222/json/version`. Это обеспечивает полноценное прохождение всех 68 тестов (6 статических контрактов + 52 юнит/DOM + 10 живых CDP-тестов в Blink).
    * Каталог `.github/` принудительно исключается из релизного ZIP-архива расширения правилом `-x "*.github*"` в `.github/workflows/release.yml`, гарантируя отсутствие CI-конфигураций и служебных файлов в продакшен-бандлах.
 
    > [!IMPORTANT]
